@@ -1,4 +1,4 @@
-python-telegram-bot==21
+python-telegram-bot[job-queue]
+flask
+httpx
 
-flask==3.0.0
-httpx==0.26.0
