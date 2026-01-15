@@ -1,3 +1,4 @@
+import os
 import asyncio
 import datetime
 from telegram import Update
@@ -52,7 +53,7 @@ async def get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"ID этого чата: {chat.id}")
 
 async def main():
-    application = Application.builder().token("8130314650:AAECmJAd7WYl14Yp8NwaK8ib_Dw3xcfAoFY").build()
+    application = Application.builder().token(os.environ.get("BOT_TOKEN")).build()
     
     # Здесь добавляем ВСЕ обработчики
     application.add_handler(CommandHandler("start", start))
@@ -69,4 +70,5 @@ async def main():
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
+
     asyncio.run(main())
