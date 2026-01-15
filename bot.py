@@ -3,7 +3,7 @@ import os
 import datetime
 import httpx
 import random
-from flask import Flask, Response
+from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, JobQueue, ApplicationBuilder
 
@@ -118,7 +118,7 @@ async def set_daily_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name=f"morning_{chat_id}"
     )
     
-    await update.message.reply_text("✅ Доброе утро со смешными сообщениями и погодой в 06:!")
+    await update.message.reply_text("✅ Доброе утро со смешными сообщениями и погодой в 06:00!")
 
 async def stop_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -145,7 +145,7 @@ def home():
 def health():
     return 'OK', 200
 
-async def run_flask():
+def run_flask():
     app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
 
 async def run_bot():
@@ -172,10 +172,12 @@ async def run_bot():
     await asyncio.Event().wait()
 
 async def main():
-    await asyncio.create_subprocess_shell("python -c 'import flask; print(Flask)'")
+    # Запускаем Flask и бота параллельно
+    loop = asyncio.get_event_loop()
+    flask_task = loop.run_in_executor(None, run_flask)
     await asyncio.gather(
         run_bot(),
-        run_flask()
+        flask_task
     )
 
 if __name__ == "__main__":
