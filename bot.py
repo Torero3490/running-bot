@@ -6,7 +6,7 @@ import random
 import threading
 from flask import Flask
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, JobQueue, ApplicationBuilder
+from telegram.ext import Application, CommandHandler, ContextTypes, ApplicationBuilder
 
 app = Flask(__name__)
 
@@ -15,12 +15,14 @@ MOSCOW_LON = 37.6173
 PITER_LAT = 59.9343
 PITER_LON = 30.3351
 
-sunny_greetings = ["☀️ Доброе утро, солнце уже встало, а ты? Время на пробежку!",
-                   "🌞 Утро начинается с улыбки и кроссовок!", "☀️ Доброе утро!"]
-cloudy_greetings = ["☁️ Доброе утро! Облака не помешают!", "🌥️ Утро облачное!", "☁️ Небо серое!"]
-rainy_greetings = ["🌧️ Доброе утро! Дождь — это душ!", "☔ Промокни, но не сдавайся!", "🌧️ Капли аплодируют!"]
-snowy_greetings = ["❄️ Доброе утро! Снег скрипит, а ты — беги!", "🏃‍♂️❄️ Снежное утро!", "❄️ Утро в королевстве!"]
-default_greetings = ["🏃‍♂️ Доброе утро!", "🚀 Доброе утро!", "💪 Доброе утро!"]
+# Хранилище чатов с утренними сообщениями
+morning_chats = {}
+
+sunny_greetings = ["☀️ Доброе утро! Солнце светит — бег ждёт!", "🌞 Отличный день для пробежки!", "☀️ Солнце встало — и ты вставай!"]
+cloudy_greetings = ["☁️ Облачно — идеально для бега!", "🌥️ Небо серое, а ты — яркий!", "☁️ Облака не помеха бегу!"]
+rainy_greetings = ["🌧️ Дождь — это душ для бегуна!", "☔ Промокни и беги!", "🌧️ Капли дождя одобряют твою пробежку!"]
+snowy_greetings = ["❄️ Снег скрипит — ты беги!", "🏃‍♂️❄️ Зимняя сказка для бега!", "❄️ Снежное утро — волшебная пробежка!"]
+default_greetings = ["🏃‍♂️ Доброе утро! Время бежать!", "🚀 Доброе утро! Покоряй дистанции!", "💪 Доброе утро! Ты готов!"]
 
 async def get_weather(lat: float, lon: float) -> dict:
     try:
@@ -29,13 +31,15 @@ async def get_weather(lat: float, lon: float) -> dict:
             response = await client.get(url, timeout=10.0)
             data = response.json()
         current = data.get("current_weather", {})
-        return {"temp": current.get("temperature", 0), "windspeed": current.get("windspeed", 0), "weathercode": current.get("weathercode", 0)}
+        return {"temp": current.get("temperature", 0), "weathercode": current.get("weathercode", 0)}
     except Exception as e:
         print(f"Weather error: {e}")
-        return {"temp": 0, "windspeed": 0, "weathercode": 0}
+        return {"temp": 0, "weathercode": 0}
 
 def get_description(code: int) -> str:
-    codes = {0: "ясно", 1: "малооблачно", 2: "облачно", 3: "пасмурно", 45: "туман", 51: "морось", 61: "дождь", 63: "дождь", 71: "снег", 73: "снег", 80: "дождь со снегом", 95: "гроза"}
+    codes = {0: "ясно", 1: "малооблачно", 2: "облачно", 3: "пасмурно",
+             45: "туман", 51: "морось", 61: "дождь", 63: "дождь",
+             71: "снег", 73: "снег", 80: "дождь со снегом", 95: "гроза"}
     return codes.get(code, "неизвестно")
 
 def get_greeting(code: int) -> str:
@@ -47,43 +51,32 @@ def get_greeting(code: int) -> str:
     elif 95 <= code <= 99: return random.choice(rainy_greetings)
     else: return random.choice(default_greetings)
 
-async def good_morning(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
+async def send_good_morning(bot, chat_id: int):
+    """Отправить утреннее сообщение"""
     weather_moscow = await get_weather(MOSCOW_LAT, MOSCOW_LON)
     weather_piter = await get_weather(PITER_LAT, PITER_LON)
     greeting = get_greeting(weather_moscow["weathercode"])
+    
     message = f"{greeting}\n\n📍 Москва: {weather_moscow['temp']:+.1f}°C, {get_description(weather_moscow['weathercode'])}\n📍 Питер: {weather_piter['temp']:+.1f}°C, {get_description(weather_piter['weathercode'])}"
-    await context.bot.send_message(chat_id=job.chat_id, text=message)
+    
+    try:
+        await bot.send_message(chat_id=chat_id, text=message)
+    except Exception as e:
+        print(f"Error sending message to {chat_id}: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Привет! Бот бегового чата.\n/morning - доброе утро в 06:00\n/stopmorning - отключить\n/weather - Москва\n/piter - Питер')
+    await update.message.reply_text('Привет! Бот бегового чата.\n/morning - доброе утро в 06:00\n/stopmorning - отключить')
 
 async def set_daily_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.job_queue is None:
-        await update.message.reply_text("Ошибка планировщика")
-        return
     chat_id = update.message.chat_id
-    current_jobs = context.job_queue.get_jobs_by_name(f"morning_{chat_id}")
-    for job in current_jobs:
-        job.schedule_removal()
-    context.job_queue.run_daily(good_morning, time=datetime.time(3, 0), chat_id=chat_id, name=f"morning_{chat_id}")
-    await update.message.reply_text("✅ Доброе утро в 06:00 со смешными сообщениями!")
+    morning_chats[chat_id] = True
+    await update.message.reply_text("✅ Доброе утро в 06:00 со смешными сообщениями и погодой!")
 
 async def stop_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
-    if context.job_queue:
-        current_jobs = context.job_queue.get_jobs_by_name(f"morning_{chat_id}")
-        for job in current_jobs:
-            job.schedule_removal()
-    await update.message.reply_text("❌ Утренние отключены")
-
-async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    w = await get_weather(MOSCOW_LAT, MOSCOW_LON)
-    await update.message.reply_text(f"🌤️ Москва: {w['temp']:+.1f}°C, {get_description(w['weathercode'])}")
-
-async def piter(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    w = await get_weather(PITER_LAT, PITER_LON)
-    await update.message.reply_text(f"🌤️ Питер: {w['temp']:+.1f}°C, {get_description(w['weathercode'])}")
+    if chat_id in morning_chats:
+        del morning_chats[chat_id]
+    await update.message.reply_text("❌ Утренние сообщения отключены")
 
 @app.route('/')
 def home():
@@ -96,26 +89,37 @@ def health():
 def run_flask():
     app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
 
+async def check_morning():
+    """Проверять время и отправлять утренние сообщения"""
+    while True:
+        now = datetime.datetime.now()
+        # 06:00 по Москве (UTC+3 = 03:00 UTC)
+        if now.hour == 3 and now.minute == 0:
+            bot = application.bot
+            for chat_id in morning_chats.keys():
+                await send_good_morning(bot, chat_id)
+        await asyncio.sleep(60)
+
+application = None
+
 async def main():
-    # Запускаем Flask в отдельном потоке
+    global application
+    
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     print("Flask started")
     
-    # Запускаем бота
-    job_queue = JobQueue()
-    application = ApplicationBuilder().token(os.environ.get("BOT_TOKEN")).job_queue(job_queue).build()
+    application = ApplicationBuilder().token(os.environ.get("BOT_TOKEN")).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("morning", set_daily_morning))
     application.add_handler(CommandHandler("stopmorning", stop_morning))
-    application.add_handler(CommandHandler("weather", weather))
-    application.add_handler(CommandHandler("piter", piter))
+    
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
     print("Bot started successfully!")
-    await asyncio.Event().wait()
+    
+    await check_morning()
 
 if __name__ == "__main__":
     asyncio.run(main())
-
