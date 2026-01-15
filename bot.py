@@ -3,17 +3,18 @@ import os
 import datetime
 from flask import Flask
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, filters
 
 app = Flask(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        'Привет! Я ваш бот. Отправьте мне сообщение, и я повторю его.'
+        'Привет! Я ваш бот для бегового чата.\n'
+        'Команды:\n'
+        '/morning - включить доброе утро в 06:00\n'
+        '/stopmorning - отключить утренние сообщения\n'
+        '/chatid - узнать ID чата'
     )
-
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(update.message.text)
 
 async def good_morning(context: ContextTypes.DEFAULT_TYPE):
     chat_id = context.job.chat_id
@@ -31,7 +32,7 @@ async def set_daily_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.job_queue.run_daily(
         good_morning,
-        time=datetime.time(3, 0),  # 06:00 по Москве
+        time=datetime.time(3, 0),
         chat_id=chat_id,
         name=f"morning_{chat_id}"
     )
@@ -58,7 +59,6 @@ async def run_bot():
     application.add_handler(CommandHandler("morning", set_daily_morning))
     application.add_handler(CommandHandler("stopmorning", stop_morning))
     application.add_handler(CommandHandler("chatid", get_chat_id))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     
     await application.initialize()
     await application.start()
@@ -76,4 +76,3 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
-    asyncio.run(main())
