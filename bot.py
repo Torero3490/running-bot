@@ -1,9 +1,7 @@
 import asyncio
 import os
 import datetime
-import json
 import httpx
-import re
 import random
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -33,8 +31,7 @@ async def get_weather(city: str) -> str:
     """Получает текущую погоду"""
     coordinates = {
         'москва': {'lat': 55.7558, 'lon': 37.6173},
-        'питер': {'lat': 59.9343, 'lon': 30.3351},
-        'спб': {'lat': 59.9343, 'lon': 30.3351}
+        'питер': {'lat': 59.9343, 'lon': 30.3351}
     }
     
     city_lower = city.lower()
@@ -77,20 +74,9 @@ async def get_weather(city: str) -> str:
         print(f"Ошибка погоды: {e}")
         return "🌡️ нет данных"
 
-# Получение температуры из строки погоды
-def get_temp_from_weather(weather_str: str) -> float:
-    """Извлекает температуру из строки погоды"""
-    try:
-        match = re.search(r'(-?\d+)°C', weather_str)
-        if match:
-            return float(match.group(1))
-        return 0
-    except:
-        return 0
-
-# Случайное приветствие с учётом погоды
+# Случайное приветствие
 def get_greeting(weather_moscow: str) -> str:
-    """Возвращает случайное приветствие с учётом погоды"""
+    """Возвращает случайное приветствие"""
     greetings = [
         "Доброе утро, бегуны! 🏃‍♂️\nСегодня отличный день для тренировки!",
         "Утро доброе! 👟\nКроссовки наготове? Ноги ждут!",
@@ -100,7 +86,15 @@ def get_greeting(weather_moscow: str) -> str:
         "С утра пораньше! 🌞\nЛучшее время для бега уже наступило!",
     ]
     
-    temp = get_temp_from_weather(weather_moscow)
+    try:
+        import re
+        match = re.search(r'(-?\d+)°C', weather_moscow)
+        if match:
+            temp = int(match.group(1))
+        else:
+            temp = 10
+    except:
+        temp = 10
     
     if temp < 5:
         cold_greetings = [
@@ -124,12 +118,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_name = update.message.from_user.first_name
     welcome_text = f"Привет, {user_name}! 👋\n\nЯ бот для бегового чата. Каждое утро в 06:00 по московскому времени я буду писать мотивационные сообщения с погодой. Также буду приветствовать новых участников чата!\n\nУдачных пробежек! 🏃‍♂️"
     await update.message.reply_text(welcome_text)
+    # Удаляем команду пользователя
+    try:
+        await update.message.delete()
+    except:
+        pass
 
 # Команда /morning — принудительная отправка
 async def morning(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Принудительная отправка утреннего сообщения"""
+    # Сначала удаляем команду пользователя
+    try:
+        await update.message.delete()
+    except:
+        pass
+    
     await send_morning_message(context.bot)
-    await update.message.reply_text("✅ Утреннее сообщение отправлено!")
+    # Отправляем подтверждение и удаляем через 30 секунд
+    sent_msg = await update.message.reply_text("✅ Утреннее сообщение отправлено!")
+    asyncio.create_task(delete_message_later(context.bot, update.message.chat_id, sent_msg.message_id, 30))
 
 # Формирование и отправка утреннего сообщения
 async def send_morning_message(bot):
@@ -171,7 +178,7 @@ async def send_morning_message(bot):
     
     try:
         sent_message = await bot.send_message(chat_id=CHAT_ID, text=message)
-        # Удаление через 5 часов (5 * 60 * 60 = 18000 секунд)
+        # Удаление через 5 часов (18000 секунд)
         asyncio.create_task(delete_message_later(bot, CHAT_ID, sent_message.message_id, 18000))
     except Exception as e:
         print(f"Ошибка отправки: {e}")
@@ -184,14 +191,6 @@ async def delete_message_later(bot, chat_id, message_id, delay: int) -> None:
         await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception as e:
         pass
-
-# Удаление команд пользователя
-async def delete_user_commands(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Удаляет команды пользователя через 5 секунд"""
-    if update.message:
-        chat_id = update.message.chat_id
-        message_id = update.message.message_id
-        asyncio.create_task(delete_message_later(context.bot, chat_id, message_id, 5))
 
 # Приветствие новых участников
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -228,7 +227,7 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         welcome_text = random.choice(welcome_messages)
         
-        # Отправляем приветствие БЕЗ планирования удаления
+        # Отправляем приветствие
         await update.message.reply_text(welcome_text)
 
 # Планировщик для автоматической отправки в 06:00
@@ -264,10 +263,10 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("morning", morning))
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
-    application.add_handler(MessageHandler(filters.COMMAND, delete_user_commands))
     
     print("🚀 Бот запущен")
     application.run_polling()
 
 if __name__ == "__main__":
     main()
+
