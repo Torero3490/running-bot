@@ -16,7 +16,6 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(update.message.text)
 
 async def good_morning(context: ContextTypes.DEFAULT_TYPE):
-    """Функция отправки доброго утра"""
     chat_id = context.job.chat_id
     await context.bot.send_message(
         chat_id=chat_id,
@@ -24,7 +23,6 @@ async def good_morning(context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def set_daily_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /morning для включения ежедневных утренних сообщений"""
     chat_id = update.message.chat_id
     
     current_jobs = context.job_queue.get_jobs_by_name(f"morning_{chat_id}")
@@ -33,7 +31,7 @@ async def set_daily_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.job_queue.run_daily(
         good_morning,
-        time=datetime.time(3, 0),  # 06:00 по Москве (UTC+3)
+        time=datetime.time(3, 0),  # 06:00 по Москве
         chat_id=chat_id,
         name=f"morning_{chat_id}"
     )
@@ -41,7 +39,6 @@ async def set_daily_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Теперь я буду писать 'Доброе утро!' каждый день в 06:00")
 
 async def stop_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /stopmorning для отключения утренних сообщений"""
     chat_id = update.message.chat_id
     
     current_jobs = context.job_queue.get_jobs_by_name(f"morning_{chat_id}")
@@ -51,11 +48,10 @@ async def stop_morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Утренние сообщения отключены")
 
 async def get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /chatid для получения ID чата"""
     chat = update.message.chat
     await update.message.reply_text(f"ID этого чата: {chat.id}")
 
-async def main():
+async def run_bot():
     application = Application.builder().token(os.environ.get("BOT_TOKEN")).build()
     
     application.add_handler(CommandHandler("start", start))
@@ -68,24 +64,16 @@ async def main():
     await application.start()
     await application.updater.start_polling()
     
-@app.route('/')
-def home():
-    return 'Bot is running!'
+    print("Bot started successfully!")
+    await asyncio.Event().wait()
 
-@app.route('/health')
-def health():
-    return 'OK', 200
-
-async def run_flask():
-    app.run(host='0.0.0.0', port=os.environ.get('PORT', 10000))
+async def main():
+    await asyncio.gather(
+        run_bot(),
+        asyncio.to_thread(app.run, host='0.0.0.0', port=10000, use_reloader=False)
+    )
 
 if __name__ == "__main__":
-    import threading
-    
-    # Запуск Flask в отдельном потоке
-    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000))
-    flask_thread.daemon = True
-    flask_thread.start()
-    
-    # Запуск бота
+    asyncio.run(main())
+
     asyncio.run(main())
