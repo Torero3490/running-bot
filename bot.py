@@ -1,493 +1,483 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Telegram Бот для Бегового Сообщества
+Функции: Утреннее приветствие, Погода, Темы дня, Анонимная отправка, Защита от засыпания
+"""
+
 import asyncio
-import os
-import datetime
-import httpx
+import logging
+import threading
+import time
 import random
 import requests
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-from flask import Flask
-import threading
+from datetime import datetime
+from telegram import Update, InputMediaPhoto
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 import pytz
+from flask import Flask
 
-# Часовой пояс Москвы
-moscow_tz = pytz.timezone('Europe/Moscow')
+# ============== КОНФИГУРАЦИЯ ==============
+# Токен вашего бота от BotFather
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 
-# Flask для Render
+# URL вашего сервиса на Render (например: https://your-app.onrender.com)
+RENDER_URL = "YOUR_RENDER_URL_HERE"
+
+# ID чата (можно узнать командой /chat, когда бот запущен локально)
+CHAT_ID = "YOUR_CHAT_ID_HERE"
+
+# Москва - основной часовой пояс
+MOSCOW_TZ = pytz.timezone("Europe/Moscow")
+
+# Настройка логирования
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
+# ============== FLASK ДЛЯ PORT BINDING ==============
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return 'Bot is running!'
 
-@app.route('/health')
+@app.route("/")
+def home():
+    """Главная страница для проверки работы сервиса"""
+    return "Bot is running!"
+
+
+@app.route("/health")
 def health():
-    return 'OK', 200
+    """Эндпоинт для проверки здоровья сервиса"""
+    return "OK"
+
 
 def run_flask():
-    app.run(host='0.0.0.0', port=10000, debug=False)
+    """Запуск Flask сервера в отдельном потоке"""
+    app.run(host="0.0.0.0", port=10000)
 
-# Токен бота и ID чата
-BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
-CHAT_ID = os.environ.get('CHAT_ID', '-1001234567890')
-RENDER_URL = os.environ.get('RENDER_URL', 'https://your-service.onrender.com')
 
+# ============== ДАННЫЕ ДЛЯ БОТА ==============
 # Темы дней недели
 DAY_THEMES = {
-    "Monday": {"theme": "🎵 День музыки", "message": "Включай любимый плейлист и беги в ритме!"},
-    "Tuesday": {"theme": "🐾 День питомцев", "message": "Возьми своего пушистого друга на пробежку!"},
-    "Wednesday": {"theme": "🤝 День добрых дел", "message": "Сегодня помогаем другим бегунам на тренировке!"},
-    "Thursday": {"theme": "🍔 День еды", "message": "После бега заслуженный обед ждёт тебя!"},
-    "Friday": {"theme": "📸 День селфи", "message": "Сделай крутое фото на пробежке для инстаграма!"},
-    "Saturday": {"theme": "😢 День нытья", "message": "Можно немного поплакать в подушку после бега..."},
-    "Sunday": {"theme": "🎨 День нюдсов", "message": "День для смелых решений и новых рекордов!"}
+    "Monday": "🎵 Музыкальный понедельник — делимся любимыми треками для бега!",
+    "Tuesday": "💪 Силовой вторник — обсуждаем тренировки и упражнения!",
+    "Wednesday": "🍎 Среда — правильное питание и восстановление!",
+    "Thursday": "👟 Четверг — обсуждаем экипировку и кроссовки!",
+    "Friday": "🏃 Пятница — планируем выходные пробежки!",
+    "Saturday": "🚴 Суббота — активный отдых и кросс-тренинг!",
+    "Sunday": "📸 Фото-день — делимся красивыми видами с пробежек!",
 }
 
-# Состояния для анонимной отправки
-class AnonState:
-    WAITING_MESSAGE = "waiting_message"
-    WAITING_PHOTO = "waiting_photo"
+# Приветствия для новых участников (10 вариантов)
+WELCOME_MESSAGES = [
+    "🏃 Привет, новый бегун! Теперь твои ноги не знают покоя!",
+    "👋 Добро пожаловать в клуб тех, кто бежит от дивана!",
+    "🚀 Отлично! Теперь ты будешь бегать быстрее, чем заказываешь пиццу!",
+    "🌟 Приветствуем! Диван по тебе уже не плачет!",
+    "🎉 Ура! Ещё один человек, который выбрал здоровый сон!",
+    "💨 Добро пожаловать! Теперь ты бегаешь, а не просто так стоишь!",
+    "🏅 Привет, новый чемпион! До марафона осталось... ну, очень много времени!",
+    "🎯 Отлично! Ты нашёл правильное место для правильного дела!",
+    "🔥 Добро пожаловать! Теперь твой будильник — твой главный враг!",
+    "⭐ Приветствуем! Добро пожаловать в клуб любителей утренней зарядки!",
+]
 
+# Хранилище состояний для анонимной отправки
 user_anon_state = {}
 
-# Получение погоды
-async def get_weather(city: str) -> str:
-    """Получает текущую погоду"""
-    coordinates = {
-        'москва': {'lat': 55.7558, 'lon': 37.6173},
-        'питер': {'lat': 59.9343, 'lon': 30.3351}
-    }
-    
-    city_lower = city.lower()
-    if city_lower not in coordinates:
-        return "🌡️ нет данных"
-    
-    coords = coordinates[city_lower]
-    url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        'latitude': coords['lat'],
-        'longitude': coords['lon'],
-        'current_weather': 'true',
-        'temperature_unit': 'celsius',
-        'windspeed_unit': 'kmh'
-    }
-    
+
+# ============== ФУНКЦИИ ПОГОДЫ ==============
+async def get_weather() -> str:
+    """Получение погоды для Москвы и Санкт-Петербурга через Open-Meteo"""
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params, timeout=10.0)
-            if response.status_code == 200:
-                data = response.json()
-                current = data.get('current_weather', {})
-                temp = current.get('temperature', 0)
-                wind = current.get('windspeed', 0)
-                
-                if temp > 20:
-                    emoji = "☀️"
-                elif temp > 10:
-                    emoji = "🌤️"
-                elif temp > 0:
-                    emoji = "🌥️"
-                elif temp == 0:
-                    emoji = "🌨️"
-                else:
-                    emoji = "❄️"
-                
-                return f"{emoji} {temp}°C, ветер {wind} км/ч"
-            return "🌡️ нет данных"
+            # Москва
+            moscow_response = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": 55.7558,
+                    "longitude": 37.6173,
+                    "current_weather": "true",
+                },
+                timeout=10.0,
+            )
+            spb_response = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": 59.9343,
+                    "longitude": 30.3351,
+                    "current_weather": "true",
+                },
+                timeout=10.0,
+            )
+
+            moscow_data = moscow_response.json()
+            spb_data = spb_response.json()
+
+            moscow_temp = moscow_data["current_weather"]["temperature"]
+            moscow_wind = moscow_data["current_weather"]["windspeed"]
+            spb_temp = spb_data["current_weather"]["temperature"]
+            spb_wind = spb_data["current_weather"]["windspeed"]
+
+            weather_text = (
+                f"🌤 **Погода утром:**\n"
+                f"🏙 Москва: **{moscow_temp}°C**, ветер {moscow_wind} км/ч\n"
+                f"🌆 СПб: **{spb_temp}°C**, ветер {spb_wind} км/ч"
+            )
+            return weather_text
     except Exception as e:
-        print(f"Ошибка погоды: {e}")
-        return "🌡️ нет данных"
+        logger.error(f"Ошибка получения погоды: {e}")
+        return "🌤 Погода временно недоступна"
 
-# Случайное приветствие
-def get_greeting(weather_moscow: str) -> str:
-    """Возвращает случайное приветствие"""
-    greetings = [
-        "Доброе утро, бегуны! 🏃‍♂️\nСегодня отличный день для тренировки!",
-        "Утро доброе! 👟\nКроссовки наготове? Ноги ждут!",
-        "С добрым утром! 🌅\nСегодня побежим или как?",
-        "Утренний привет! ☕\nКофе выпит, можно и бежать!",
-        "Доброе утро, чемпионы! 🏆\nЖду на утренней пробежке!",
-        "С утра пораньше! 🌞\nЛучшее время для бега уже наступило!",
-    ]
-    
+
+# ============== ФУНКЦИИ УТРЕННЕГО ПРИВЕТСТВИЯ ==============
+def get_day_theme() -> str:
+    """Получение темы дня недели на русском языке"""
+    now = datetime.now(MOSCOW_TZ)
+    day_name_en = now.strftime("%A")
+    return DAY_THEMES.get(day_name_en, "🌟 Отличный день для пробежки!")
+
+
+def get_random_welcome() -> str:
+    """Получение случайного приветствия"""
+    return random.choice(WELCOME_MESSAGES)
+
+
+async def send_morning_greeting(app_instance):
+    """Отправка утреннего приветствия"""
     try:
-        import re
-        match = re.search(r'(-?\d+)°C', weather_moscow)
-        if match:
-            temp = int(match.group(1))
-        else:
-            temp = 10
-    except:
-        temp = 10
-    
-    if temp < 5:
-        greetings.extend([
-            "Бррр, доброе утро! 🥶\nСегодня холодно, но мы не сдаёмся!",
-            "Морозное утро! ❄️\nОдевайтесь теплее, бегуны!",
-            "Холодное утро, но тёплые сердца! ❤️\nСегодня бежим, чтобы согреться!",
-        ])
-    elif temp > 25:
-        greetings.extend([
-            "Жаркое утро! 🔥\nНе забудьте воду с собой!",
-            "Солнечное утро! ☀️\nИдеальная погода для длинных дистанций!",
-        ])
-    
-    return random.choice(greetings)
+        weather = await get_weather()
+        theme = get_day_theme()
 
-# Команда /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработка команды /start"""
-    chat_id = update.message.chat_id
-    user_name = update.message.from_user.first_name
-    
-    welcome_text = f"""Привет, {user_name}! 👋
+        greeting_text = (
+            f"🌅 **Доброе утро, бегуны!** 🏃‍♂️\n\n"
+            f"{weather}\n\n"
+            f"{theme}\n\n"
+            f"💭 *Напишите свои планы на сегодня!*"
+        )
 
-Я бот для бегового чата.
+        message = await app_instance.bot.send_message(
+            chat_id=CHAT_ID,
+            text=greeting_text,
+            parse_mode="Markdown",
+        )
 
-📅 Каждое утро в 06:00 — мотивационные сообщения с погодой
-🎉 Приветствую новых участников
-📬 Анонимные сообщения: /anon
-📸 Анонимные фото: /anonphoto
+        # Сохраняем ID сообщения для последующего удаления
+        with open("morning_message_id.txt", "w") as f:
+            f.write(str(message.message_id))
 
-Удачных пробежек! 🏃‍♂️"""
-    
-    await context.bot.send_message(chat_id=chat_id, text=welcome_text)
-    
-    try:
-        await update.message.delete()
-    except:
-        pass
+        logger.info(f"Утреннее сообщение отправлено: {message.message_id}")
 
-# Команда /morning
-async def morning(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Принудительная отправка утреннего сообщения"""
-    chat_id = update.message.chat_id
-    
-    try:
-        await update.message.delete()
-    except:
-        pass
-    
-    await send_morning_message(context.bot)
-    
-    sent_msg = await context.bot.send_message(chat_id=chat_id, text="✅ Утреннее сообщение отправлено!")
-    asyncio.create_task(delete_message_later(context.bot, chat_id, sent_msg.message_id, 30))
+    except Exception as e:
+        logger.error(f"Ошибка отправки утреннего сообщения: {e}")
 
-# Команда /check
-async def check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Проверка времени бота"""
-    now_moscow = datetime.datetime.now(moscow_tz)
-    current_time = now_moscow.strftime("%H:%M")
-    current_date = now_moscow.strftime("%d.%m.%Y")
-    
-    await update.message.reply_text(f"🕐 Время бота (Москва): {current_time}\n📅 Дата: {current_date}")
-    
-    try:
-        await update.message.delete()
-    except:
-        pass
 
-# Команда /anon — начать анонимную отправку
-async def anon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Начинает процесс анонимной отправки"""
-    chat_id = update.message.chat_id
+def morning_scheduler(app_instance):
+    """Планировщик утренних сообщений на 06:00 по Москве"""
+    while True:
+        now = datetime.now(MOSCOW_TZ)
+        current_hour = now.hour
+        current_minute = now.minute
+
+        # Если сейчас 6:00 и сообщение ещё не отправляли сегодня
+        if current_hour == 6 and current_minute == 0:
+            # Проверяем, не отправляли ли уже сегодня
+            try:
+                with open("last_morning_date.txt", "r") as f:
+                    last_date = f.read().strip()
+            except FileNotFoundError:
+                last_date = ""
+
+            today_date = now.strftime("%Y-%m-%d")
+
+            if last_date != today_date:
+                asyncio.run_coroutine_threadsafe(
+                    send_morning_greeting(app_instance),
+                    app_instance.loop,
+                )
+                with open("last_morning_date.txt", "w") as f:
+                    f.write(today_date)
+                logger.info("Утреннее сообщение запланировано и отправлено")
+
+        # Проверка каждую минуту
+        time.sleep(60)
+
+
+async def delete_morning_message(app_instance):
+    """Удаление утреннего сообщения через 5 часов"""
+    while True:
+        await asyncio.sleep(300)  # Проверка каждые 5 минут
+
+        try:
+            with open("morning_message_id.txt", "r") as f:
+                message_id = int(f.read().strip())
+        except (FileNotFoundError, ValueError):
+            continue
+
+        now = datetime.now(MOSCOW_TZ)
+        # Если текущее время больше 11:00 (6:00 + 5 часов)
+        if now.hour >= 11:
+            try:
+                await app_instance.bot.delete_message(
+                    chat_id=CHAT_ID,
+                    message_id=message_id,
+                )
+                logger.info(f"Утреннее сообщение {message_id} удалено")
+                # Очищаем файл
+                with open("morning_message_id.txt", "w") as f:
+                    f.write("")
+                break
+            except Exception as e:
+                logger.error(f"Ошибка удаления утреннего сообщения: {e}")
+                break
+
+
+# ============== ФУНКЦИИ АНОНИМНОЙ ОТПРАВКИ ==============
+async def anon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /anon для анонимной отправки текста"""
     user_id = update.message.from_user.id
-    
-    user_anon_state[user_id] = AnonState.WAITING_MESSAGE
-    
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="📝 Введите текст сообщения, которое хотите отправить анонимно:"
-    )
-    
+    user_anon_state[user_id] = "waiting_for_text"
+
+    # Удаляем команду пользователя
     try:
         await update.message.delete()
-    except:
+    except Exception:
         pass
 
-# Команда /anonphoto — начать анонимную отправку фото
-async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Начинает процесс анонимной отправки фото"""
-    chat_id = update.message.chat_id
+
+async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /anonphoto для анонимной отправки фото"""
     user_id = update.message.from_user.id
-    
-    user_anon_state[user_id] = AnonState.WAITING_PHOTO
-    
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="📸 Отправьте фото, которое хотите отправить анонимно:"
-    )
-    
+    user_anon_state[user_id] = "waiting_for_photo"
+
+    # Удаляем команду пользователя
     try:
         await update.message.delete()
-    except:
+    except Exception:
         pass
 
-# Команда /anonstop — отмена анонимной отправки
-async def anonstop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Отменяет анонимную отправку"""
-    user_id = update.message.from_user.id
-    
-    if user_id in user_anon_state:
-        del user_anon_state[user_id]
-    
-    await update.message.reply_text("❌ Анонимная отправка отменена.")
-    
-    try:
-        await update.message.delete()
-    except:
-        pass
 
-# Обработка текстовых сообщений для анонимной отправки
-async def handle_anon_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает текст для анонимной отправки"""
+async def handle_anon_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик текстовых сообщений для анонимной отправки"""
     user_id = update.message.from_user.id
-    
+
     if user_id not in user_anon_state:
         return
-    
-    if user_anon_state[user_id] != AnonState.WAITING_MESSAGE:
-        return
-    
-    user_text = update.message.text
-    user_name = update.message.from_user.full_name
-    
-    # Отправляем анонимно в чат
-    try:
+
+    if user_anon_state[user_id] == "waiting_for_text":
+        # Удаляем сообщение пользователя
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        # Отправляем анонимное сообщение
         await context.bot.send_message(
             chat_id=CHAT_ID,
-            text=f"📬 *Анонимное сообщение:*\n\n{user_text}\n\n_(Отправлено через бота)_",
-            parse_mode='Markdown'
+            text=f"📬 **Анонимное сообщение:**\n\n{update.message.text}",
+            parse_mode="Markdown",
         )
-        print(f"✅ Анонимное сообщение отправлено от {user_name}")
-    except Exception as e:
-        print(f"❌ Ошибка отправки анонимного сообщения: {e}")
-    
-    # Удаляем сообщение пользователя
-    try:
-        await update.message.delete()
-    except:
-        pass
-    
-    # Сбрасываем состояние
-    del user_anon_state[user_id]
-    
-    # Подтверждаем отправку
-    await context.bot.send_message(
-        chat_id=update.message.chat_id,
-        text="✅ Ваше анонимное сообщение отправлено!"
-    )
 
-# Обработка фото для анонимной отправки
-async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает фото для анонимной отправки"""
+        # Удаляем состояние
+        del user_anon_state[user_id]
+
+
+async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик фото для анонимной отправки"""
     user_id = update.message.from_user.id
-    
+
     if user_id not in user_anon_state:
         return
-    
-    if user_anon_state[user_id] != AnonState.WAITING_PHOTO:
-        return
-    
-    if not update.message.photo:
-        return
-    
-    user_name = update.message.from_user.full_name
-    photo = update.message.photo[-1]  # Самое большое фото
-    caption = update.message.caption or ""
-    
-    # Отправляем фото анонимно в чат
-    try:
+
+    if user_anon_state[user_id] == "waiting_for_photo":
+        # Получаем фото
+        photo = update.message.photo[-1]
+
+        # Удаляем сообщение пользователя
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        # Отправляем анонимное фото
         await context.bot.send_photo(
             chat_id=CHAT_ID,
             photo=photo.file_id,
-            caption=f"📸 *Анонимное фото*\n\n{caption}\n\n_(Отправлено через бота)_",
-            parse_mode='Markdown'
+            caption="📬 **Анонимное фото**",
+            parse_mode="Markdown",
         )
-        print(f"✅ Анонимное фото отправлено от {user_name}")
-    except Exception as e:
-        print(f"❌ Ошибка отправки анонимного фото: {e}")
-    
-    # Удаляем сообщение пользователя
-    try:
-        await update.message.delete()
-    except:
-        pass
-    
-    # Сбрасываем состояние
-    del user_anon_state[user_id]
-    
-    # Подтверждаем отправку
+
+        # Удаляем состояние
+        del user_anon_state[user_id]
+
+
+# ============== ОСНОВНЫЕ ОБРАБОТЧИКИ ==============
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start"""
+    welcome = get_random_welcome()
     await context.bot.send_message(
-        chat_id=update.message.chat_id,
-        text="✅ Ваше анонимное фото отправлено!"
+        chat_id=update.effective_chat.id,
+        text=welcome,
     )
 
-# Отправка утреннего сообщения
-async def send_morning_message(bot):
-    """Формирует и отправляет утреннее сообщение"""
-    print("📤 Формирование утреннего сообщения...")
-    
-    weather_moscow = await get_weather("москва")
-    weather_piter = await get_weather("питер")
-    greeting = get_greeting(weather_moscow)
-    
-    now = datetime.datetime.now(moscow_tz)
-    day_name = now.strftime("%A")
-    day_names_ru = {
-        "Monday": "Понедельник", "Tuesday": "Вторник", "Wednesday": "Среда",
-        "Thursday": "Четверг", "Friday": "Пятница", "Saturday": "Суббота", "Sunday": "Воскресенье"
-    }
-    day_ru = day_names_ru.get(day_name, day_name)
-    current_date = now.strftime("%d.%m.%Y")
-    current_time = now.strftime("%H:%M")
-    
-    day_theme = DAY_THEMES.get(day_name, {
-        "theme": "🌟 Новый день", "message": "Сегодня будет отличный день!"
-    })
-    
-    message = f"""
-{greeting}
 
-📅 Сегодня {current_date}, {day_ru}
-🕐 Время отправки: {current_time}
-{day_theme['theme']}
+async def morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /morning для ручной отправки утреннего приветствия"""
+    await send_morning_greeting(application)
 
-{day_theme['message']}
-
-🌤 Погода в Москве: {weather_moscow}
-🌤 Погода в Санкт-Петербурге: {weather_piter}
-
-🏃‍♂️ Желаем отличной пробежки! Не забудьте:
-• Размяться перед бегом
-• Взять воду
-• Проверить пульс
-• Наслаждаться бегом!
-
-#утро #бег #пробежка
-"""
-    
+    # Удаляем команду пользователя
     try:
-        sent_message = await bot.send_message(chat_id=CHAT_ID, text=message)
-        print(f"✅ Сообщение успешно отправлено в {current_time}")
-        asyncio.create_task(delete_message_later(bot, CHAT_ID, sent_message.message_id, 18000))
-    except Exception as e:
-        print(f"❌ Ошибка отправки: {e}")
-
-# Удаление сообщения
-async def delete_message_later(bot, chat_id, message_id, delay: int) -> None:
-    """Удаляет сообщение через указанное время"""
-    await asyncio.sleep(delay)
-    try:
-        await bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except:
+        await update.message.delete()
+    except Exception:
         pass
 
-# Приветствие новых участников
-async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Приветствует новых участников чата"""
+
+async def stopmorning(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /stopmorning"""
+    try:
+        with open("morning_message_id.txt", "r") as f:
+            message_id = int(f.read().strip())
+        await application.bot.delete_message(chat_id=CHAT_ID, message_id=message_id)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="☀️ Утреннее сообщение удалено!",
+        )
+    except Exception:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Утреннее сообщение не найдено или уже удалено!",
+        )
+
+    # Удаляем команду пользователя
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+
+async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик новых участников чата"""
+    # Проверяем, есть ли новые участники
+    if not update.message or not update.message.new_chat_members:
+        return
+
+    try:
+        # Получаем информацию о боте
+        bot_info = await context.bot.get_me()
+        bot_id = bot_info.id
+    except Exception as e:
+        logger.error(f"Ошибка получения ID бота: {e}")
+        bot_id = None
+
     for member in update.message.new_chat_members:
-        user_name = member.first_name
-        
-        now = datetime.datetime.now(moscow_tz)
-        day_name = now.strftime("%A")
-        day_names_ru = {
-            "Monday": "Понедельник", "Tuesday": "Вторник", "Wednesday": "Среда",
-            "Thursday": "Четверг", "Friday": "Пятница", "Saturday": "Суббота", "Sunday": "Воскресенье"
-        }
-        day_ru = day_names_ru.get(day_name, day_name)
-        current_date = now.strftime("%d.%m.%Y")
-        
-        welcome_messages = [
-            f"«Добро пожаловать в наш беговой муравейник! Ты уже выбрал свою дистанцию: 5 км для разминки, полумарафон для души или сразу ультрамарафон — чтобы проверить, на что способен? Расскажи, какой у тебя уровень: \"ещё дышу\", \"уже потею\" или \"я — машина\"?»\n\n📅 {current_date}, {day_ru}",
-            f"«Привет, новичок! В нашем чате правила простые: если не можешь бежать — иди, если не можешь идти — ползи, но главное — не сдавайся! Так ты кто: начинающий стайер, опытный марафонец или легендарный рекордсмен в ожидании?»\n\n📅 {current_date}, {day_ru}",
-            f"«Ого, новый бегун на горизонте! Срочно заполни анкету: имя, любимый маршрут и цель на ближайший забег (от \"просто попробовать\" до \"порвать всех на финише\"). Добро пожаловать в команду!»\n\n📅 {current_date}, {day_ru}",
-            f"«Привет! Ты попал в место, где километры считают не по GPS, а по улыбкам. Так что ты: тот, кто только учится завязывать кроссовки, уже бегает по утрам или готов пробежать марафон в пижаме?»\n\n📅 {current_date}, {day_ru}",
-            f"«Внимание! В чате обнаружен свежий беговой ресурс! Объект, назовите ваш статус: \"ещё не пробежал первый км\", \"уже втянулся\" или \"я тут главный пейсмейкер\"?»\n\n📅 {current_date}, {day_ru}",
-            f"«Добро пожаловать в беговую семью! У нас тут три категории: новички (которые боятся слова \"марафон\"), любители (которые уже знают, что такое крепатура) и легенды (которые бегают даже во сне). К какой относишься ты?»\n\n📅 {current_date}, {day_ru}",
-            f"«Эй, новенький! Признавайся: ты тут чтобы ставить рекорды, искать мотивацию или просто поболтать о кроссовках? В любом случае — беги к нам, у нас весело!»\n\n📅 {current_date}, {day_ru}",
-            f"«Привет-привет! Ты сейчас на этапе: \"кто все эти бегуны?\", \"о, тут классные ребята\" или \"я знаю все трассы, но никому не скажу\"? Добро пожаловать в наш забег!»\n\n📅 {current_date}, {day_ru}",
-            f"«Новый участник? Отлично! У нас есть три уровня сложности: лёгкий (просто выйти на пробежку), средний (не сойти с дистанции) и экспертный (улыбаться на последних километрах). Какой выбираешь?»\n\n📅 {current_date}, {day_ru}",
-            f"«Добро пожаловать в чат, где километры — это не просто цифры, а истории! Ты кто: тот, кто только мечтает о первом забеге, уже собирает медали или готов пробежать 42 км ради шутки?»\n\n📅 {current_date}, {day_ru}",
-        ]
-        
-        welcome_text = random.choice(welcome_messages)
-        await update.message.reply_text(welcome_text)
+        # Пропускаем, если это сам бот
+        if bot_id and member.id == bot_id:
+            continue
 
-# Пинг для поддержания активности
-async def keep_alive_pinger(bot):
-    """Пингует собственный URL чтобы не уснуть"""
+        welcome = get_random_welcome()
+        try:
+            # Формируем текст с упоминанием пользователя
+            if member.username:
+                mention = f"@{member.username}"
+            else:
+                mention = member.full_name
+
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"{mention} {welcome}",
+            )
+            logger.info(f"Приветствие отправлено для пользователя {member.id}")
+        except Exception as e:
+            logger.error(f"Ошибка отправки приветствия: {e}")
+
+
+# ============== KEEP-ALIVE PINGER ==============
+def keep_alive_pinger():
+    """Пингование собственного URL для предотвращения засыпания на Render"""
     while True:
         try:
-            url = f"{RENDER_URL}/health"
-            requests.get(url, timeout=10)
-            print("✅ Пинг отправлен")
+            # Пингуем каждые 5 минут
+            time.sleep(300)
+            if RENDER_URL and RENDER_URL != "YOUR_RENDER_URL_HERE":
+                response = requests.get(f"{RENDER_URL}/health", timeout=10)
+                if response.status_code == 200:
+                    logger.info(f"Ping successful: {RENDER_URL}/health")
+                else:
+                    logger.warning(
+                        f"Ping returned status {response.status_code}: {RENDER_URL}/health"
+                    )
         except Exception as e:
-            print(f"❌ Пинг не отправлен: {e}")
-        await asyncio.sleep(300)  # Каждые 5 минут
+            logger.error(f"Ping failed: {e}")
 
-# Планировщик
-async def morning_scheduler(bot):
-    """Проверяет время и отправляет сообщение в 06:00"""
-    print("⏰ Планировщик запущен. Ожидание 06:00...")
-    
-    while True:
-        try:
-            now_moscow = datetime.datetime.now(moscow_tz)
-            current_hour = now_moscow.hour
-            current_minute = now_moscow.minute
-            current_time = now_moscow.strftime("%H:%M")
-            
-            if current_minute == 0:
-                print(f"🕐 Проверка времени: {current_time}")
-            
-            if current_hour == 6 and current_minute == 0:
-                print("🚀 Время 06:00! Отправляю утреннее сообщение...")
-                await send_morning_message(bot)
-                await asyncio.sleep(60)
-            
-            await asyncio.sleep(30)
-            
-        except Exception as e:
-            print(f"❌ Ошибка в планировщике: {e}")
-            await asyncio.sleep(60)
 
-async def post_init(application: Application) -> None:
-    """Запуск после инициализации бота"""
-    now_moscow = datetime.datetime.now(moscow_tz)
-    current_time = now_moscow.strftime("%H:%M")
-    print(f"✅ Бот запущен в {current_time}")
-    asyncio.create_task(morning_scheduler(application.bot))
-    asyncio.create_task(keep_alive_pinger(application.bot))
+# ============== ГЛАВНЫЙ ЗАПУСК ==============
+async def main():
+    global application
 
-def main():
-    """Запуск бота"""
+    # Запускаем Flask в отдельном потоке
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    print("🌐 Flask запущен")
-    
-    application = Application.builder()\
-        .token(BOT_TOKEN)\
-        .post_init(post_init)\
+    logger.info("Flask сервер запущен на порту 10000")
+
+    # Создаём приложение бота
+    application = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .concurrent_updates(True)
         .build()
-    
+    )
+
+    # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("morning", morning))
-    application.add_handler(CommandHandler("check", check))
+    application.add_handler(CommandHandler("stopmorning", stopmorning))
     application.add_handler(CommandHandler("anon", anon))
     application.add_handler(CommandHandler("anonphoto", anonphoto))
-    application.add_handler(CommandHandler("anonstop", anonstop))
-    # Текстовые сообщения для анонимной отправки
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_anon_text))
-    # Фото для анонимной отправки
-    application.add_handler(MessageHandler(filters.PHOTO, handle_anon_photo))
-    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
-    
-    print("🚀 Бот запущен")
-    application.run_polling()
+
+    # Регистрируем обработчики сообщений
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_anon_text)
+    )
+    application.add_handler(
+        MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_anon_photo)
+    )
+    application.add_handler(
+        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
+    )
+
+    # Запускаем планировщик утренних сообщений в отдельном потоке
+    scheduler_thread = threading.Thread(
+        target=morning_scheduler, args=(application,), daemon=True
+    )
+    scheduler_thread.start()
+    logger.info("Планировщик утренних сообщений запущен")
+
+    # Запускаем удаление утреннего сообщения через 5 часов
+    asyncio.create_task(delete_morning_message(application))
+
+    # Запускаем keep-alive пinger в отдельном потоке
+    pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
+    pinger_thread.start()
+    logger.info("Keep-alive пингер запущен")
+
+    # Запускаем polling
+    await application.start()
+    await application.updater.start_polling()
+    logger.info("Бот запущен и ожидает сообщений...")
+
 
 if __name__ == "__main__":
-    main()
+    # Запуск в асинхронном режиме
+    asyncio.run(main())
+
 
 
 
