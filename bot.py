@@ -20,7 +20,7 @@ def index():
     return 'Bot is running!'
 
 def run_flask():
-    app.run(host='0.0.0.0', port=10000)
+    app.run(host='0.0.0.0', port=10000, debug=False)
 
 # Токен бота и ID чата
 BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
@@ -28,44 +28,16 @@ CHAT_ID = os.environ.get('CHAT_ID', '-1001234567890')
 
 # Темы дней недели
 DAY_THEMES = {
-    "Monday": {
-        "name": "Понедельник",
-        "theme": "🎵 День музыки",
-        "message": "Включай любимый плейлист и беги в ритме!"
-    },
-    "Tuesday": {
-        "name": "Вторник",
-        "theme": "🐾 День питомцев",
-        "message": "Возьми своего пушистого друга на пробежку!"
-    },
-    "Wednesday": {
-        "name": "Среда",
-        "theme": "🤝 День добрых дел",
-        "message": "Сегодня помогаем другим бегунам на тренировке!"
-    },
-    "Thursday": {
-        "name": "Четверг",
-        "theme": "🍔 День еды",
-        "message": "После бега заслуженный обед ждёт тебя!"
-    },
-    "Friday": {
-        "name": "Пятница",
-        "theme": "📸 День селфи",
-        "message": "Сделай крутое фото на пробежке для инстаграма!"
-    },
-    "Saturday": {
-        "name": "Суббота",
-        "theme": "😢 День нытья",
-        "message": "Можно немного поплакать в подушку после бега..."
-    },
-    "Sunday": {
-        "name": "Воскресенье",
-        "theme": "🎨 День нюдсов",
-        "message": "День для смелых решений и новых рекордов!"
-    }
+    "Monday": {"theme": "🎵 День музыки", "message": "Включай любимый плейлист и беги в ритме!"},
+    "Tuesday": {"theme": "🐾 День питомцев", "message": "Возьми своего пушистого друга на пробежку!"},
+    "Wednesday": {"theme": "🤝 День добрых дел", "message": "Сегодня помогаем другим бегунам на тренировке!"},
+    "Thursday": {"theme": "🍔 День еды", "message": "После бега заслуженный обед ждёт тебя!"},
+    "Friday": {"theme": "📸 День селфи", "message": "Сделай крутое фото на пробежке для инстаграма!"},
+    "Saturday": {"theme": "😢 День нытья", "message": "Можно немного поплакать в подушку после бега..."},
+    "Sunday": {"theme": "🎨 День нюдсов", "message": "День для смелых решений и новых рекордов!"}
 }
 
-# Получение погоды через Open-Meteo API
+# Получение погоды
 async def get_weather(city: str) -> str:
     """Получает текущую погоду"""
     coordinates = {
@@ -136,50 +108,79 @@ def get_greeting(weather_moscow: str) -> str:
         temp = 10
     
     if temp < 5:
-        cold_greetings = [
+        greetings.extend([
             "Бррр, доброе утро! 🥶\nСегодня холодно, но мы не сдаёмся!",
             "Морозное утро! ❄️\nОдевайтесь теплее, бегуны!",
             "Холодное утро, но тёплые сердца! ❤️\nСегодня бежим, чтобы согреться!",
-        ]
-        greetings.extend(cold_greetings)
+        ])
     elif temp > 25:
-        warm_greetings = [
+        greetings.extend([
             "Жаркое утро! 🔥\nНе забудьте воду с собой!",
             "Солнечное утро! ☀️\nИдеальная погода для длинных дистанций!",
-        ]
-        greetings.extend(warm_greetings)
+        ])
     
     return random.choice(greetings)
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработка команды /start"""
+    chat_id = update.message.chat_id
     user_name = update.message.from_user.first_name
+    
     welcome_text = f"Привет, {user_name}! 👋\n\nЯ бот для бегового чата. Каждое утро в 06:00 по московскому времени я буду писать мотивационные сообщения с погодой. Также буду приветствовать новых участников чата!\n\nУдачных пробежек! 🏃‍♂️"
-    await update.message.reply_text(welcome_text)
-    # Удаляем команду пользователя
+    
+    await context.bot.send_message(chat_id=chat_id, text=welcome_text)
+    
     try:
         await update.message.delete()
     except:
         pass
 
-# Команда /morning — принудительная отправка
+# Команда /morning
 async def morning(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Принудительная отправка утреннего сообщения"""
-    # Сначала удаляем команду пользователя
+    chat_id = update.message.chat_id
+    
     try:
         await update.message.delete()
     except:
         pass
     
     await send_morning_message(context.bot)
-    # Отправляем подтверждение и удаляем через 30 секунд
-    sent_msg = await update.message.reply_text("✅ Утреннее сообщение отправлено!")
-    asyncio.create_task(delete_message_later(context.bot, update.message.chat_id, sent_msg.message_id, 30))
+    
+    sent_msg = await context.bot.send_message(chat_id=chat_id, text="✅ Утреннее сообщение отправлено!")
+    asyncio.create_task(delete_message_later(context.bot, chat_id, sent_msg.message_id, 30))
 
-# Формирование и отправка утреннего сообщения
+# Команда /check
+async def check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Проверка времени бота"""
+    now_moscow = datetime.datetime.now(moscow_tz)
+    current_time = now_moscow.strftime("%H:%M")
+    current_date = now_moscow.strftime("%d.%m.%Y")
+    
+    await update.message.reply_text(f"🕐 Время бота (Москва): {current_time}\n📅 Дата: {current_date}")
+    
+    try:
+        await update.message.delete()
+    except:
+        pass
+
+# Команда /chat
+async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает ID чата"""
+    chat_id = update.message.chat_id
+    await update.message.reply_text(f"🆔 ID чата: `{chat_id}`", parse_mode='Markdown')
+    
+    try:
+        await update.message.delete()
+    except:
+        pass
+
+# Отправка утреннего сообщения
 async def send_morning_message(bot):
     """Формирует и отправляет утреннее сообщение"""
+    print("📤 Формирование утреннего сообщения...")
+    
     weather_moscow = await get_weather("москва")
     weather_piter = await get_weather("питер")
     greeting = get_greeting(weather_moscow)
@@ -187,28 +188,22 @@ async def send_morning_message(bot):
     now = datetime.datetime.now(moscow_tz)
     day_name = now.strftime("%A")
     day_names_ru = {
-        "Monday": "Понедельник",
-        "Tuesday": "Вторник",
-        "Wednesday": "Среда",
-        "Thursday": "Четверг",
-        "Friday": "Пятница",
-        "Saturday": "Суббота",
-        "Sunday": "Воскресенье"
+        "Monday": "Понедельник", "Tuesday": "Вторник", "Wednesday": "Среда",
+        "Thursday": "Четверг", "Friday": "Пятница", "Saturday": "Суббота", "Sunday": "Воскресенье"
     }
     day_ru = day_names_ru.get(day_name, day_name)
     current_date = now.strftime("%d.%m.%Y")
+    current_time = now.strftime("%H:%M")
     
-    # Получаем тему дня
     day_theme = DAY_THEMES.get(day_name, {
-        "name": day_ru,
-        "theme": "🌟 Новый день",
-        "message": "Сегодня будет отличный день!"
+        "theme": "🌟 Новый день", "message": "Сегодня будет отличный день!"
     })
     
     message = f"""
 {greeting}
 
 📅 Сегодня {current_date}, {day_ru}
+🕐 Время отправки: {current_time}
 {day_theme['theme']}
 
 {day_theme['message']}
@@ -227,36 +222,31 @@ async def send_morning_message(bot):
     
     try:
         sent_message = await bot.send_message(chat_id=CHAT_ID, text=message)
-        # Удаление через 5 часов (18000 секунд)
+        print(f"✅ Сообщение успешно отправлено в {current_time}")
         asyncio.create_task(delete_message_later(bot, CHAT_ID, sent_message.message_id, 18000))
     except Exception as e:
-        print(f"Ошибка отправки: {e}")
+        print(f"❌ Ошибка отправки: {e}")
 
-# Удаление сообщения через заданное время
+# Удаление сообщения
 async def delete_message_later(bot, chat_id, message_id, delay: int) -> None:
-    """Удаляет сообщение через указанное количество секунд"""
+    """Удаляет сообщение через указанное время"""
     await asyncio.sleep(delay)
     try:
         await bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except Exception as e:
+    except:
         pass
 
 # Приветствие новых участников
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Приветствует новых участников чата (сообщение не удаляется)"""
+    """Приветствует новых участников чата"""
     for member in update.message.new_chat_members:
         user_name = member.first_name
         
         now = datetime.datetime.now(moscow_tz)
         day_name = now.strftime("%A")
         day_names_ru = {
-            "Monday": "Понедельник",
-            "Tuesday": "Вторник",
-            "Wednesday": "Среда",
-            "Thursday": "Четверг",
-            "Friday": "Пятница",
-            "Saturday": "Суббота",
-            "Sunday": "Воскресенье"
+            "Monday": "Понедельник", "Tuesday": "Вторник", "Wednesday": "Среда",
+            "Thursday": "Четверг", "Friday": "Пятница", "Saturday": "Суббота", "Sunday": "Воскресенье"
         }
         day_ru = day_names_ru.get(day_name, day_name)
         current_date = now.strftime("%d.%m.%Y")
@@ -275,28 +265,40 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ]
         
         welcome_text = random.choice(welcome_messages)
-        
-        # Отправляем приветствие
         await update.message.reply_text(welcome_text)
 
-# Планировщик для автоматической отправки в 06:00
+# Планировщик
 async def morning_scheduler(bot):
-    """Проверяет время и отправляет сообщение в 06:00 по Москве"""
+    """Проверяет время и отправляет сообщение в 06:00"""
+    print("⏰ Планировщик запущен. Ожидание 06:00...")
+    
     while True:
-        now_moscow = datetime.datetime.now(moscow_tz)
-        current_hour = now_moscow.hour
-        current_minute = now_moscow.minute
-        
-        if current_hour == 6 and current_minute == 0:
-            await send_morning_message(bot)
-            await asyncio.sleep(60)
-        else:
+        try:
+            now_moscow = datetime.datetime.now(moscow_tz)
+            current_hour = now_moscow.hour
+            current_minute = now_moscow.minute
+            current_time = now_moscow.strftime("%H:%M")
+            
+            if current_minute == 0:
+                print(f"🕐 Проверка времени: {current_time}")
+            
+            if current_hour == 6 and current_minute == 0:
+                print("🚀 Время 06:00! Отправляю утреннее сообщение...")
+                await send_morning_message(bot)
+                await asyncio.sleep(60)
+            
             await asyncio.sleep(30)
+            
+        except Exception as e:
+            print(f"❌ Ошибка в планировщике: {e}")
+            await asyncio.sleep(60)
 
 async def post_init(application: Application) -> None:
     """Запуск после инициализации бота"""
+    now_moscow = datetime.datetime.now(moscow_tz)
+    current_time = now_moscow.strftime("%H:%M")
+    print(f"✅ Бот запущен в {current_time}")
     asyncio.create_task(morning_scheduler(application.bot))
-    print("✅ Бот запущен и готов к работе!")
 
 def main():
     """Запуск бота"""
@@ -311,6 +313,8 @@ def main():
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("morning", morning))
+    application.add_handler(CommandHandler("check", check))
+    application.add_handler(CommandHandler("chat", chat))
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     
     print("🚀 Бот запущен")
@@ -318,3 +322,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
