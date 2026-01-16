@@ -3,6 +3,7 @@ import os
 import datetime
 import httpx
 import random
+import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from flask import Flask
@@ -19,12 +20,17 @@ app = Flask(__name__)
 def index():
     return 'Bot is running!'
 
+@app.route('/health')
+def health():
+    return 'OK', 200
+
 def run_flask():
     app.run(host='0.0.0.0', port=10000, debug=False)
 
 # Токен бота и ID чата
 BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
 CHAT_ID = os.environ.get('CHAT_ID', '-1001234567890')
+RENDER_URL = os.environ.get('RENDER_URL', 'https://your-service.onrender.com')
 
 # Темы дней недели
 DAY_THEMES = {
@@ -267,6 +273,18 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
         welcome_text = random.choice(welcome_messages)
         await update.message.reply_text(welcome_text)
 
+# Пинг для поддержания активности
+async def keep_alive_pinger(bot):
+    """Пингует собственный URL чтобы не уснуть"""
+    while True:
+        try:
+            url = f"{RENDER_URL}/health"
+            requests.get(url, timeout=10)
+            print("✅ Пинг отправлен")
+        except Exception as e:
+            print(f"❌ Пинг не отправлен: {e}")
+        await asyncio.sleep(300)  # Каждые 5 минут
+
 # Планировщик
 async def morning_scheduler(bot):
     """Проверяет время и отправляет сообщение в 06:00"""
@@ -299,6 +317,7 @@ async def post_init(application: Application) -> None:
     current_time = now_moscow.strftime("%H:%M")
     print(f"✅ Бот запущен в {current_time}")
     asyncio.create_task(morning_scheduler(application.bot))
+    asyncio.create_task(keep_alive_pinger(application.bot))
 
 def main():
     """Запуск бота"""
