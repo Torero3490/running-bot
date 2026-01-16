@@ -25,7 +25,7 @@ from flask import Flask
 
 # ============== КОНФИГУРАЦИЯ ==============
 # Токен вашего бота от BotFather
-BOT_TOKEN = "8130314650:AAFoQAz0xe9dZQ5PekSD2Oo1AEJUkdHsesE"
+BOT_TOKEN = "8130314650:AAGGKVD_H5RZCpZBfmkglN569rFLwg80ChU"
 
 # URL вашего сервиса на Render (например: https://your-app.onrender.com)
 RENDER_URL = "YOUR_RENDER_URL_HERE"
