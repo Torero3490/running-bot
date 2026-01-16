@@ -10,7 +10,7 @@ import logging
 import threading
 import time
 import random
-import requests
+import httpx  # ИСПРАВЛЕНО: Добавлен отсутствующий импорт
 from datetime import datetime
 from telegram import Update
 from telegram.ext import (
@@ -139,8 +139,14 @@ async def get_weather() -> str:
                 f"🌆 СПб: **{spb_temp}°C**, ветер {spb_wind} км/ч"
             )
             return weather_text
+    except httpx.RequestError as e:
+        logger.error(f"Ошибка HTTP-запроса при получении погоды: {e}")
+        return "🌤 Погода временно недоступна"
+    except (KeyError, ValueError) as e:
+        logger.error(f"Ошибка парсинга данных о погоде: {e}")
+        return "🌤 Погода временно недоступна"
     except Exception as e:
-        logger.error(f"Ошибка получения погоды: {e}")
+        logger.error(f"Неожиданная ошибка при получении погоды: {e}")
         return "🌤 Погода временно недоступна"
 
 
@@ -418,7 +424,7 @@ def keep_alive_pinger():
             # Пингуем каждые 5 минут
             time.sleep(300)
             if RENDER_URL and RENDER_URL != "YOUR_RENDER_URL_HERE":
-                response = requests.get(f"{RENDER_URL}/health", timeout=10)
+                response = httpx.get(f"{RENDER_URL}/health", timeout=10)  # ИСПРАВЛЕНО: используем httpx вместо requests
                 if response.status_code == 200:
                     logger.info(f"Ping successful: {RENDER_URL}/health")
                 else:
@@ -488,3 +494,4 @@ async def main():
 if __name__ == "__main__":
     # Запуск в асинхронном режиме
     asyncio.run(main())
+
