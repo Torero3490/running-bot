@@ -43,6 +43,13 @@ DAY_THEMES = {
     "Sunday": {"theme": "🎨 День нюдсов", "message": "День для смелых решений и новых рекордов!"}
 }
 
+# Состояния для анонимной отправки
+class AnonState:
+    WAITING_MESSAGE = "waiting_message"
+    WAITING_PHOTO = "waiting_photo"
+
+user_anon_state = {}
+
 # Получение погоды
 async def get_weather(city: str) -> str:
     """Получает текущую погоду"""
@@ -133,7 +140,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
     user_name = update.message.from_user.first_name
     
-    welcome_text = f"Привет, {user_name}! 👋\n\nЯ бот для бегового чата. Каждое утро в 06:00 по московскому времени я буду писать мотивационные сообщения с погодой. Также буду приветствовать новых участников чата!\n\nУдачных пробежек! 🏃‍♂️"
+    welcome_text = f"""Привет, {user_name}! 👋
+
+Я бот для бегового чата.
+
+📅 Каждое утро в 06:00 — мотивационные сообщения с погодой
+🎉 Приветствую новых участников
+📬 Анонимные сообщения: /anon
+📸 Анонимные фото: /anonphoto
+
+Удачных пробежек! 🏃‍♂️"""
     
     await context.bot.send_message(chat_id=chat_id, text=welcome_text)
     
@@ -171,16 +187,141 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except:
         pass
 
-# Команда /chat
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Показывает ID чата"""
+# Команда /anon — начать анонимную отправку
+async def anon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Начинает процесс анонимной отправки"""
     chat_id = update.message.chat_id
-    await update.message.reply_text(f"🆔 ID чата: `{chat_id}`", parse_mode='Markdown')
+    user_id = update.message.from_user.id
+    
+    user_anon_state[user_id] = AnonState.WAITING_MESSAGE
+    
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="📝 Введите текст сообщения, которое хотите отправить анонимно:"
+    )
     
     try:
         await update.message.delete()
     except:
         pass
+
+# Команда /anonphoto — начать анонимную отправку фото
+async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Начинает процесс анонимной отправки фото"""
+    chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+    
+    user_anon_state[user_id] = AnonState.WAITING_PHOTO
+    
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="📸 Отправьте фото, которое хотите отправить анонимно:"
+    )
+    
+    try:
+        await update.message.delete()
+    except:
+        pass
+
+# Команда /anonstop — отмена анонимной отправки
+async def anonstop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отменяет анонимную отправку"""
+    user_id = update.message.from_user.id
+    
+    if user_id in user_anon_state:
+        del user_anon_state[user_id]
+    
+    await update.message.reply_text("❌ Анонимная отправка отменена.")
+    
+    try:
+        await update.message.delete()
+    except:
+        pass
+
+# Обработка текстовых сообщений для анонимной отправки
+async def handle_anon_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает текст для анонимной отправки"""
+    user_id = update.message.from_user.id
+    
+    if user_id not in user_anon_state:
+        return
+    
+    if user_anon_state[user_id] != AnonState.WAITING_MESSAGE:
+        return
+    
+    user_text = update.message.text
+    user_name = update.message.from_user.full_name
+    
+    # Отправляем анонимно в чат
+    try:
+        await context.bot.send_message(
+            chat_id=CHAT_ID,
+            text=f"📬 *Анонимное сообщение:*\n\n{user_text}\n\n_(Отправлено через бота)_",
+            parse_mode='Markdown'
+        )
+        print(f"✅ Анонимное сообщение отправлено от {user_name}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки анонимного сообщения: {e}")
+    
+    # Удаляем сообщение пользователя
+    try:
+        await update.message.delete()
+    except:
+        pass
+    
+    # Сбрасываем состояние
+    del user_anon_state[user_id]
+    
+    # Подтверждаем отправку
+    await context.bot.send_message(
+        chat_id=update.message.chat_id,
+        text="✅ Ваше анонимное сообщение отправлено!"
+    )
+
+# Обработка фото для анонимной отправки
+async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает фото для анонимной отправки"""
+    user_id = update.message.from_user.id
+    
+    if user_id not in user_anon_state:
+        return
+    
+    if user_anon_state[user_id] != AnonState.WAITING_PHOTO:
+        return
+    
+    if not update.message.photo:
+        return
+    
+    user_name = update.message.from_user.full_name
+    photo = update.message.photo[-1]  # Самое большое фото
+    caption = update.message.caption or ""
+    
+    # Отправляем фото анонимно в чат
+    try:
+        await context.bot.send_photo(
+            chat_id=CHAT_ID,
+            photo=photo.file_id,
+            caption=f"📸 *Анонимное фото*\n\n{caption}\n\n_(Отправлено через бота)_",
+            parse_mode='Markdown'
+        )
+        print(f"✅ Анонимное фото отправлено от {user_name}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки анонимного фото: {e}")
+    
+    # Удаляем сообщение пользователя
+    try:
+        await update.message.delete()
+    except:
+        pass
+    
+    # Сбрасываем состояние
+    del user_anon_state[user_id]
+    
+    # Подтверждаем отправку
+    await context.bot.send_message(
+        chat_id=update.message.chat_id,
+        text="✅ Ваше анонимное фото отправлено!"
+    )
 
 # Отправка утреннего сообщения
 async def send_morning_message(bot):
@@ -333,7 +474,13 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("morning", morning))
     application.add_handler(CommandHandler("check", check))
-    application.add_handler(CommandHandler("chat", chat))
+    application.add_handler(CommandHandler("anon", anon))
+    application.add_handler(CommandHandler("anonphoto", anonphoto))
+    application.add_handler(CommandHandler("anonstop", anonstop))
+    # Текстовые сообщения для анонимной отправки
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_anon_text))
+    # Фото для анонимной отправки
+    application.add_handler(MessageHandler(filters.PHOTO, handle_anon_photo))
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     
     print("🚀 Бот запущен")
@@ -341,4 +488,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
