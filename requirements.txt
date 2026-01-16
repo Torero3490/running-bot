@@ -1,4 +1,4 @@
-python-telegram-bot==20.8
+python-telegram-bot==21.10
 httpx==0.26.0
 pytz==2024.1
 Flask==3.0.0
