@@ -477,9 +477,3 @@ async def main():
 if __name__ == "__main__":
     # Запуск в асинхронном режиме
     asyncio.run(main())
-
-
-
-
-
-
