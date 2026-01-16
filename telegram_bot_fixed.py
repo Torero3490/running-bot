@@ -27,53 +27,44 @@ import pytz
 from flask import Flask
 
 # ============== КОНФИГУРАЦИЯ ==============
-# Токен вашего бота от BotFather (загружается из переменных окружения)
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("Токен бота не найден! Установите переменную окружения TELEGRAM_BOT_TOKEN")
 
-# URL вашего сервиса на Render (например: https://your-app.onrender.com)
 RENDER_URL = os.environ.get("RENDER_URL", "")
 
-# ID чата (можно узнать командой /chat_id, когда бот запущен локально)
 CHAT_ID = os.environ.get("CHAT_ID")
 if not CHAT_ID:
     raise ValueError("CHAT_ID не найден! Установите переменную окружения CHAT_ID")
 
-# Преобразуем CHAT_ID в int (для групповых чатов это отрицательное число)
 try:
     CHAT_ID = int(CHAT_ID)
 except ValueError:
     raise ValueError("CHAT_ID должен быть числом!")
 
-# Москва - основной часовой пояс
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
-# Настройка логирования
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# ============== FLASK ДЛЯ PORT BINDING ==============
+# ============== FLASK ==============
 app = Flask(__name__)
 
 
 @app.route("/")
 def home():
-    """Главная страница для проверки работы сервиса"""
     return "Bot is running!"
 
 
 @app.route("/health")
 def health():
-    """Эндпоинт для проверки здоровья сервиса"""
     return "OK"
 
 
 def run_flask():
-    """Запуск Flask сервера в отдельном потоке"""
     app.run(host="0.0.0.0", port=10000)
 
 
@@ -81,10 +72,10 @@ def run_flask():
 application = None
 morning_message_id = None
 morning_scheduled_date = ""
+bot_running = True
 
 
-# ============== ДАННЫЕ ДЛЯ БОТА ==============
-# Темы дней недели
+# ============== ДАННЫЕ ==============
 DAY_THEMES = {
     "Monday": "🎵 Музыкальный понедельник — делимся любимыми треками для бега!",
     "Tuesday": "💪 Силовой вторник — обсуждаем тренировки и упражнения!",
@@ -95,7 +86,6 @@ DAY_THEMES = {
     "Sunday": "📸 Фото-день — делимся красивыми видами с пробежек!",
 }
 
-# Приветствия для новых участников (10 вариантов)
 WELCOME_MESSAGES = [
     "🏃 Привет, новый бегун! Теперь твои ноги не знают покоя!",
     "👋 Добро пожаловать в клуб тех, кто бежит от дивана!",
@@ -109,16 +99,13 @@ WELCOME_MESSAGES = [
     "⭐ Приветствуем! Добро пожаловать в клуб любителей утренней зарядки!",
 ]
 
-# Хранилище состояний для анонимной отправки
 user_anon_state = {}
 
 
-# ============== ФУНКЦИИ ПОГОДЫ ==============
+# ============== ПОГОДА ==============
 async def get_weather() -> str:
-    """Получение погоды для Москвы и Санкт-Петербурга через Open-Meteo"""
     try:
         async with httpx.AsyncClient() as client:
-            # Москва
             moscow_response = await client.get(
                 "https://api.open-meteo.com/v1/forecast",
                 params={
@@ -152,32 +139,23 @@ async def get_weather() -> str:
                 f"🌆 СПб: **{spb_temp}°C**, ветер {spb_wind} км/ч"
             )
             return weather_text
-    except httpx.RequestError as e:
-        logger.error(f"Ошибка HTTP-запроса при получении погоды: {e}")
-        return "🌤 Погода временно недоступна"
-    except (KeyError, ValueError) as e:
-        logger.error(f"Ошибка парсинга данных о погоде: {e}")
-        return "🌤 Погода временно недоступна"
     except Exception as e:
-        logger.error(f"Неожиданная ошибка при получении погоды: {e}")
+        logger.error(f"Ошибка получения погоды: {e}")
         return "🌤 Погода временно недоступна"
 
 
-# ============== ФУНКЦИИ УТРЕННЕГО ПРИВЕТСТВИЯ ==============
+# ============== УТРЕННЕЕ ПРИВЕТСТВИЕ ==============
 def get_day_theme() -> str:
-    """Получение темы дня недели на русском языке"""
     now = datetime.now(MOSCOW_TZ)
     day_name_en = now.strftime("%A")
     return DAY_THEMES.get(day_name_en, "🌟 Отличный день для пробежки!")
 
 
 def get_random_welcome() -> str:
-    """Получение случайного приветствия"""
     return random.choice(WELCOME_MESSAGES)
 
 
 async def send_morning_greeting():
-    """Отправка утреннего приветствия"""
     global morning_message_id
 
     if application is None:
@@ -209,16 +187,14 @@ async def send_morning_greeting():
 
 
 async def morning_scheduler_task():
-    """Асинхронный планировщик утренних сообщений на 06:00 по Москве"""
     global morning_scheduled_date
 
-    while True:
+    while bot_running:
         now = datetime.now(MOSCOW_TZ)
         current_hour = now.hour
         current_minute = now.minute
         today_date = now.strftime("%Y-%m-%d")
 
-        # Если сейчас 6:00 и сообщение ещё не отправляли сегодня
         if current_hour == 6 and current_minute == 0:
             if morning_scheduled_date != today_date:
                 logger.info("Время 6:00 - отправляем утреннее сообщение")
@@ -229,15 +205,12 @@ async def morning_scheduler_task():
                 except Exception as e:
                     logger.error(f"Ошибка при отправке: {e}")
 
-        # Проверка каждую минуту
         await asyncio.sleep(60)
 
 
 async def delete_morning_message():
-    """Удаление утреннего сообщения через 5 часов"""
     global morning_message_id
 
-    # Проверяем сразу при запуске функции
     if morning_message_id is not None and application is not None:
         try:
             now = datetime.now(MOSCOW_TZ)
@@ -246,42 +219,37 @@ async def delete_morning_message():
                     chat_id=CHAT_ID,
                     message_id=morning_message_id,
                 )
-                logger.info(f"Утреннее сообщение {morning_message_id} удалено при старте (время > 11:00)")
+                logger.info(f"Утреннее сообщение {morning_message_id} удалено при старте")
                 morning_message_id = None
                 return
         except Exception as e:
-            logger.error(f"Ошибка удаления утреннего сообщения при старте: {e}")
+            logger.error(f"Ошибка удаления при старте: {e}")
 
-    # Продолжаем периодическую проверку
-    while True:
-        await asyncio.sleep(300)  # Проверка каждые 5 минут
+    while bot_running:
+        await asyncio.sleep(300)
 
         if morning_message_id is None:
             continue
 
         try:
             now = datetime.now(MOSCOW_TZ)
-            # Если текущее время больше 11:00 (6:00 + 5 часов)
-            if now.hour >= 11:
-                if application:
-                    await application.bot.delete_message(
-                        chat_id=CHAT_ID,
-                        message_id=morning_message_id,
-                    )
-                    logger.info(f"Утреннее сообщение {morning_message_id} удалено")
-                    morning_message_id = None
+            if now.hour >= 11 and application:
+                await application.bot.delete_message(
+                    chat_id=CHAT_ID,
+                    message_id=morning_message_id,
+                )
+                logger.info(f"Утреннее сообщение {morning_message_id} удалено")
+                morning_message_id = None
         except Exception as e:
             logger.error(f"Ошибка удаления утреннего сообщения: {e}")
             break
 
 
-# ============== ФУНКЦИИ АНОНИМНОЙ ОТПРАВКИ ==============
+# ============== АНОНИМНАЯ ОТПРАВКА ==============
 async def anon(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /anon для анонимной отправки текста"""
     user_id = update.message.from_user.id
     user_anon_state[user_id] = "waiting_for_text"
 
-    # Удаляем команду пользователя
     try:
         await update.message.delete()
     except Exception:
@@ -289,11 +257,9 @@ async def anon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /anonphoto для анонимной отправки фото"""
     user_id = update.message.from_user.id
     user_anon_state[user_id] = "waiting_for_photo"
 
-    # Удаляем команду пользователя
     try:
         await update.message.delete()
     except Exception:
@@ -301,48 +267,40 @@ async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_anon_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик текстовых сообщений для анонимной отправки"""
     user_id = update.message.from_user.id
 
     if user_id not in user_anon_state:
         return
 
     if user_anon_state[user_id] == "waiting_for_text":
-        # Удаляем сообщение пользователя
         try:
             await update.message.delete()
         except Exception:
             pass
 
-        # Отправляем анонимное сообщение
         await context.bot.send_message(
             chat_id=CHAT_ID,
             text=f"📬 **Анонимное сообщение:**\n\n{update.message.text}",
             parse_mode="Markdown",
         )
 
-        # Удаляем состояние
         del user_anon_state[user_id]
 
 
 async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик фото для анонимной отправки"""
     user_id = update.message.from_user.id
 
     if user_id not in user_anon_state:
         return
 
     if user_anon_state[user_id] == "waiting_for_photo":
-        # Получаем фото
         photo = update.message.photo[-1]
 
-        # Удаляем сообщение пользователя
         try:
             await update.message.delete()
         except Exception:
             pass
 
-        # Отправляем анонимное фото
         await context.bot.send_photo(
             chat_id=CHAT_ID,
             photo=photo.file_id,
@@ -350,13 +308,11 @@ async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
         )
 
-        # Удаляем состояние
         del user_anon_state[user_id]
 
 
-# ============== ОСНОВНЫЕ ОБРАБОТЧИКИ ==============
+# ============== ОБРАБОТЧИКИ ==============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
     welcome = get_random_welcome()
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -365,10 +321,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /morning для ручной отправки утреннего приветствия"""
     await send_morning_greeting()
 
-    # Удаляем команду пользователя
     try:
         await update.message.delete()
     except Exception:
@@ -376,7 +330,6 @@ async def morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stopmorning(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /stopmorning"""
     global morning_message_id
 
     if morning_message_id is not None:
@@ -401,7 +354,6 @@ async def stopmorning(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text="❌ Утреннее сообщение не найдено!",
         )
 
-    # Удаляем команду пользователя
     try:
         await update.message.delete()
     except Exception:
@@ -409,13 +361,10 @@ async def stopmorning(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик новых участников чата"""
-    # Проверяем, есть ли новые участники
     if not update.message or not update.message.new_chat_members:
         return
 
     try:
-        # Получаем информацию о боте
         bot_info = await context.bot.get_me()
         bot_id = bot_info.id
     except Exception as e:
@@ -423,13 +372,11 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
         bot_id = None
 
     for member in update.message.new_chat_members:
-        # Пропускаем, если это сам бот
         if member.is_bot or (bot_id and member.id == bot_id):
             continue
 
         welcome = get_random_welcome()
         try:
-            # Формируем текст с упоминанием пользователя
             if member.username:
                 mention = f"@{member.username}"
             else:
@@ -445,61 +392,42 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /chat_id для определения ID чата"""
     chat_id = update.effective_chat.id
     logger.info(f"Chat ID: {chat_id}")
     await context.bot.send_message(
         chat_id=chat_id,
-        text=f"Debug: Chat ID = {chat_id}\nДобавьте это значение в переменную окружения CHAT_ID",
+        text=f"Debug: Chat ID = {chat_id}",
     )
 
 
-# ============== KEEP-ALIVE PINGER ==============
+# ============== KEEP-ALIVE ==============
 def keep_alive_pinger():
-    """Пингование собственного URL для предотвращения засыпания на Render"""
-    while True:
+    while bot_running:
         try:
-            # Пингуем каждые 5 минут
             time.sleep(300)
             if RENDER_URL and RENDER_URL != "YOUR_RENDER_URL_HERE":
                 response = httpx.get(f"{RENDER_URL}/health", timeout=10)
                 if response.status_code == 200:
                     logger.info(f"Ping successful: {RENDER_URL}/health")
                 else:
-                    logger.warning(
-                        f"Ping returned status {response.status_code}: {RENDER_URL}/health"
-                    )
-            else:
-                logger.debug("RENDER_URL не настроен, пропускаем пинг")
+                    logger.warning(f"Ping returned status {response.status_code}")
         except Exception as e:
             logger.error(f"Ping failed: {e}")
 
 
-# ============== ОБРАБОТЧИКИ СИГНАЛОВ ==============
-def signal_handler(signum, frame):
-    """Обработчик сигналов для корректного завершения"""
-    logger.info(f"Получен сигнал {signum}, завершаем работу...")
-    if application:
-        asyncio.run(application.stop())
-    sys.exit(0)
+# ============== ЗАПУСК ==============
+def main():
+    global application, bot_running
 
-
-# ============== ГЛАВНЫЙ ЗАПУСК ==============
-async def main():
-    global application
-
-    # Регистрируем обработчики сигналов
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, lambda s, f: stop_all())
+    signal.signal(signal.SIGINT, lambda s, f: stop_all())
 
     logger.info("Запуск бота...")
 
-    # Запускаем Flask в отдельном потоке
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    logger.info("Flask сервер запущен на порту 10000")
+    logger.info("Flask запущен на порту 10000")
 
-    # Создаём приложение бота
     application = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
@@ -507,18 +435,12 @@ async def main():
         .build()
     )
 
-    # Инициализируем приложение (ОБЯЗАТЕЛЬНО для python-telegram-bot 20+!)
-    await application.initialize()
-
-    # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("morning", morning))
     application.add_handler(CommandHandler("stopmorning", stopmorning))
     application.add_handler(CommandHandler("anon", anon))
     application.add_handler(CommandHandler("anonphoto", anonphoto))
     application.add_handler(CommandHandler("chat_id", get_chat_id))
-
-    # Регистрируем обработчики сообщений
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_anon_text)
     )
@@ -529,24 +451,17 @@ async def main():
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
     )
 
-    # Запускаем polling
-    await application.start()
-    await application.updater.start_polling()
-    logger.info("Бот запущен и ожидает сообщений...")
+    application.run_polling(drop_pending_updates=True)
 
-    # Запускаем асинхронный планировщик утренних сообщений
-    asyncio.create_task(morning_scheduler_task())
-    logger.info("Планировщик утренних сообщений запущен")
 
-    # Запускаем удаление утреннего сообщения через 5 часов
-    asyncio.create_task(delete_morning_message())
-
-    # Запускаем keep-alive пinger в отдельном потоке
-    pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
-    pinger_thread.start()
-    logger.info("Keep-alive пингер запущен")
+def stop_all():
+    global bot_running
+    bot_running = False
+    if application:
+        application.stop()
+    sys.exit(0)
 
 
 if __name__ == "__main__":
-    # Запуск в асинхронном режиме
-    asyncio.run(main())
+    main()
+
