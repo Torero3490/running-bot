@@ -1,7 +1,30 @@
+# Telegram Bot Dependencies
+# Используем фиксированные версии для предотвращения конфликтов
+
+# Основные зависимости бота
 python-telegram-bot==20.8
-httpx==0.27.0
+httpx==0.27.2
 pytz==2024.1
-Flask==3.0.0
+
+# Flask для веб-сервера (keep-alive)
+Flask==3.0.3
+Werkzeug==3.0.3
+
+# Дополнительные зависимости (транзитивные)
+aiohttp==3.9.5
+aiosignal==1.3.1
+attrs==23.2.0
+certifi==2024.2.2
+charset-normalizer==3.3.2
+frozenlist==1.4.1
+idna==3.7
+multidict==6.0.5
+propcache==0.2.0
+yarl==1.9.4
+
+# Для работы с окружением (опционально, но рекомендуется)
+python-dotenv==1.0.1
+
 
 
 
