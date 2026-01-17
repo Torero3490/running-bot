@@ -506,7 +506,13 @@ def get_rating_details(user_id: int) -> dict:
 
 async def send_point_notification(user_name: str, points: int, reason: str, total_points: int):
     """Отправка публичного уведомления о получении баллов"""
+    global application
+    
+    logger.info(f"[NOTIFY] Попытка отправить уведомление: user={user_name}, points={points}, reason={reason}")
+    logger.info(f"[NOTIFY] application={application}")
+    
     if application is None:
+        logger.error(f"[NOTIFY] ❌ application равен None! Уведомление не отправлено для {user_name}")
         return
     
     try:
@@ -530,6 +536,8 @@ async def send_point_notification(user_name: str, points: int, reason: str, tota
             text=notification_text,
             parse_mode="Markdown",
         )
+        
+        logger.info(f"[NOTIFY] ✅ Уведомление отправлено для {user_name}")
         
         logger.info(f"Уведомление о баллах отправлено: {user_name} +{points}")
         
@@ -1366,22 +1374,37 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # === НАЧИСЛЕНИЕ БАЛЛОВ ЗА "+" ===
         reply_msg = update.message.reply_to_message
-        if reply_msg and reply_msg.from_user:
-            original_id = reply_msg.from_user.id
-            if original_id != user_id and message_text.strip() == "+":
-                original_name = f"@{reply_msg.from_user.username}" if reply_msg.from_user.username else reply_msg.from_user.full_name
+        logger.info(f"[PLUS] Проверка: reply_msg={reply_msg is not None}, text='{message_text}'")
+        
+        if reply_msg is not None:
+            logger.info(f"[PLUS] reply_msg.from_user={reply_msg.from_user}")
+            
+            if reply_msg.from_user is not None:
+                original_id = reply_msg.from_user.id
+                is_not_self = original_id != user_id
+                is_plus = message_text.strip() == "+"
                 
-                if original_id not in user_rating_stats:
-                    user_rating_stats[original_id] = {"name": original_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
-                    user_current_level[original_id] = "Новичок"
+                logger.info(f"[PLUS] original_id={original_id}, user_id={user_id}, is_not_self={is_not_self}, is_plus={is_plus}")
                 
-                user_rating_stats[original_id]["replies"] += 1
-                
-                orig_stats = user_rating_stats[original_id]
-                new_total = (orig_stats["messages"] // 300 + orig_stats["photos"] // 10 + orig_stats["likes"] // 50 + orig_stats["replies"])
-                
-                await send_point_notification(original_name, 1, "ответ", new_total)
-                logger.info(f"[PLUS] {user_name} дал(+) {original_name}. Всего: {new_total}")
+                if is_not_self and is_plus:
+                    original_name = f"@{reply_msg.from_user.username}" if reply_msg.from_user.username else reply_msg.from_user.full_name
+                    
+                    if original_id not in user_rating_stats:
+                        user_rating_stats[original_id] = {"name": original_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
+                        user_current_level[original_id] = "Новичок"
+                    
+                    user_rating_stats[original_id]["replies"] += 1
+                    
+                    orig_stats = user_rating_stats[original_id]
+                    new_total = (orig_stats["messages"] // 300 + orig_stats["photos"] // 10 + orig_stats["likes"] // 50 + orig_stats["replies"])
+                    
+                    await send_point_notification(original_name, 1, "ответ", new_total)
+                    logger.info(f"[PLUS] ✅ {user_name} дал(+) {original_name}. Всего: {new_total}")
+                else:
+                    if not is_not_self:
+                        logger.info(f"[PLUS] ❌ Это ответ на свое сообщение")
+                    if not is_plus:
+                        logger.info(f"[PLUS] ❌ Текст не равен '+' (текст='{message_text}', stripped='{message_text.strip()}')")
         
         # === НОЧНОЙ РЕЖИМ ===
         utc_now = datetime.utcnow()
@@ -1811,6 +1834,9 @@ if __name__ == "__main__":
         .build()
     )
     
+    logger.info(f"[INIT] application создан: {application}")
+    logger.info(f"[INIT] application.bot: {application.bot}")
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("morning", morning))
     application.add_handler(CommandHandler("stopmorning", stopmorning))
@@ -1841,7 +1867,6 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
-
 
 
 
