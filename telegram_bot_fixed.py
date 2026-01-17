@@ -44,22 +44,13 @@ except ValueError:
     raise ValueError("CHAT_ID должен быть числом!")
 
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
+UTC_OFFSET = 3  # Москва = UTC+3
 
-# Настройка логирования с московским временем
-class MoscowTimeFormatter(logging.Formatter):
-    def format(self, record):
-        record.moscow_time = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d %H:%M:%S")
-        return super().format(record)
-
-formatter = MoscowTimeFormatter("%(moscow_time)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Добавляем обработчик к корневому логгеру
-handler = logging.StreamHandler()
-handler.setFormatter(formatter)
-logging.root.handlers = []
-logging.root.addHandler(handler)
 
 # ============== FLASK ==============
 app = Flask(__name__)
@@ -1262,7 +1253,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         message_text = update.message.text or ""
         is_photo = bool(update.message.photo)
         
-        logger.info(f"[MSG] Получено от {user_name}: '{message_text[:30]}'")
+        logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
         
         # === АНОНИМНАЯ ОТПРАВКА ===
         if user_id in user_anon_state:
@@ -1270,12 +1261,10 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             
             if state == "waiting_for_text" and message_text:
                 # Анонимный текст
-                target_mention = ""
                 import re
                 match = re.match(r'^@(\w+)\s+(.+)', message_text)
                 if match:
-                    target_mention = f"@{match.group(1)}"
-                    anon_text = f"📬 **Анонимное сообщение для {target_mention}:**\n\n{match.group(2)}"
+                    anon_text = f"📬 **Анонимное сообщение для @{match.group(1)}:**\n\n{match.group(2)}"
                 else:
                     anon_text = f"📬 **Анонимное сообщение:**\n\n{message_text}"
                 
@@ -1287,10 +1276,9 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await context.bot.send_message(chat_id=CHAT_ID, text=anon_text, parse_mode="Markdown")
                 del user_anon_state[user_id]
                 logger.info(f"[ANON] Анонимное сообщение от {user_name}")
-                return  # Не считаем анонимные сообщения в статистику
+                return
             
             elif state == "waiting_for_photo" and is_photo:
-                # Анонимное фото
                 photo = update.message.photo[-1]
                 try:
                     await update.message.delete()
@@ -1300,22 +1288,41 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await context.bot.send_photo(chat_id=CHAT_ID, photo=photo.file_id, caption="📬 **Анонимное фото**", parse_mode="Markdown")
                 del user_anon_state[user_id]
                 logger.info(f"[ANON] Анонимное фото от {user_name}")
-                return  # Не считаем анонимные фото в статистику
+                return
             
             else:
-                # Состояние застряло - чистим
                 del user_anon_state[user_id]
-                logger.info(f"[ANON] Очищено застрявшее состояние для {user_name}")
+                logger.info(f"[ANON] Состояние очищено для {user_name}")
         
         # === СТАТИСТИКА ===
         
-        # Обновляем daily_stats
-        today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
-        if daily_stats["date"] != today:
-            daily_stats.clear()
-            daily_stats.update({"date": today, "total_messages": 0, "user_messages": {}, "photos": []})
+        # Считаем дату по Москве
+        moscow_now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
+        today = moscow_now.strftime("%Y-%m-%d")
         
+        logger.info(f"[MSG] today={today}, daily_stats_date={daily_stats.get('date', 'EMPTY')}")
+        
+        # Инициализируем daily_stats если первый запуск
+        if "date" not in daily_stats:
+            daily_stats["date"] = today
+            daily_stats["total_messages"] = 0
+            daily_stats["user_messages"] = {}
+            daily_stats["photos"] = []
+            logger.info("[MSG] daily_stats инициализирован")
+        
+        # Сбрасываем только если новый день
+        if daily_stats["date"] != today:
+            daily_stats["date"] = today
+            daily_stats["total_messages"] = 0
+            daily_stats["user_messages"] = {}
+            daily_stats["photos"] = []
+            logger.info(f"[MSG] Новый день! Сброшена статистика")
+        
+        # Увеличиваем счётчик
         daily_stats["total_messages"] += 1
+        current_count = daily_stats["total_messages"]
+        logger.info(f"[MSG] Сообщение #{current_count}")
+        
         if user_id not in daily_stats["user_messages"]:
             daily_stats["user_messages"][user_id] = {"name": user_name, "count": 0}
         daily_stats["user_messages"][user_id]["count"] += 1
@@ -1328,12 +1335,17 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "message_id": update.message.message_id,
             })
         
-        # Обновляем user_rating_stats
+        # === РЕЙТИНГ ===
         if user_id not in user_rating_stats:
             user_rating_stats[user_id] = {"name": user_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
             user_current_level[user_id] = "Новичок"
+            logger.info(f"[MSG] Новый пользователь в рейтинге: {user_name}")
         
+        old_msg_count = user_rating_stats[user_id]["messages"]
         user_rating_stats[user_id]["messages"] += 1
+        new_msg_count = user_rating_stats[user_id]["messages"]
+        logger.info(f"[MSG] messages: {old_msg_count} -> {new_msg_count}")
+        
         if is_photo:
             user_rating_stats[user_id]["photos"] += 1
         
@@ -1341,7 +1353,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         stats = user_rating_stats[user_id]
         total_points = (stats["messages"] // 300 + stats["photos"] // 10 + stats["likes"] // 50 + stats["replies"])
         
-        logger.info(f"[MSG] Статистика: {daily_stats['total_messages']} сообщений, {user_name} имеет {total_points} баллов")
+        logger.info(f"[MSG] Рейтинг {user_name}: {total_points} баллов ({stats['messages']}msg, {stats['photos']}photo)")
         
         # === НАЧИСЛЕНИЕ БАЛЛОВ ЗА "+" ===
         reply_msg = update.message.reply_to_message
@@ -1356,19 +1368,17 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 
                 user_rating_stats[original_id]["replies"] += 1
                 
-                # Считаем новый рейтинг
                 orig_stats = user_rating_stats[original_id]
                 new_total = (orig_stats["messages"] // 300 + orig_stats["photos"] // 10 + orig_stats["likes"] // 50 + orig_stats["replies"])
                 
                 await send_point_notification(original_name, 1, "ответ", new_total)
                 logger.info(f"[PLUS] {user_name} дал(+) {original_name}. Всего: {new_total}")
         
-        # === НОЧНОЙ РЕЖИМ (22:00 - 08:00 по Москве) ===
-        now = datetime.now(MOSCOW_TZ)
-        hour = now.hour
-        is_night = hour >= 22 or hour < 8
+        # === НОЧНОЙ РЕЖИМ ===
+        utc_hour = datetime.utcnow().hour
+        moscow_hour = (utc_hour + UTC_OFFSET) % 24
         
-        if is_night:
+        if moscow_hour >= 22 or moscow_hour < 8:
             if user_id not in user_night_messages:
                 user_night_messages[user_id] = 0
             if user_night_warning_sent.get(user_id, "") != today:
@@ -1376,21 +1386,19 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 user_night_warning_sent[user_id] = ""
             
             user_night_messages[user_id] += 1
-            count = user_night_messages[user_id]
-            logger.info(f"[NIGHT] {user_name}: {count}/10 ночных сообщений (час {hour})")
+            night_count = user_night_messages[user_id]
+            logger.info(f"[NIGHT] {user_name}: {night_count}/10 ночных (Москва {moscow_hour}:00)")
             
-            if count == 10:
+            if night_count == 10:
                 warning = random.choice(NIGHT_WARNINGS)
                 await context.bot.send_message(chat_id=CHAT_ID, text=warning)
                 user_night_warning_sent[user_id] = today
                 logger.info(f"[NIGHT] ⚠️ Предупреждение отправлено {user_name}")
-            else:
-                logger.info(f"[NIGHT] {user_name}: {count}/10 ночных сообщений")
         
-        logger.info(f"[MSG] Готово для {user_name}")
+        logger.info(f"[MSG] === КОНЕЦ обработки {user_name} ===")
         
     except Exception as e:
-        logger.error(f"[MSG] ОШИБКА: {e}", exc_info=True)
+        logger.error(f"[MSG] 💥 КРИТИЧЕСКАЯ ОШИБКА: {e}", exc_info=True)
 
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1814,6 +1822,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
