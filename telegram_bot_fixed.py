@@ -78,6 +78,11 @@ morning_scheduled_date = ""
 bot_running = True
 motivation_sent_times = []
 
+# ============== КОМАНДА /MAM ==============
+# ID сообщения "Не зли маму..."
+mam_message_id = None
+MAM_PHOTO_PATH = "5422343903253302332.jpg"
+
 # ============== НОЧНОЙ РЕЖИМ ==============
 # {user_id: message_count} - персональный счётчик для каждого пользователя
 user_night_messages = {}
@@ -1309,6 +1314,23 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 del user_anon_state[user_id]
                 logger.info(f"[ANON] Состояние очищено для {user_name}")
         
+        # === ПРОВЕРКА ОТВЕТОВ НА /MAM ===
+        if mam_message_id is not None and update.message.reply_to_message:
+            if update.message.reply_to_message.message_id == mam_message_id:
+                # Кто-то ответил на сообщение "/mam" - отправляем фото
+                logger.info(f"[MAM] Обнаружен ответ на сообщение /mam от {user_name}")
+                try:
+                    with open(MAM_PHOTO_PATH, 'rb') as photo_file:
+                        await context.bot.send_photo(
+                            chat_id=CHAT_ID,
+                            photo=photo_file,
+                        )
+                    logger.info(f"[MAM] Фото отправлено")
+                except Exception as e:
+                    logger.error(f"[MAM] Ошибка отправки фото: {e}")
+                # Сбрасываем mam_message_id чтобы не реагировать на повторные ответы
+                mam_message_id = None
+        
         # === СТАТИСТИКА ===
         
         # Считаем дату по Москве
@@ -1475,6 +1497,7 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • /anonphoto — анонимная отправка фото
 • /remen — получить порцию смешных ругательств
 • /antiremen — получить порцию смешных комплиментов
+• /mam — отправить предупреждение "Не зли маму..."
 • /summary — получить сводку за сегодня
 • /rating — показать топ-10 участников по рейтингу
 • /levels — показать всех участников по уровням
@@ -1559,6 +1582,26 @@ async def antiremen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=f"💖 **{compliment}**",
         parse_mode="Markdown",
     )
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+
+async def mam(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /mam - отправить предупреждение про маму"""
+    global mam_message_id
+    
+    try:
+        message = await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Не зли маму, а то сейчас как достану 😈",
+        )
+        mam_message_id = message.message_id
+        logger.info(f"[MAM] Сообщение отправлено, message_id={mam_message_id}")
+    except Exception as e:
+        logger.error(f"[MAM] Ошибка отправки сообщения: {e}")
 
     try:
         await update.message.delete()
@@ -1838,6 +1881,7 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("stopmorning", stopmorning))
     application.add_handler(CommandHandler("remen", remen))
     application.add_handler(CommandHandler("antiremen", antiremen))
+    application.add_handler(CommandHandler("mam", mam))
     application.add_handler(CommandHandler("summary", summary))
     application.add_handler(CommandHandler("rating", rating))
     application.add_handler(CommandHandler("levels", levels))
@@ -1863,6 +1907,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
