@@ -1237,6 +1237,12 @@ async def handle_anon_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return  # Пользователь не в режиме анонимной отправки - пропускаем дальше
 
     if user_anon_state[user_id] != "waiting_for_text":
+        # Автоматически очищаем "застрявшие" состояния старше 5 минут
+        try:
+            del user_anon_state[user_id]
+            logger.info(f"[ANON] Очищено застрявшее состояние для пользователя {user_id}")
+        except:
+            pass
         return  # Не ожидаем текст - пропускаем дальше
 
     # Продолжаем обработку анонимного текста
@@ -1272,6 +1278,7 @@ async def handle_anon_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     del user_anon_state[user_id]
+    logger.info(f"[ANON] Анонимное сообщение отправлено, состояние очищено")
 
 
 async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1303,34 +1310,29 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Обработка всех сообщений для статистики"""
     global user_last_active, daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent
     
-    # Всегда логируем для отладки
-    logger.info(f"Получено update: {update}")
-    
-    if not update.message:
-        logger.debug("Нет сообщения в update")
-        return
-    
-    # Пропускаем команды
-    if update.message.text and update.message.text.startswith('/'):
-        logger.debug("Это команда, пропускаем")
-        return
-    
-    # Пропускаем сообщения от ботов
-    if update.message.from_user and update.message.from_user.is_bot:
-        logger.debug("Сообщение от бота, пропускаем")
-        return
-    
     try:
+        if not update.message:
+            return
+        
+        # Пропускаем команды
+        if update.message.text and update.message.text.startswith('/'):
+            return
+        
+        # Пропускаем сообщения от ботов
+        if update.message.from_user and update.message.from_user.is_bot:
+            return
+        
         user = update.message.from_user
         if not user:
-            logger.debug("Нет информации о пользователе")
             return
             
         user_id = user.id
         user_name = f"@{user.username}" if user.username else user.full_name
-        logger.info(f"Обрабатываем сообщение от {user_name} (ID: {user_id})")
+        message_text = update.message.text or ""
         
-        # Обновляем статистику daily_stats
+        logger.info(f"[MSG] От: {user_name}, текст: '{message_text[:50]}'")
+        
+        # 1. Обновляем daily_stats
         photo_info = None
         is_photo = False
         if update.message.photo:
@@ -1341,121 +1343,96 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "user_id": user_id,
                 "message_id": update.message.message_id,
             }
-            logger.info("Это фото")
         
-        update_daily_stats(user_id, user_name, "photo" if photo_info else "text", photo_info)
+        today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+        if daily_stats["date"] != today:
+            daily_stats = {"date": today, "total_messages": 0, "user_messages": {}, "photos": []}
         
-        # Обновляем рейтинг - сообщения
-        # Запоминаем старые данные для проверки
-        old_messages = user_rating_stats.get(user_id, {}).get("messages", 0)
-        old_rating = calculate_user_rating(user_id)
+        daily_stats["total_messages"] += 1
+        if user_id not in daily_stats["user_messages"]:
+            daily_stats["user_messages"][user_id] = {"name": user_name, "count": 0}
+        daily_stats["user_messages"][user_id]["count"] += 1
         
-        success, points, msg = update_rating_stats(user_id, user_name, "messages", 1)
-        if success:
-            # Проверяем, набрал ли пользователь достаточно для нового балла
-            new_rating = calculate_user_rating(user_id)
-            if new_rating > old_rating:
-                await send_point_notification(user_name, 1, "сообщение", new_rating)
-            # Проверяем повышение уровня
-            new_level = get_user_level(user_id)
-            old_level = user_current_level.get(user_id, "Новичок")
-            if new_level != old_level and new_level != "Новичок":
-                user_current_level[user_id] = new_level
-                await send_level_up_notification(user_name, new_level)
+        if is_photo and photo_info:
+            daily_stats["photos"].append(photo_info)
         
-        # Обновляем рейтинг - фото
+        logger.info(f"[MSG] daily_stats: {daily_stats['total_messages']} сообщений сегодня")
+        
+        # 2. Обновляем рейтинг за сообщения
+        if user_id not in user_rating_stats:
+            user_rating_stats[user_id] = {"name": user_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
+            user_current_level[user_id] = "Новичок"
+        
+        old_messages = user_rating_stats[user_id]["messages"]
+        old_rating = (user_rating_stats[user_id]["messages"] // 300 + 
+                     user_rating_stats[user_id]["photos"] // 10 + 
+                     user_rating_stats[user_id]["likes"] // 50 + 
+                     user_rating_stats[user_id]["replies"])
+        
+        user_rating_stats[user_id]["messages"] += 1
+        logger.info(f"[MSG] messages: {old_messages} -> {user_rating_stats[user_id]['messages']}")
+        
+        new_rating = (user_rating_stats[user_id]["messages"] // 300 + 
+                     user_rating_stats[user_id]["photos"] // 10 + 
+                     user_rating_stats[user_id]["likes"] // 50 + 
+                     user_rating_stats[user_id]["replies"])
+        
+        if new_rating > old_rating:
+            await send_point_notification(user_name, 1, "сообщение", new_rating)
+        
+        # 3. Обновляем рейтинг за фото
         if is_photo:
-            old_photos = user_rating_stats.get(user_id, {}).get("photos", 0)
-            old_rating = calculate_user_rating(user_id)
-            
-            success, points, msg = update_rating_stats(user_id, user_name, "photos", 1)
-            if success:
-                # Проверяем, набрал ли пользователь достаточно для нового балла
-                new_rating = calculate_user_rating(user_id)
-                if new_rating > old_rating:
-                    await send_point_notification(user_name, 1, "фото", new_rating)
-                # Проверяем повышение уровня
-                new_level = get_user_level(user_id)
-                old_level = user_current_level.get(user_id, "Новичок")
-                if new_level != old_level and new_level != "Новичок":
-                    user_current_level[user_id] = new_level
-                    await send_level_up_notification(user_name, new_level)
+            old_photos = user_rating_stats[user_id]["photos"]
+            user_rating_stats[user_id]["photos"] += 1
+            logger.info(f"[MSG] photos: {old_photos} -> {user_rating_stats[user_id]['photos']}")
         
-        # Проверяем, является ли сообщение ответом на другое с "+"
-        # Упрощённая и надёжная логика
-        try:
-            reply_msg = update.message.reply_to_message
-            if reply_msg is not None:
-                original_user = reply_msg.from_user
-                if original_user is not None:
-                    original_author_id = original_user.id
-                    original_author_name = f"@{original_user.username}" if original_user.username else original_user.full_name
-                    
-                    # Проверяем, что это не ответ на своё сообщение
-                    if original_author_id != user_id:
-                        message_text = update.message.text or ""
-                        
-                        # Проверяем, что текст сообщения - это именно "+" (с возможными пробелами)
-                        if message_text.strip() == "+":
-                            logger.info(f"[PLUS+] {user_name} ответил(+) на сообщение {original_author_name}")
-                            
-                            # Даём балл автору оригинального сообщения
-                            success, points_earned, msg = update_rating_stats(original_author_id, original_author_name, "replies", 1)
-                            
-                            logger.info(f"[PLUS+] update_rating_stats результат: success={success}, points={points_earned}")
-                            
-                            if success and points_earned > 0:
-                                total = calculate_user_rating(original_author_id)
-                                await send_point_notification(original_author_name, points_earned, "ответ", total)
-                                
-                                # Проверяем повышение уровня
-                                new_level = get_user_level(original_author_id)
-                                old_level = user_current_level.get(original_author_id, "Новичок")
-                                if new_level != old_level and new_level != "Новичок":
-                                    user_current_level[original_author_id] = new_level
-                                    await send_level_up_notification(original_author_name, new_level)
-                                
-                                logger.info(f"[PLUS+] {original_author_name} получил {points_earned} балл! Всего: {total}")
-                            else:
-                                logger.warning(f"[PLUS+] Баллы не начислены: success={success}, points={points_earned}")
-        except Exception as e:
-            logger.error(f"[PLUS+] Ошибка в логике плюсов: {e}")
+        # 4. Проверяем "+" ответы
+        reply_msg = update.message.reply_to_message
+        if reply_msg is not None and reply_msg.from_user is not None:
+            original_author_id = reply_msg.from_user.id
+            if original_author_id != user_id and message_text.strip() == "+":
+                logger.info(f"[PLUS] {user_name} дал(+) {reply_msg.from_user.username or reply_msg.from_user.full_name}")
+                
+                if original_author_id not in user_rating_stats:
+                    original_name = f"@{reply_msg.from_user.username}" if reply_msg.from_user.username else reply_msg.from_user.full_name
+                    user_rating_stats[original_author_id] = {"name": original_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
+                    user_current_level[original_author_id] = "Новичок"
+                
+                old_replies = user_rating_stats[original_author_id]["replies"]
+                user_rating_stats[original_author_id]["replies"] += 1
+                logger.info(f"[PLUS] replies: {old_replies} -> {user_rating_stats[original_author_id]['replies']}")
+                
+                total = (user_rating_stats[original_author_id]["messages"] // 300 + 
+                         user_rating_stats[original_author_id]["photos"] // 10 + 
+                         user_rating_stats[original_author_id]["likes"] // 50 + 
+                         user_rating_stats[original_author_id]["replies"])
+                
+                original_name = f"@{reply_msg.from_user.username}" if reply_msg.from_user.username else reply_msg.from_user.full_name
+                await send_point_notification(original_name, 1, "ответ", total)
+                logger.info(f"[PLUS] Уведомление отправлено! Всего баллов: {total}")
         
-        # Логируем текущую статистику
-        logger.info(f"Текущая статистика: {daily_stats['total_messages']} сообщений")
-        
-        # Проверка ночного режима (персонально для каждого пользователя)
+        # 5. Ночной режим
         now = datetime.now(MOSCOW_TZ)
-        today = now.strftime("%Y-%m-%d")
-        
         if now.hour >= 22 and now.hour < 24:
-            # Инициализируем счётчик для пользователя если нужно
             if user_id not in user_night_messages:
                 user_night_messages[user_id] = 0
-            if user_id not in user_night_warning_sent:
-                user_night_warning_sent[user_id] = ""
-            
-            # Сбрасываем счётчик если новый день
             if user_night_warning_sent.get(user_id, "") != today:
                 user_night_messages[user_id] = 0
                 user_night_warning_sent[user_id] = ""
             
-            # Увеличиваем счётчик
             user_night_messages[user_id] += 1
-            logger.info(f"Ночной режим: {user_name} отправил {user_night_messages[user_id]} сообщений после 22:00")
+            logger.info(f"[NIGHT] {user_name}: {user_night_messages[user_id]}/10 сообщений")
             
-            # Отправляем предупреждение на 10-м сообщении
-            if user_night_messages[user_id] == 10 and not user_night_warning_sent.get(user_id):
+            if user_night_messages[user_id] == 10:
                 warning = random.choice(NIGHT_WARNINGS)
-                try:
-                    await context.bot.send_message(chat_id=CHAT_ID, text=warning)
-                    user_night_warning_sent[user_id] = today
-                    logger.info(f"Отправлено ночное предупреждение пользователю {user_name}")
-                except Exception as e:
-                    logger.error(f"Ошибка ночного предупреждения: {e}")
+                await context.bot.send_message(chat_id=CHAT_ID, text=warning)
+                user_night_warning_sent[user_id] = today
+                logger.info(f"[NIGHT] Предупреждение отправлено {user_name}")
+        
+        logger.info(f"[MSG] Готово для {user_name}")
         
     except Exception as e:
-        logger.error(f"Ошибка в handle_all_messages: {e}", exc_info=True)
+        logger.error(f"[MSG] ОШИБКА: {e}", exc_info=True)
 
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
