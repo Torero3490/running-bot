@@ -509,10 +509,10 @@ async def send_point_notification(user_name: str, points: int, reason: str, tota
     try:
         # Эмодзи в зависимости от причины получения баллов
         reason_emojis = {
-            "messages": "💬",
-            "photos": "📷",
-            "likes": "❤️",
-            "replies": "💬"
+            "сообщения": "💬",
+            "фото": "📷",
+            "лайки": "❤️",
+            "ответы": "💬"
         }
         
         emoji = reason_emojis.get(reason, "⭐")
@@ -777,11 +777,11 @@ async def get_top_liked_photos() -> list:
                 # Обновляем лайки в рейтинге автора фото
                 if like_count > 0 and photo["user_id"] in user_rating_stats:
                     old_likes = user_rating_stats[photo["user_id"]]["likes"]
-                    user_rating_stats[photo["user_id"]]["likes"] += like_count
+                    user_rating_stats[photo["user_id"]]["likes"] = like_count
                     
                     # Проверяем, сколько баллов за лайки начислено
                     old_points = old_likes // POINTS_PER_LIKES
-                    new_points = user_rating_stats[photo["user_id"]]["likes"] // POINTS_PER_LIKES
+                    new_points = like_count // POINTS_PER_LIKES
                     points_earned = new_points - old_points
                     
                     if points_earned > 0:
@@ -1331,10 +1331,16 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         update_daily_stats(user_id, user_name, "photo" if photo_info else "text", photo_info)
         
         # Обновляем рейтинг - сообщения
+        # Запоминаем старые данные для проверки
+        old_messages = user_rating_stats.get(user_id, {}).get("messages", 0)
+        old_rating = calculate_user_rating(user_id)
+        
         success, points, msg = update_rating_stats(user_id, user_name, "messages", 1)
-        if success and points > 0:
-            total = calculate_user_rating(user_id)
-            await send_point_notification(user_name, points, "сообщения", total)
+        if success:
+            # Проверяем, набрал ли пользователь достаточно для нового балла
+            new_rating = calculate_user_rating(user_id)
+            if new_rating > old_rating:
+                await send_point_notification(user_name, 1, "сообщение", new_rating)
             # Проверяем повышение уровня
             new_level = get_user_level(user_id)
             old_level = user_current_level.get(user_id, "Новичок")
@@ -1344,10 +1350,15 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # Обновляем рейтинг - фото
         if is_photo:
+            old_photos = user_rating_stats.get(user_id, {}).get("photos", 0)
+            old_rating = calculate_user_rating(user_id)
+            
             success, points, msg = update_rating_stats(user_id, user_name, "photos", 1)
-            if success and points > 0:
-                total = calculate_user_rating(user_id)
-                await send_point_notification(user_name, points, "фото", total)
+            if success:
+                # Проверяем, набрал ли пользователь достаточно для нового балла
+                new_rating = calculate_user_rating(user_id)
+                if new_rating > old_rating:
+                    await send_point_notification(user_name, 1, "фото", new_rating)
                 # Проверяем повышение уровня
                 new_level = get_user_level(user_id)
                 old_level = user_current_level.get(user_id, "Новичок")
@@ -1355,24 +1366,26 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                     user_current_level[user_id] = new_level
                     await send_level_up_notification(user_name, new_level)
         
-        # Проверяем, является ли сообщение ответом на другое
+        # Проверяем, является ли сообщение ответом на другое с "+"
         if update.message.reply_to_message and update.message.reply_to_message.from_user:
-            # Даём балл автору original сообщения за ответ на его сообщение
-            original_author_id = update.message.reply_to_message.from_user.id
-            original_author_name = f"@{update.message.reply_to_message.from_user.username}" if update.message.reply_to_message.from_user.username else update.message.reply_to_message.from_user.full_name
-            
-            if original_author_id != user_id:  # Не даём балл за ответ на своё сообщение
+            # Балл даётся только за ответ "+" (плюс)
+            message_text = update.message.text or ""
+            if message_text.strip() == "+" and original_author_id != user_id:
+                # Даём балл автору оригинального сообщения за "+" в ответ
+                original_author_id = update.message.reply_to_message.from_user.id
+                original_author_name = f"@{update.message.reply_to_message.from_user.username}" if update.message.reply_to_message.from_user.username else update.message.reply_to_message.from_user.full_name
+                
                 success, points, msg = update_rating_stats(original_author_id, original_author_name, "replies", 1)
-                if success and points > 0:
+                if success:
                     total = calculate_user_rating(original_author_id)
-                    await send_point_notification(original_author_name, points, "ответы", total)
+                    await send_point_notification(original_author_name, 1, "ответ", total)
                     # Проверяем повышение уровня
                     new_level = get_user_level(original_author_id)
                     old_level = user_current_level.get(original_author_id, "Новичок")
                     if new_level != old_level and new_level != "Новичок":
                         user_current_level[original_author_id] = new_level
                         await send_level_up_notification(original_author_name, new_level)
-                logger.info(f"Автор {original_author_name} получил балл за ответ от {user_name}")
+                logger.info(f"Автор {original_author_name} получил балл за + от {user_name}")
         
         # Логируем текущую статистику
         logger.info(f"Текущая статистика: {daily_stats['total_messages']} сообщений")
@@ -1822,6 +1835,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
