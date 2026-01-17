@@ -756,78 +756,76 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Обработка всех сообщений для статистики"""
     global night_messages_count, night_warning_sent, user_last_active
     
-    if not update.message or not update.effective_chat:
+    # Игнорируем если нет сообщения
+    if not update.message:
         return
     
-    # Пропускаем команды
+    # Игнорируем если это команда
     if update.message.text and update.message.text.startswith('/'):
         return
     
-    # Пропускаем сообщения от ботов
-    if update.message.from_user.is_bot:
+    # Игнорируем ботов
+    if update.message.from_user and update.message.from_user.is_bot:
         return
     
-    user = update.message.from_user
-    user_id = user.id
-    user_name = f"@{user.username}" if user.username else user.full_name
-    
-    # Проверка на возвращенца (не писал 2+ недели)
-    now = datetime.now(MOSCOW_TZ)
-    two_weeks_ago = now - timedelta(days=14)
-    
-    if user_id in user_last_active:
-        last_active = user_last_active[user_id]
-        if last_active < two_weeks_ago:
-            # Отправляем приветствие возвращенцу
-            greeting = random.choice(RETURN_GREETINGS)
-            try:
-                await context.bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=greeting,
-                )
-                logger.info(f"Приветствие отправлено возвращенцу {user_name}")
-            except Exception as e:
-                logger.error(f"Ошибка отправки приветствия: {e}")
-    
-    # Обновляем время последней активности
-    user_last_active[user_id] = now
-    
-    # Проверка ночного режима (после 22:00)
-    now = datetime.now(MOSCOW_TZ)
-    if now.hour >= 22 and now.hour < 24:
-        # Сбрасываем счётчик в полночь
-        if now.hour == 0:
-            night_messages_count = 0
-            night_warning_sent = False
+    try:
+        user = update.message.from_user
+        if not user:
+            return
+            
+        user_id = user.id
+        user_name = f"@{user.username}" if user.username else user.full_name
         
-        # Считаем сообщения после 22:00
-        night_messages_count += 1
+        # Проверка на возвращенца (не писал 2+ недели)
+        now = datetime.now(MOSCOW_TZ)
+        two_weeks_ago = now - timedelta(days=14)
         
-        # Если набралось 10 сообщений и предупреждение ещё не отправляли
-        if night_messages_count >= 10 and not night_warning_sent:
-            warning = random.choice(NIGHT_WARNINGS)
-            try:
-                await context.bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=warning,
-                )
-                night_warning_sent = True
-                logger.info("Ночное предупреждение отправлено")
-            except Exception as e:
-                logger.error(f"Ошибка отправки ночного предупреждения: {e}")
-    
-    # Проверяем, есть ли фото
-    photo_info = None
-    if update.message.photo:
-        photo = update.message.photo[-1]
-        photo_info = {
-            "file_id": photo.file_id,
-            "user_id": user.id,
-            "likes": 0,
-            "message_id": update.message.message_id,
-        }
-    
-    update_daily_stats(user.id, user_name, "photo" if update.message.photo else "text", photo_info)
+        if user_id in user_last_active:
+            last_active = user_last_active[user_id]
+            if last_active < two_weeks_ago:
+                greeting = random.choice(RETURN_GREETINGS)
+                try:
+                    await context.bot.send_message(
+                        chat_id=CHAT_ID,
+                        text=greeting,
+                    )
+                    logger.info(f"Приветствие возвращенцу {user_name}")
+                except Exception as e:
+                    logger.error(f"Ошибка приветствия: {e}")
+        
+        # Обновляем время активности
+        user_last_active[user_id] = now
+        
+        # Проверка ночного режима (после 22:00)
+        now = datetime.now(MOSCOW_TZ)
+        if now.hour >= 22 and now.hour < 24:
+            night_messages_count += 1
+            if night_messages_count >= 10 and not night_warning_sent:
+                warning = random.choice(NIGHT_WARNINGS)
+                try:
+                    await context.bot.send_message(
+                        chat_id=CHAT_ID,
+                        text=warning,
+                    )
+                    night_warning_sent = True
+                except Exception as e:
+                    logger.error(f"Ошибка ночного предупреждения: {e}")
+        
+        # Обновляем статистику
+        photo_info = None
+        if update.message.photo:
+            photo = update.message.photo[-1]
+            photo_info = {
+                "file_id": photo.file_id,
+                "user_id": user_id,
+                "message_id": update.message.message_id,
+            }
+        
+        update_daily_stats(user_id, user_name, "photo" if photo_info else "text", photo_info)
+        logger.debug(f"Статистика обновлена для {user_name}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в handle_all_messages: {e}")
 
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1073,5 +1071,6 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
