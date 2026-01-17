@@ -1377,17 +1377,49 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await send_level_up_notification(user_name, new_level)
         
         # Проверяем, является ли сообщение ответом на другое с "+"
+        logger.info(f"[DEBUG+] Проверяем reply_to_message: {update.message.reply_to_message is not None}")
+        
         if update.message.reply_to_message and update.message.reply_to_message.from_user:
             # Получаем данные об авторе оригинального сообщения
             original_author_id = update.message.reply_to_message.from_user.id
             original_author_name = f"@{update.message.reply_to_message.from_user.username}" if update.message.reply_to_message.from_user.username else update.message.reply_to_message.from_user.full_name
             
+            logger.info(f"[DEBUG+] Автор оригинального сообщения: {original_author_name} (ID: {original_author_id})")
+            logger.info(f"[DEBUG+] Текущий пользователь: {user_name} (ID: {user_id})")
+            
             # Балл даётся только за ответ "+" (плюс)
             message_text = update.message.text or ""
+            logger.info(f"[DEBUG+] Текст сообщения: '{message_text}', stripped: '{message_text.strip()}'")
+            
+            if message_text.strip() == "+":
+                logger.info(f"[DEBUG+] Условие '+' выполнено!")
+            else:
+                logger.info(f"[DEBUG+] Условие '+' НЕ выполнено (текст != '+')")
+            
+            if original_author_id != user_id:
+                logger.info(f"[DEBUG+] Условие 'не сам себе' выполнено!")
+            else:
+                logger.info(f"[DEBUG+] Условие 'не сам себе' НЕ выполнено (self-reply)")
+            
             if message_text.strip() == "+" and original_author_id != user_id:
                 # Даём балл автору оригинального сообщения за "+" в ответ
+                logger.info(f"[DEBUG+] НАЧИНАЕМ начисление баллов автору {original_author_name}")
+                
+                # Для отладки - запоминаем старые значения
+                old_replies = user_rating_stats.get(original_author_id, {}).get("replies", 0)
+                old_total = calculate_user_rating(original_author_id)
+                logger.info(f"[DEBUG+] Старые данные: replies={old_replies}, total_points={old_total}")
+                
                 success, points_earned, msg = update_rating_stats(original_author_id, original_author_name, "replies", 1)
+                
+                # Для отладки - проверяем новые значения
+                new_replies = user_rating_stats.get(original_author_id, {}).get("replies", 0)
+                new_total = calculate_user_rating(original_author_id)
+                logger.info(f"[DEBUG+] Новые данные: replies={new_replies}, total_points={new_total}")
+                logger.info(f"[DEBUG+] Результат update_rating_stats: success={success}, points_earned={points_earned}, msg='{msg}'")
+                
                 if success and points_earned > 0:
+                    logger.info(f"[DEBUG+] Условие 'success and points_earned > 0' выполнено - отправляем уведомление!")
                     total = calculate_user_rating(original_author_id)
                     await send_point_notification(original_author_name, points_earned, "ответ", total)
                     # Проверяем повышение уровня
@@ -1397,6 +1429,10 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                         user_current_level[original_author_id] = new_level
                         await send_level_up_notification(original_author_name, new_level)
                     logger.info(f"Автор {original_author_name} получил {points_earned} балл(ов) за + от {user_name}")
+                else:
+                    logger.warning(f"[DEBUG+] Условие 'success and points_earned > 0' НЕ выполнено! success={success}, points_earned={points_earned}")
+            else:
+                logger.info(f"[DEBUG+] Условия для начисления баллов НЕ выполнены")
         
         # Логируем текущую статистику
         logger.info(f"Текущая статистика: {daily_stats['total_messages']} сообщений")
@@ -1846,7 +1882,6 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
-
 
 
 
