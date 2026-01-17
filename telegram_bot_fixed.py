@@ -422,8 +422,8 @@ def update_daily_stats(user_id: int, user_name: str, message_type: str, photo_in
     
     today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
     
-    # Сброс статистики при смене дня
-    if daily_stats["date"] != today:
+    # Безопасная инициализация
+    if not isinstance(daily_stats, dict) or daily_stats.get("date") != today:
         daily_stats = {
             "date": today,
             "total_messages": 0,
@@ -1317,22 +1317,20 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         moscow_now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
         today = moscow_now.strftime("%Y-%m-%d")
         
+        # Безопасная инициализация daily_stats
+        if not isinstance(daily_stats, dict) or "date" not in daily_stats:
+            daily_stats = {"date": today, "total_messages": 0, "user_messages": {}, "photos": []}
+            logger.info("[MSG] daily_stats переинициализирован")
+        
         logger.info(f"[MSG] today={today}, daily_stats_date={daily_stats.get('date', 'EMPTY')}")
         
-        # Инициализируем daily_stats если первый запуск
-        if "date" not in daily_stats:
-            daily_stats["date"] = today
-            daily_stats["total_messages"] = 0
-            daily_stats["user_messages"] = {}
-            daily_stats["photos"] = []
-            logger.info("[MSG] daily_stats инициализирован")
-        
         # Сбрасываем только если новый день
-        if daily_stats["date"] != today:
+        if daily_stats.get("date", "") != today:
             daily_stats["date"] = today
             daily_stats["total_messages"] = 0
             daily_stats["user_messages"] = {}
             daily_stats["photos"] = []
+            logger.info("[MSG] Новый день - статистика сброшена")
             logger.info(f"[MSG] Новый день! Сброшена статистика")
         
         # Увеличиваем счётчик
@@ -1867,10 +1865,6 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
-
-
-
-
 
 
 
