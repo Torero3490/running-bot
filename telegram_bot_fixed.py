@@ -45,11 +45,21 @@ except ValueError:
 
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+# Настройка логирования с московским временем
+class MoscowTimeFormatter(logging.Formatter):
+    def format(self, record):
+        record.moscow_time = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        return super().format(record)
+
+formatter = MoscowTimeFormatter("%(moscow_time)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Добавляем обработчик к корневому логгеру
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+logging.root.handlers = []
+logging.root.addHandler(handler)
 
 # ============== FLASK ==============
 app = Flask(__name__)
@@ -1800,6 +1810,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
