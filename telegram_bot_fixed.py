@@ -539,10 +539,14 @@ async def get_top_liked_photos() -> list:
                     "likes": like_count,
                     "message_id": photo["message_id"],
                 })
-            except Exception as e:
-                logger.error(f"Ошибка получения реакций для фото {photo['message_id']}: {e}")
-                # Используем последнее известное значение
-                updated_photos.append(photo)
+            except Exception:
+                # Если не удалось получить лайки, считаем как 0
+                updated_photos.append({
+                    "file_id": photo["file_id"],
+                    "user_id": photo["user_id"],
+                    "likes": 0,
+                    "message_id": photo["message_id"],
+                })
         
         # Сортируем по лайкам и фильтруем (минимум 4)
         updated_photos.sort(key=lambda x: x["likes"], reverse=True)
@@ -577,7 +581,12 @@ async def send_daily_summary():
     """Отправка ежедневной сводки"""
     global daily_summary_sent
     
-    if application is None or daily_summary_sent:
+    if application is None:
+        logger.error("Application не инициализирован")
+        return
+    
+    if daily_summary_sent:
+        logger.info("Сводка уже отправлена сегодня")
         return
     
     try:
@@ -597,6 +606,8 @@ async def send_daily_summary():
             for i, (user_id, name, count) in enumerate(top_users):
                 summary_text += f"{medals[i]} {name} — {count} сообщений\n"
             summary_text += "\n"
+        else:
+            summary_text += "🏆 **Топ активных бегунов:** Пока никого нет\n\n"
         
         # Отправляем текстовую часть
         await application.bot.send_message(
@@ -605,19 +616,21 @@ async def send_daily_summary():
             parse_mode="Markdown",
         )
         
-        # Отправляем топ фото
-        top_photos = await get_top_liked_photos()
-        if top_photos:
-            for photo in top_photos:
-                try:
-                    await application.bot.send_photo(
-                        chat_id=CHAT_ID,
-                        photo=photo["file_id"],
-                        caption=f"❤️ {photo['likes']} лайков",
-                        parse_mode="Markdown",
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки фото: {e}")
+        # Пытаемся отправить топ фото с 4+ лайками
+        try:
+            top_photos = await get_top_liked_photos()
+            if top_photos:
+                for photo in top_photos:
+                    try:
+                        await application.bot.send_photo(
+                            chat_id=CHAT_ID,
+                            photo=photo["file_id"],
+                            caption=f"❤️ {photo['likes']} лайков",
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"Ошибка получения фото: {e}")
         
         daily_summary_sent = True
         logger.info("Ежедневная сводка отправлена")
@@ -933,7 +946,22 @@ async def antiremen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отправка сводки по команде"""
-    await send_daily_summary()
+    # Сбрасываем флаг для принудительной отправки
+    global daily_summary_sent
+    was_sent = daily_summary_sent
+    daily_summary_sent = False
+    
+    try:
+        await send_daily_summary()
+    except Exception as e:
+        logger.error(f"Ошибка сводки: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ошибка при формировании сводки",
+        )
+    
+    # Восстанавливаем предыдущее состояние
+    daily_summary_sent = was_sent
     
     try:
         await update.message.delete()
@@ -1045,4 +1073,5 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
