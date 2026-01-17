@@ -1245,7 +1245,7 @@ async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============== ЕДИНЫЙ ОБРАБОТЧИК СООБЩЕНИЙ ==============
 async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Единый обработчик всех сообщений - и статистика, и анонимка"""
-    global daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent
+    global daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent, mam_message_id
     
     # ОТЛАДКА - проверяем что функция вызывается
     try:
@@ -1907,8 +1907,6 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
-
-
 
 
 
