@@ -562,7 +562,7 @@ async def send_level_up_notification(user_name: str, new_level: str):
         logger.error(f"Ошибка отправки уведомления о уровне: {e}")
 
 
-def update_rating_stats(user_id: int, user_name: str, category: str, amount: int = 1) -> bool:
+def update_rating_stats(user_id: int, user_name: str, category: str, amount: int = 1) -> tuple:
     """
     Обновление статистики рейтинга с защитой от накруток
     
@@ -622,19 +622,29 @@ def update_rating_stats(user_id: int, user_name: str, category: str, amount: int
     # Запоминаем старый уровень
     old_level = user_current_level.get(user_id, "Новичок")
     
+    # Запоминаем старые значения для подсчёта прироста
+    old_messages = user_rating_stats[user_id]["messages"]
+    old_photos = user_rating_stats[user_id]["photos"]
+    old_likes = user_rating_stats[user_id]["likes"]
+    old_replies = user_rating_stats[user_id]["replies"]
+    
     # Обновляем статистику
     user_rating_stats[user_id][category] += amount
     
-    # Проверяем, сколько баллов начислено за это действие
+    # Проверяем, сколько баллов начислено за это действие (прирост)
     points_earned = 0
     if category == "messages":
-        points_earned = user_rating_stats[user_id]["messages"] // POINTS_PER_MESSAGES
+        new_messages = user_rating_stats[user_id]["messages"]
+        points_earned = (new_messages // POINTS_PER_MESSAGES) - (old_messages // POINTS_PER_MESSAGES)
     elif category == "photos":
-        points_earned = user_rating_stats[user_id]["photos"] // POINTS_PER_PHOTOS
+        new_photos = user_rating_stats[user_id]["photos"]
+        points_earned = (new_photos // POINTS_PER_PHOTOS) - (old_photos // POINTS_PER_PHOTOS)
     elif category == "likes":
-        points_earned = user_rating_stats[user_id]["likes"] // POINTS_PER_LIKES
+        new_likes = user_rating_stats[user_id]["likes"]
+        points_earned = (new_likes // POINTS_PER_LIKES) - (old_likes // POINTS_PER_LIKES)
     elif category == "replies":
-        points_earned = user_rating_stats[user_id]["replies"]
+        new_replies = user_rating_stats[user_id]["replies"]
+        points_earned = new_replies - old_replies  # Каждый ответ = 1 балл
     
     # Проверяем новый уровень
     new_level = get_user_level(user_id)
@@ -1376,17 +1386,17 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             message_text = update.message.text or ""
             if message_text.strip() == "+" and original_author_id != user_id:
                 # Даём балл автору оригинального сообщения за "+" в ответ
-                success, points, msg = update_rating_stats(original_author_id, original_author_name, "replies", 1)
-                if success:
+                success, points_earned, msg = update_rating_stats(original_author_id, original_author_name, "replies", 1)
+                if success and points_earned > 0:
                     total = calculate_user_rating(original_author_id)
-                    await send_point_notification(original_author_name, 1, "ответ", total)
+                    await send_point_notification(original_author_name, points_earned, "ответ", total)
                     # Проверяем повышение уровня
                     new_level = get_user_level(original_author_id)
                     old_level = user_current_level.get(original_author_id, "Новичок")
                     if new_level != old_level and new_level != "Новичок":
                         user_current_level[original_author_id] = new_level
                         await send_level_up_notification(original_author_name, new_level)
-                logger.info(f"Автор {original_author_name} получил балл за + от {user_name}")
+                    logger.info(f"Автор {original_author_name} получил {points_earned} балл(ов) за + от {user_name}")
         
         # Логируем текущую статистику
         logger.info(f"Текущая статистика: {daily_stats['total_messages']} сообщений")
@@ -1836,6 +1846,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
