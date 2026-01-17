@@ -167,6 +167,152 @@ WELCOME_MESSAGES = [
     "Добро пожаловать в чат, где километры — это не просто цифры, а истории! Ты кто: тот, кто только мечтает о первом забеге, уже собирает медали или готов пробежать 42 км ради шутки?",
 ]
 
+# ============== СОВЕТЫ ДНЯ (ИЗ ИНТЕРНЕТА) ==============
+import re
+from bs4 import BeautifulSoup
+from typing import List, Dict, Optional
+import time
+
+# Кэш советов
+_tips_cache = {
+    "running": [],
+    "recovery": [],
+    "equipment": [],
+    "last_update": 0
+}
+
+CACHE_DURATION = 3600  # Обновлять советы каждый час
+
+
+async def fetch_tips_from_url(url: str, category: str) -> List[str]:
+    """Получение советов с веб-страницы"""
+    tips = []
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, follow_redirects=True)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Ищем параграфы с советами
+            paragraphs = soup.find_all('p')
+            
+            for p in paragraphs:
+                text = p.get_text().strip()
+                if len(text) > 50 and len(text) < 500:
+                    if not any(word in text.lower() for word in ['подпишитесь', 'читайте также', 'автор:', 'дата:', 'copyright']):
+                        tips.append(text)
+            
+            logger.info(f"[TIPS] Получено {len(tips)} советов с {url}")
+            
+    except Exception as e:
+        logger.error(f"[TIPS] Ошибка загрузки {url}: {e}")
+    
+    return tips
+
+
+async def update_tips_cache():
+    """Обновление кэша советов из интернета"""
+    global _tips_cache
+    
+    current_time = time.time()
+    if current_time - _tips_cache["last_update"] < CACHE_DURATION:
+        logger.info("[TIPS] Используем кэшированные советы")
+        return
+    
+    logger.info("[TIPS] Обновляем советы из интернета...")
+    
+    sources = {
+        "running": [
+            "https://marathonec.ru/kak-nachat-begat/",
+            "https://marathonec.ru/topics/running/training/",
+        ],
+        "recovery": [],
+        "equipment": [
+            "https://marathonec.ru/kak-vybrat-krossovki-dlya-bega/",
+            "https://marathonec.ru/odezhda-dlya-bega-osenyu/",
+            "https://marathonec.ru/topics/running/gear/",
+        ]
+    }
+    
+    local_advice = {
+        "running": [
+            "Начинай бегать медленно — твой пульс не должен превышать 130-140 уд/мин на первых тренировках.",
+            "Не увеличивай дистанцию больше чем на 10% в неделю — это снижает риск травм.",
+            "Бегай в темпе, в котором ты можешь разговаривать. Если задыхаешься — замедляйся.",
+            "Чередование бега и ходьбы (2 мин бег + 1 мин ходьба) — отличный способ начать бегать.",
+            "Не пропускай разминку! 5-10 минут лёгкой ходьбы и динамической растяжки перед бегом обязательны.",
+            "После 3-4 недель регулярного бега ты заметишь, что стал бегать легче и дольше.",
+            "Интервальный бег (чередование быстрого и медленного) — эффективный способ улучшить выносливость.",
+            "Правильная техника: приземление под таз, не на пятку; спина ровная, взгляд вперёд.",
+        ],
+        "recovery": [
+            "После пробежки обязательно сделай заминку: 5-10 минут медленной ходьбы.",
+            "Растяжка после бега должна быть статической — удерживай позы 20-30 секунд.",
+            "Пей воду сразу после тренировки — 200-300 мл, потом пей по жажде в течение дня.",
+            "Сон — главный инструмент восстановления. 7-8 часов сна творят чудеса.",
+            "Делай хотя бы 1 полный день отдыха в неделю — мышцы восстанавливаются именно в покое.",
+            "Обязательны дни отдыха — рост формы происходит в восстановлении.",
+        ],
+        "equipment": [
+            "Беговые кроссовки нужно менять каждые 500-800 км — изношенная амортизация ведёт к травмам.",
+            "Бери кроссовки на 0,5-1,5 см больше обычного размера — нога отекает при беге.",
+            "Одевайся так, чтобы в начале тренировки было прохладно — на один слой меньше, чем для прогулки.",
+            "Синтетическая одежда отводит влагу лучше хлопка — выбирай технические ткани.",
+            "Примеряй кроссовки вечером — к вечеру стопы немного отекают.",
+            "Выбирай кроссовки под тип пронации: нейтральная, поддержка или контроль — зависит от стопы.",
+        ]
+    }
+    
+    for cat, urls in sources.items():
+        for url in urls:
+            tips = await fetch_tips_from_url(url, cat)
+            if tips:
+                _tips_cache[cat].extend(tips)
+                break
+    
+    for cat in ["running", "recovery", "equipment"]:
+        if not _tips_cache[cat]:
+            logger.info(f"[TIPS] Используем локальные советы для категории {cat}")
+            _tips_cache[cat] = local_advice.get(cat, []).copy()
+    
+    _tips_cache["last_update"] = current_time
+    logger.info(f"[TIPS] Кэш обновлён: running={len(_tips_cache['running'])}, recovery={len(_tips_cache['recovery'])}, equipment={len(_tips_cache['equipment'])}")
+
+
+def get_random_tip(category: str = None) -> str:
+    """Получение случайного совета из кэша"""
+    import random
+    
+    running_cats = ["running", "run", "бег", "бегать", "тренировки"]
+    recovery_cats = ["recovery", "restore", "восстановление", "отдых", "питание"]
+    equipment_cats = ["equipment", "gear", "экипировка", "кроссовки", "одежда"]
+    
+    if category:
+        cat_lower = category.lower()
+        if cat_lower in running_cats:
+            tips_list = _tips_cache["running"]
+            cat_name = "беге"
+        elif cat_lower in recovery_cats:
+            tips_list = _tips_cache["recovery"]
+            cat_name = "восстановлении"
+        elif cat_lower in equipment_cats:
+            tips_list = _tips_cache["equipment"]
+            cat_name = "экипировке"
+        else:
+            tips_list = (_tips_cache["running"] + _tips_cache["recovery"] + _tips_cache["equipment"])
+            cat_name = "бегу, восстановлению и экипировке"
+    else:
+        tips_list = (_tips_cache["running"] + _tips_cache["recovery"] + _tips_cache["equipment"])
+        cat_name = "бегу, восстановлению и экипировке"
+    
+    if not tips_list:
+        return "💡 Совет: Не забывайте регулярно тренироваться и прислушиваться к своему телу!"
+    
+    tip = random.choice(tips_list)
+    return f"💡 **Совет по {cat_name} (источник: marathonec.ru):**\n\n{tip}
+
+
 MOTIVATION_QUOTES = [
     "🏃 Сегодня отличный день, чтобы стать лучше!",
     "💪 Каждый км — это победа над собой!",
@@ -1498,6 +1644,7 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • /remen — получить порцию смешных ругательств
 • /antiremen — получить порцию смешных комплиментов
 • /mam — отправить предупреждение "Не зли маму..."
+• /advice — получить совет по бегу из интернета
 • /summary — получить сводку за сегодня
 • /rating — показать топ-10 участников по рейтингу
 • /levels — показать всех участников по уровням
@@ -1602,6 +1749,40 @@ async def mam(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"[MAM] Сообщение отправлено, message_id={mam_message_id}")
     except Exception as e:
         logger.error(f"[MAM] Ошибка отправки сообщения: {e}")
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+
+async def advice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /advice - получить совет по бегу из интернета"""
+    try:
+        # Получаем категорию из аргументов
+        args = context.args
+        category = args[0] if args else None
+        
+        # Обновляем кэш советов из интернета
+        await update_tips_cache()
+        
+        # Формируем текст совета
+        advice_text = get_random_tip(category)
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=advice_text,
+            parse_mode="Markdown",
+        )
+        
+        logger.info(f"[ADVICE] Совет отправлен, категория: {category or 'случайная'}")
+        
+    except Exception as e:
+        logger.error(f"[ADVICE] Ошибка отправки совета: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="💡 Использование: /advice [категория]\n\nКатегории: running, recovery, equipment\nПример: /advice running",
+        )
 
     try:
         await update.message.delete()
@@ -1882,6 +2063,7 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("remen", remen))
     application.add_handler(CommandHandler("antiremen", antiremen))
     application.add_handler(CommandHandler("mam", mam))
+    application.add_handler(CommandHandler("advice", advice))
     application.add_handler(CommandHandler("summary", summary))
     application.add_handler(CommandHandler("rating", rating))
     application.add_handler(CommandHandler("levels", levels))
@@ -1907,6 +2089,4 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
-
-
 
