@@ -1230,95 +1230,16 @@ async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
-async def handle_anon_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-
-    if user_id not in user_anon_state:
-        return  # Пользователь не в режиме анонимной отправки - пропускаем дальше
-
-    if user_anon_state[user_id] != "waiting_for_text":
-        # Автоматически очищаем "застрявшие" состояния старше 5 минут
-        try:
-            del user_anon_state[user_id]
-            logger.info(f"[ANON] Очищено застрявшее состояние для пользователя {user_id}")
-        except:
-            pass
-        return  # Не ожидаем текст - пропускаем дальше
-
-    # Продолжаем обработку анонимного текста
-    text = update.message.text
-    target_mention = ""
-    
-    # Проверяем, есть ли упоминание @никнейм в начале
-    import re
-    match = re.match(r'^@(\w+)\s+(.+)', text)
-    
-    if match:
-        target_username = match.group(1)
-        message_text = match.group(2)
-        target_mention = f"@{target_username}"
-    else:
-        message_text = text
-    
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-
-    # Формируем сообщение
-    if target_mention:
-        anon_text = f"📬 **Анонимное сообщение для {target_mention}:**\n\n{message_text}"
-    else:
-        anon_text = f"📬 **Анонимное сообщение:**\n\n{message_text}"
-    
-    await context.bot.send_message(
-        chat_id=CHAT_ID,
-        text=anon_text,
-        parse_mode="Markdown",
-    )
-
-    del user_anon_state[user_id]
-    logger.info(f"[ANON] Анонимное сообщение отправлено, состояние очищено")
-
-
-async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-
-    if user_id not in user_anon_state:
-        return
-
-    if user_anon_state[user_id] == "waiting_for_photo":
-        photo = update.message.photo[-1]
-
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
-
-        await context.bot.send_photo(
-            chat_id=CHAT_ID,
-            photo=photo.file_id,
-            caption="📬 **Анонимное фото**",
-            parse_mode="Markdown",
-        )
-
-        del user_anon_state[user_id]
-
-
-# ============== ОБРАБОТЧИКИ СООБЩЕНИЙ ДЛЯ СТАТИСТИКИ ==============
+# ============== ЕДИНЫЙ ОБРАБОТЧИК СООБЩЕНИЙ ==============
 async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка всех сообщений для статистики"""
-    global user_last_active, daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent
+    """Единый обработчик всех сообщений - и статистика, и анонимка"""
+    global daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent
     
     try:
+        # Проверяем базовые условия
         if not update.message:
             return
         
-        # Пропускаем команды
-        if update.message.text and update.message.text.startswith('/'):
-            return
-        
-        # Пропускаем сообщения от ботов
         if update.message.from_user and update.message.from_user.is_bot:
             return
         
@@ -1329,24 +1250,58 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_id = user.id
         user_name = f"@{user.username}" if user.username else user.full_name
         message_text = update.message.text or ""
+        is_photo = bool(update.message.photo)
         
-        logger.info(f"[MSG] От: {user_name}, текст: '{message_text[:50]}'")
+        logger.info(f"[MSG] Получено от {user_name}: '{message_text[:30]}'")
         
-        # 1. Обновляем daily_stats
-        photo_info = None
-        is_photo = False
-        if update.message.photo:
-            is_photo = True
-            photo = update.message.photo[-1]
-            photo_info = {
-                "file_id": photo.file_id,
-                "user_id": user_id,
-                "message_id": update.message.message_id,
-            }
+        # === АНОНИМНАЯ ОТПРАВКА ===
+        if user_id in user_anon_state:
+            state = user_anon_state[user_id]
+            
+            if state == "waiting_for_text" and message_text:
+                # Анонимный текст
+                target_mention = ""
+                import re
+                match = re.match(r'^@(\w+)\s+(.+)', message_text)
+                if match:
+                    target_mention = f"@{match.group(1)}"
+                    anon_text = f"📬 **Анонимное сообщение для {target_mention}:**\n\n{match.group(2)}"
+                else:
+                    anon_text = f"📬 **Анонимное сообщение:**\n\n{message_text}"
+                
+                try:
+                    await update.message.delete()
+                except:
+                    pass
+                
+                await context.bot.send_message(chat_id=CHAT_ID, text=anon_text, parse_mode="Markdown")
+                del user_anon_state[user_id]
+                logger.info(f"[ANON] Анонимное сообщение от {user_name}")
+                return  # Не считаем анонимные сообщения в статистику
+            
+            elif state == "waiting_for_photo" and is_photo:
+                # Анонимное фото
+                photo = update.message.photo[-1]
+                try:
+                    await update.message.delete()
+                except:
+                    pass
+                
+                await context.bot.send_photo(chat_id=CHAT_ID, photo=photo.file_id, caption="📬 **Анонимное фото**", parse_mode="Markdown")
+                del user_anon_state[user_id]
+                logger.info(f"[ANON] Анонимное фото от {user_name}")
+                return  # Не считаем анонимные фото в статистику
+            
+            else:
+                # Состояние застряло - чистим
+                del user_anon_state[user_id]
+                logger.info(f"[ANON] Очищено застрявшее состояние для {user_name}")
         
+        # === СТАТИСТИКА ===
+        
+        # Обновляем daily_stats
         today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
         if daily_stats["date"] != today:
-            # Очищаем глобальный словарь и заполняем заново
             daily_stats.clear()
             daily_stats.update({"date": today, "total_messages": 0, "user_messages": {}, "photos": []})
         
@@ -1355,65 +1310,50 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             daily_stats["user_messages"][user_id] = {"name": user_name, "count": 0}
         daily_stats["user_messages"][user_id]["count"] += 1
         
-        if is_photo and photo_info:
-            daily_stats["photos"].append(photo_info)
+        if is_photo:
+            photo = update.message.photo[-1]
+            daily_stats["photos"].append({
+                "file_id": photo.file_id,
+                "user_id": user_id,
+                "message_id": update.message.message_id,
+            })
         
-        logger.info(f"[MSG] daily_stats: {daily_stats['total_messages']} сообщений сегодня")
-        
-        # 2. Обновляем рейтинг за сообщения
+        # Обновляем user_rating_stats
         if user_id not in user_rating_stats:
             user_rating_stats[user_id] = {"name": user_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
             user_current_level[user_id] = "Новичок"
         
-        old_messages = user_rating_stats[user_id]["messages"]
-        old_rating = (user_rating_stats[user_id]["messages"] // 300 + 
-                     user_rating_stats[user_id]["photos"] // 10 + 
-                     user_rating_stats[user_id]["likes"] // 50 + 
-                     user_rating_stats[user_id]["replies"])
-        
         user_rating_stats[user_id]["messages"] += 1
-        logger.info(f"[MSG] messages: {old_messages} -> {user_rating_stats[user_id]['messages']}")
-        
-        new_rating = (user_rating_stats[user_id]["messages"] // 300 + 
-                     user_rating_stats[user_id]["photos"] // 10 + 
-                     user_rating_stats[user_id]["likes"] // 50 + 
-                     user_rating_stats[user_id]["replies"])
-        
-        if new_rating > old_rating:
-            await send_point_notification(user_name, 1, "сообщение", new_rating)
-        
-        # 3. Обновляем рейтинг за фото
         if is_photo:
-            old_photos = user_rating_stats[user_id]["photos"]
             user_rating_stats[user_id]["photos"] += 1
-            logger.info(f"[MSG] photos: {old_photos} -> {user_rating_stats[user_id]['photos']}")
         
-        # 4. Проверяем "+" ответы
+        # Считаем общий рейтинг
+        stats = user_rating_stats[user_id]
+        total_points = (stats["messages"] // 300 + stats["photos"] // 10 + stats["likes"] // 50 + stats["replies"])
+        
+        logger.info(f"[MSG] Статистика: {daily_stats['total_messages']} сообщений, {user_name} имеет {total_points} баллов")
+        
+        # === НАЧИСЛЕНИЕ БАЛЛОВ ЗА "+" ===
         reply_msg = update.message.reply_to_message
-        if reply_msg is not None and reply_msg.from_user is not None:
-            original_author_id = reply_msg.from_user.id
-            if original_author_id != user_id and message_text.strip() == "+":
-                logger.info(f"[PLUS] {user_name} дал(+) {reply_msg.from_user.username or reply_msg.from_user.full_name}")
-                
-                if original_author_id not in user_rating_stats:
-                    original_name = f"@{reply_msg.from_user.username}" if reply_msg.from_user.username else reply_msg.from_user.full_name
-                    user_rating_stats[original_author_id] = {"name": original_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
-                    user_current_level[original_author_id] = "Новичок"
-                
-                old_replies = user_rating_stats[original_author_id]["replies"]
-                user_rating_stats[original_author_id]["replies"] += 1
-                logger.info(f"[PLUS] replies: {old_replies} -> {user_rating_stats[original_author_id]['replies']}")
-                
-                total = (user_rating_stats[original_author_id]["messages"] // 300 + 
-                         user_rating_stats[original_author_id]["photos"] // 10 + 
-                         user_rating_stats[original_author_id]["likes"] // 50 + 
-                         user_rating_stats[original_author_id]["replies"])
-                
+        if reply_msg and reply_msg.from_user:
+            original_id = reply_msg.from_user.id
+            if original_id != user_id and message_text.strip() == "+":
                 original_name = f"@{reply_msg.from_user.username}" if reply_msg.from_user.username else reply_msg.from_user.full_name
-                await send_point_notification(original_name, 1, "ответ", total)
-                logger.info(f"[PLUS] Уведомление отправлено! Всего баллов: {total}")
+                
+                if original_id not in user_rating_stats:
+                    user_rating_stats[original_id] = {"name": original_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
+                    user_current_level[original_id] = "Новичок"
+                
+                user_rating_stats[original_id]["replies"] += 1
+                
+                # Считаем новый рейтинг
+                orig_stats = user_rating_stats[original_id]
+                new_total = (orig_stats["messages"] // 300 + orig_stats["photos"] // 10 + orig_stats["likes"] // 50 + orig_stats["replies"])
+                
+                await send_point_notification(original_name, 1, "ответ", new_total)
+                logger.info(f"[PLUS] {user_name} дал(+) {original_name}. Всего: {new_total}")
         
-        # 5. Ночной режим
+        # === НОЧНОЙ РЕЖИМ ===
         now = datetime.now(MOSCOW_TZ)
         if now.hour >= 22 and now.hour < 24:
             if user_id not in user_night_messages:
@@ -1423,13 +1363,15 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 user_night_warning_sent[user_id] = ""
             
             user_night_messages[user_id] += 1
-            logger.info(f"[NIGHT] {user_name}: {user_night_messages[user_id]}/10 сообщений")
+            count = user_night_messages[user_id]
             
-            if user_night_messages[user_id] == 10:
+            if count == 10:
                 warning = random.choice(NIGHT_WARNINGS)
                 await context.bot.send_message(chat_id=CHAT_ID, text=warning)
                 user_night_warning_sent[user_id] = today
                 logger.info(f"[NIGHT] Предупреждение отправлено {user_name}")
+            else:
+                logger.info(f"[NIGHT] {user_name}: {count}/10 ночных сообщений")
         
         logger.info(f"[MSG] Готово для {user_name}")
         
@@ -1841,12 +1783,6 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("anon", anon))
     application.add_handler(CommandHandler("anonphoto", anonphoto))
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_anon_text)
-    )
-    application.add_handler(
-        MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_anon_photo)
-    )
-    application.add_handler(
         MessageHandler(filters.ALL & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_all_messages)
     )
     application.add_handler(CallbackQueryHandler(handle_callback_query))
@@ -1864,6 +1800,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
