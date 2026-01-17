@@ -73,6 +73,7 @@ application = None
 morning_message_id = None
 morning_scheduled_date = ""
 bot_running = True
+motivation_sent_times = []  # Отправленные мотивации сегодня
 
 
 # ============== ДАННЫЕ ==============
@@ -115,6 +116,28 @@ MOTIVATION_QUOTES = [
     "🔥 Диван — это не твой дом. Дорога — твой друг!",
     "💪 Вчера ты не смог. Сегодня ты бежишь!",
     "⭐ Бег — это лекарство, которое не нужно покупать!",
+    "🎓 Бег учит нас, что финиш всегда ближе, чем кажется!",
+    "🏆 Сегодняшняя тренировка — это завтрашняя победа!",
+    "🌅 Утренняя пробежка даёт сил на весь день!",
+    "💆 Бег — лучший способ перезагрузить голову!",
+    "🔄 Каждый круг — это шанс стать лучше!",
+    "🤝 Бег объединяет сильных духом!",
+    "🎪 Жизнь слишком коротка, чтобы не бегать!",
+    "🧘‍♀️ Бег — это медитация в движении!",
+    "🚀 Остановись — и потеряешь темп!",
+    "💫 Беги так, будто никто не смотрит!",
+    "🏃‍♂️ Не бегай от проблем — беги к целям!",
+    "⭐ Каждый спортсмен был новичком. Начни сегодня!",
+    "🔥 Сложно только первые 5 км. Дальше — легче!",
+    "💪 Твои ноги созданы для полёта!",
+    "🌟 Бег — это не работа. Это свобода!",
+    "🎯 Поставь цель — и беги к ней!",
+    "💥 Больше никогда не будет «слишком рано» или «слишком поздно»!",
+    "🏃‍♀️ Начни бежать — и увидишь, как изменится жизнь!",
+    "⭐ Диван не даст тебе медаль. А бег — даст!",
+    "🔥 Тренировки формируют характер!",
+    "💪 Верь в себя — и беги!",
+    "🌟 Ты можешь больше, чем думаешь!",
 ]
 
 user_anon_state = {}
@@ -267,6 +290,57 @@ async def delete_morning_message():
         except Exception as e:
             logger.error(f"Ошибка удаления утреннего сообщения: {e}")
             break
+
+
+# ============== МОТИВАЦИОННЫЕ СООБЩЕНИЯ ==============
+async def send_motivation():
+    """Отправка мотивационного сообщения"""
+    if application is None:
+        return
+
+    try:
+        motivation = get_random_motivation()
+        message = await application.bot.send_message(
+            chat_id=CHAT_ID,
+            text=f"💪 {motivation}",
+            parse_mode="Markdown",
+        )
+        logger.info(f"Мотивация отправлена: {message.message_id}")
+    except Exception as e:
+        logger.error(f"Ошибка отправки мотивации: {e}")
+
+
+async def motivation_scheduler_task():
+    """Планировщик мотивационных сообщений на 11:00, 16:00, 21:00"""
+    global motivation_sent_times
+    
+    while bot_running:
+        now = datetime.now(MOSCOW_TZ)
+        current_hour = now.hour
+        current_minute = now.minute
+        today_date = now.strftime("%Y-%m-%d")
+        
+        # Сбрасываем список отправленных сообщений в полночь
+        if now.hour == 0 and current_minute == 0:
+            motivation_sent_times = []
+        
+        # Время для отправки мотивации
+        motivation_hours = [11, 16, 21]  # 11:00, 16:00, 21:00
+        
+        for hour in motivation_hours:
+            if current_hour == hour and current_minute == 0:
+                # Проверяем, не отправляли ли уже сегодня в это время
+                key = f"{today_date}_{hour}"
+                if key not in motivation_sent_times:
+                    logger.info(f"Время {hour}:00 - отправляем мотивацию")
+                    try:
+                        await send_motivation()
+                        motivation_sent_times.append(key)
+                        logger.info("Мотивация успешно отправлена")
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке мотивации: {e}")
+        
+        await asyncio.sleep(60)
 
 
 # ============== АНОНИМНАЯ ОТПРАВКА ==============
@@ -452,26 +526,34 @@ def keep_alive_pinger():
             logger.error(f"Ping failed: {e}")
 
 
-# ============== ЗАПУСК ==============
-def main():
-    global application, bot_running
-
-    signal.signal(signal.SIGTERM, lambda s, f: stop_all())
-    signal.signal(signal.SIGINT, lambda s, f: stop_all())
-
-    logger.info("Запуск бота...")
-
+if __name__ == "__main__":
+    # Создаём цикл событий и запускаем всё
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Обработчики сигналов
+    def stop_all():
+        global bot_running
+        bot_running = False
+        if application:
+            application.stop()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, stop_all)
+    signal.signal(signal.SIGINT, stop_all)
+    
+    # Запускаем Flask в отдельном потоке
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     logger.info("Flask запущен на порту 10000")
-
+    
     application = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
         .concurrent_updates(True)
         .build()
     )
-
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("morning", morning))
     application.add_handler(CommandHandler("stopmorning", stopmorning))
@@ -487,20 +569,23 @@ def main():
     application.add_handler(
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
     )
-
+    
+    # Запускаем фоновые задачи
+    loop.create_task(morning_scheduler_task())
+    loop.create_task(motivation_scheduler_task())
+    loop.create_task(delete_morning_message())
+    
+    # Запускаем keep-alive пингер
+    pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
+    pinger_thread.start()
+    
+    logger.info("Планировщики запущены")
+    
+    # Запускаем polling
     application.run_polling(drop_pending_updates=True)
 
 
-def stop_all():
-    global bot_running
-    bot_running = False
-    if application:
-        application.stop()
-    sys.exit(0)
 
-
-if __name__ == "__main__":
-    main()
 
 
 
