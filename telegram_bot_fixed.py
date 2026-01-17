@@ -1236,6 +1236,15 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Единый обработчик всех сообщений - и статистика, и анонимка"""
     global daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent
     
+    # ОТЛАДКА - проверяем что функция вызывается
+    try:
+        if update.message:
+            logger.info(f"[DEBUG] update.message_id={update.message.message_id}, text='{update.message.text or ''}'")
+        else:
+            logger.info("[DEBUG] update.message is None")
+    except:
+        logger.info("[DEBUG] Ошибка при отладке update")
+    
     try:
         # Проверяем базовые условия
         if not update.message:
@@ -1375,25 +1384,35 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 logger.info(f"[PLUS] {user_name} дал(+) {original_name}. Всего: {new_total}")
         
         # === НОЧНОЙ РЕЖИМ ===
-        utc_hour = datetime.utcnow().hour
+        utc_now = datetime.utcnow()
+        utc_hour = utc_now.hour
         moscow_hour = (utc_hour + UTC_OFFSET) % 24
         
+        logger.info(f"[NIGHT] Проверка: UTC={utc_hour}, Moscow={moscow_hour}, is_night={(moscow_hour >= 22 or moscow_hour < 8)}")
+        
         if moscow_hour >= 22 or moscow_hour < 8:
+            # Инициализируем если нет
             if user_id not in user_night_messages:
                 user_night_messages[user_id] = 0
-            if user_night_warning_sent.get(user_id, "") != today:
+            if user_id not in user_night_warning_sent:
+                user_night_warning_sent[user_id] = None
+            
+            # Сбрасываем только если сегодня ещё не отправляли
+            if user_night_warning_sent.get(user_id) != today:
                 user_night_messages[user_id] = 0
-                user_night_warning_sent[user_id] = ""
+                user_night_warning_sent[user_id] = today
             
             user_night_messages[user_id] += 1
             night_count = user_night_messages[user_id]
-            logger.info(f"[NIGHT] {user_name}: {night_count}/10 ночных (Москва {moscow_hour}:00)")
+            logger.info(f"[NIGHT] 🔥 {user_name}: {night_count}/10 ночных сообщений")
             
             if night_count == 10:
                 warning = random.choice(NIGHT_WARNINGS)
                 await context.bot.send_message(chat_id=CHAT_ID, text=warning)
                 user_night_warning_sent[user_id] = today
-                logger.info(f"[NIGHT] ⚠️ Предупреждение отправлено {user_name}")
+                logger.info(f"[NIGHT] ⛔ ПРЕДУПРЕЖДЕНИЕ ОТПРАВЛЕНО {user_name}")
+        else:
+            logger.info(f"[NIGHT] ☀️ День - ночной режим не активен (Москва {moscow_hour}:00)")
         
         logger.info(f"[MSG] === КОНЕЦ обработки {user_name} ===")
         
