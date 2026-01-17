@@ -77,8 +77,10 @@ bot_running = True
 motivation_sent_times = []
 
 # ============== НОЧНОЙ РЕЖИМ ==============
-night_messages_count = 0
-night_warning_sent = False
+# {user_id: message_count} - персональный счётчик для каждого пользователя
+user_night_messages = {}
+# {user_id: warning_sent_date} - когда отправляли предупреждение
+user_night_warning_sent = {}
 
 # ============== ОТСЛЕЖИВАНИЕ ВОЗВРАЩЕНЦЕВ ==============
 # {user_id: last_active_date}
@@ -1377,77 +1379,75 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await send_level_up_notification(user_name, new_level)
         
         # Проверяем, является ли сообщение ответом на другое с "+"
-        logger.info(f"[DEBUG+] Проверяем reply_to_message: {update.message.reply_to_message is not None}")
-        
-        if update.message.reply_to_message and update.message.reply_to_message.from_user:
-            # Получаем данные об авторе оригинального сообщения
-            original_author_id = update.message.reply_to_message.from_user.id
-            original_author_name = f"@{update.message.reply_to_message.from_user.username}" if update.message.reply_to_message.from_user.username else update.message.reply_to_message.from_user.full_name
-            
-            logger.info(f"[DEBUG+] Автор оригинального сообщения: {original_author_name} (ID: {original_author_id})")
-            logger.info(f"[DEBUG+] Текущий пользователь: {user_name} (ID: {user_id})")
-            
-            # Балл даётся только за ответ "+" (плюс)
-            message_text = update.message.text or ""
-            logger.info(f"[DEBUG+] Текст сообщения: '{message_text}', stripped: '{message_text.strip()}'")
-            
-            if message_text.strip() == "+":
-                logger.info(f"[DEBUG+] Условие '+' выполнено!")
-            else:
-                logger.info(f"[DEBUG+] Условие '+' НЕ выполнено (текст != '+')")
-            
-            if original_author_id != user_id:
-                logger.info(f"[DEBUG+] Условие 'не сам себе' выполнено!")
-            else:
-                logger.info(f"[DEBUG+] Условие 'не сам себе' НЕ выполнено (self-reply)")
-            
-            if message_text.strip() == "+" and original_author_id != user_id:
-                # Даём балл автору оригинального сообщения за "+" в ответ
-                logger.info(f"[DEBUG+] НАЧИНАЕМ начисление баллов автору {original_author_name}")
-                
-                # Для отладки - запоминаем старые значения
-                old_replies = user_rating_stats.get(original_author_id, {}).get("replies", 0)
-                old_total = calculate_user_rating(original_author_id)
-                logger.info(f"[DEBUG+] Старые данные: replies={old_replies}, total_points={old_total}")
-                
-                success, points_earned, msg = update_rating_stats(original_author_id, original_author_name, "replies", 1)
-                
-                # Для отладки - проверяем новые значения
-                new_replies = user_rating_stats.get(original_author_id, {}).get("replies", 0)
-                new_total = calculate_user_rating(original_author_id)
-                logger.info(f"[DEBUG+] Новые данные: replies={new_replies}, total_points={new_total}")
-                logger.info(f"[DEBUG+] Результат update_rating_stats: success={success}, points_earned={points_earned}, msg='{msg}'")
-                
-                if success and points_earned > 0:
-                    logger.info(f"[DEBUG+] Условие 'success and points_earned > 0' выполнено - отправляем уведомление!")
-                    total = calculate_user_rating(original_author_id)
-                    await send_point_notification(original_author_name, points_earned, "ответ", total)
-                    # Проверяем повышение уровня
-                    new_level = get_user_level(original_author_id)
-                    old_level = user_current_level.get(original_author_id, "Новичок")
-                    if new_level != old_level and new_level != "Новичок":
-                        user_current_level[original_author_id] = new_level
-                        await send_level_up_notification(original_author_name, new_level)
-                    logger.info(f"Автор {original_author_name} получил {points_earned} балл(ов) за + от {user_name}")
-                else:
-                    logger.warning(f"[DEBUG+] Условие 'success and points_earned > 0' НЕ выполнено! success={success}, points_earned={points_earned}")
-            else:
-                logger.info(f"[DEBUG+] Условия для начисления баллов НЕ выполнены")
+        # Упрощённая и надёжная логика
+        try:
+            reply_msg = update.message.reply_to_message
+            if reply_msg is not None:
+                original_user = reply_msg.from_user
+                if original_user is not None:
+                    original_author_id = original_user.id
+                    original_author_name = f"@{original_user.username}" if original_user.username else original_user.full_name
+                    
+                    # Проверяем, что это не ответ на своё сообщение
+                    if original_author_id != user_id:
+                        message_text = update.message.text or ""
+                        
+                        # Проверяем, что текст сообщения - это именно "+" (с возможными пробелами)
+                        if message_text.strip() == "+":
+                            logger.info(f"[PLUS+] {user_name} ответил(+) на сообщение {original_author_name}")
+                            
+                            # Даём балл автору оригинального сообщения
+                            success, points_earned, msg = update_rating_stats(original_author_id, original_author_name, "replies", 1)
+                            
+                            logger.info(f"[PLUS+] update_rating_stats результат: success={success}, points={points_earned}")
+                            
+                            if success and points_earned > 0:
+                                total = calculate_user_rating(original_author_id)
+                                await send_point_notification(original_author_name, points_earned, "ответ", total)
+                                
+                                # Проверяем повышение уровня
+                                new_level = get_user_level(original_author_id)
+                                old_level = user_current_level.get(original_author_id, "Новичок")
+                                if new_level != old_level and new_level != "Новичок":
+                                    user_current_level[original_author_id] = new_level
+                                    await send_level_up_notification(original_author_name, new_level)
+                                
+                                logger.info(f"[PLUS+] {original_author_name} получил {points_earned} балл! Всего: {total}")
+                            else:
+                                logger.warning(f"[PLUS+] Баллы не начислены: success={success}, points={points_earned}")
+        except Exception as e:
+            logger.error(f"[PLUS+] Ошибка в логике плюсов: {e}")
         
         # Логируем текущую статистику
         logger.info(f"Текущая статистика: {daily_stats['total_messages']} сообщений")
         
-        # Проверка ночного режима
+        # Проверка ночного режима (персонально для каждого пользователя)
         now = datetime.now(MOSCOW_TZ)
+        today = now.strftime("%Y-%m-%d")
+        
         if now.hour >= 22 and now.hour < 24:
-            night_messages_count += 1
-            logger.info(f"Ночной режим: {night_messages_count} сообщений после 22:00")
-            if night_messages_count >= 10 and not night_warning_sent:
+            # Инициализируем счётчик для пользователя если нужно
+            if user_id not in user_night_messages:
+                user_night_messages[user_id] = 0
+            if user_id not in user_night_warning_sent:
+                user_night_warning_sent[user_id] = ""
+            
+            # Сбрасываем счётчик если новый день
+            if user_night_warning_sent.get(user_id, "") != today:
+                user_night_messages[user_id] = 0
+                user_night_warning_sent[user_id] = ""
+            
+            # Увеличиваем счётчик
+            user_night_messages[user_id] += 1
+            logger.info(f"Ночной режим: {user_name} отправил {user_night_messages[user_id]} сообщений после 22:00")
+            
+            # Отправляем предупреждение на 10-м сообщении
+            if user_night_messages[user_id] == 10 and not user_night_warning_sent.get(user_id):
                 warning = random.choice(NIGHT_WARNINGS)
                 try:
                     await context.bot.send_message(chat_id=CHAT_ID, text=warning)
-                    night_warning_sent = True
-                    logger.info("Отправлено ночное предупреждение")
+                    user_night_warning_sent[user_id] = today
+                    logger.info(f"Отправлено ночное предупреждение пользователю {user_name}")
                 except Exception as e:
                     logger.error(f"Ошибка ночного предупреждения: {e}")
         
@@ -1882,6 +1882,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
