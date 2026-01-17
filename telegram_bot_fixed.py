@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Telegram Бот для Бегового Сообщества
-Функции: Утреннее приветствие, Погода, Темы дня, Анонимная отправка, Garmin Connect
+Функции: Утреннее приветствие, Погода, Темы дня, Анонимная отправка
 """
 
 import os
@@ -14,9 +14,7 @@ import random
 import httpx
 import signal
 import sys
-import json
 from datetime import datetime
-from pathlib import Path
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -43,9 +41,6 @@ try:
     CHAT_ID = int(CHAT_ID)
 except ValueError:
     raise ValueError("CHAT_ID должен быть числом!")
-
-# Ключ шифрования для Garmin данных (сгенерируй свой и сохрани в переменных окружения)
-GARMIN_ENCRYPTION_KEY = os.environ.get("GARMIN_ENCRYPTION_KEY", "")
 
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
@@ -79,41 +74,6 @@ morning_message_id = None
 morning_scheduled_date = ""
 bot_running = True
 motivation_sent_times = []
-
-# Файл для хранения зашифрованных данных Garmin
-CREDENTIALS_FILE = "garmin_credentials.json"
-
-
-# ============== ШИФРОВАНИЕ ДАННЫХ ==============
-class CryptoManager:
-    """Менеджер для шифрования/дешифрования данных Garmin"""
-    
-    def __init__(self, key: str):
-        from cryptography.fernet import Fernet
-        if not key:
-            # Генерируем новый ключ если не задан (только для первого запуска)
-            self.fernet = None
-            logger.warning("GARMIN_ENCRYPTION_KEY не установлен! Данные будут храниться без шифрования!")
-        else:
-            self.fernet = Fernet(key.encode())
-            logger.info("CryptoManager инициализирован с ключом")
-    
-    def encrypt(self, data: str) -> str:
-        """Шифрует строку и возвращает base64 строку"""
-        if not self.fernet:
-            return data  # Без шифрования если нет ключа
-        return self.fernet.encrypt(data.encode()).decode()
-    
-    def decrypt(self, encrypted_data: str) -> str:
-        """Дешифрует строку"""
-        if not self.fernet:
-            return encrypted_data  # Без дешифрования если нет ключа
-        return self.fernet.decrypt(encrypted_data.encode()).decode()
-
-
-# Инициализируем крипто-менеджер
-crypto_manager = CryptoManager(GARMIN_ENCRYPTION_KEY)
-
 
 # ============== ДАННЫЕ ==============
 DAY_THEMES = {
@@ -179,270 +139,61 @@ MOTIVATION_QUOTES = [
     "🌟 Ты можешь больше, чем думаешь!",
 ]
 
+# ============== СМЕШНЫЕ РУГАТЕЛЬСТВА ==============
+FUNNY_INSULTS = [
+    "Ты как брокколи — никто не знает, зачем ты нужен, и все делают вид, что тебя нет.",
+    "Если бы тупость была олимпийским видом спорта, ты бы уже выиграл золото, серебро и бронзу одновременно.",
+    "Ты единственный человек, у которого Wi-Fi работает быстрее, чем твои мозги.",
+    "Твоя логика как wi-fi в метро — есть, но толку ноль.",
+    "Ты думаешь, что твоё мнение важно? Это мило. Правда, мило.",
+    "Я бы назвал тебя идиотом, но тогда бы я соврал, а я себе такого не позволяю.",
+    "Ты как йогурт с истёкшим сроком — лежал-лежал, а потом выбросили.",
+    "Если бы неудачи были конкурсом красоты, ты бы королева бала.",
+    "Твоя стратегия жизни: «Авось пронесёт». И ведь не пронесло.",
+    "Ты как бумеранг — возвращаешься, но никто этого не хочет.",
+    "Думаешь, ты важен? Свечка в торте тоже думает, что она главная, пока её не задули.",
+    "Ты как пазл — 1000 деталей, но картинка не складывается.",
+    "Твоя уверенность в себе восхищает. И пугает. В основном пугает.",
+    "Если бы глупость была болью, ты бы орал на весь мир.",
+    "Ты как аккумулятор — пока заряжаешь, уже разрядился.",
+    "Твоя способность всё портить заслуживает отдельной награды.",
+    "Ты как интернет — то работает, то нет, а толку от тебя как от солёного огурца в шоколаде.",
+    "Каждый раз, когда ты открываешь рот, я понимаю, почему некоторые люди выбирают молчание.",
+    "Ты как канализация — все тебя терпят, но никто не хочет с тобой общаться.",
+    "Твоя логика сломана сильнее, чем экран у бабушкиного телефона.",
+    "Ты единственный человек, который умудряется упасть на ровном месте, но в лужу не попадает.",
+    "Если бы твоя глупость была энергией, мы бы забыли про нефть и газ.",
+    "Ты как чайный пакетик — сначала в горячую воду, а потом выбросили.",
+    "Твои решения хуже, чем прогноз погоды в горах — непонятно и бесполезно.",
+    "Ты как лимон — кислый, морщинистый и от тебя все морщатся.",
+    "Если бы адекватность была музыкальным жанром, ты бы не попал в плейлист.",
+    "Ты как батарейка — сел в самый неподходящий момент.",
+    "Твоя способность всё усложнять достойна Нобелевской премии по идиотизму.",
+    "Ты как плохой анекдот — никто не смеётся, а ты продолжаешь рассказывать.",
+    "Твоя логика как бутерброд — падает маслом вниз, всегда.",
+    "Если бы твоя жизнь была фильмом, это был бы триллер с плохим концом.",
+    "Ты как старый холодильник — шумит, но ничего полезного не содержит.",
+    "Твоё чувство юмора умерло и похоронено глубоко в бункере.",
+    "Ты как шаурма в три часа ночи — вроде хочется, но потом жалеешь.",
+    "Если бы твоя самооценка была размером, она бы поместилась в наперсток.",
+    "Ты как дверь в публичном туалете — толкнешь, а там такое...",
+    "Твои мозги работают так медленно, что я мог бы перезагрузить страницу быстрее.",
+    "Ты как мем с котиком — все смотрят, но никто не понимает, почему это смешно.",
+    "Если бы ты был программой, тебя бы удалили без возможности восстановления.",
+    "Ты как зонтик в ливень — ломается в самый нужный момент.",
+    "Твоя способность всё портить — это талант. Злой талант.",
+    "Ты как шнурки — постоянно развязываешься в самый неудобный момент.",
+    "Если бы глупость была искусством, ты бы Пикассо. Но это не искусство.",
+    "Ты как бумажка — мнётся от любого дуновения, а толку ноль.",
+    "Твоя логика как экран телевизора — чёрный и ничего не показывает.",
+    "Ты как солнце — все знают, что ты есть, но никто не хочет к тебе.",
+    "Если бы адекватность была опцией, ты бы выбрал «выключено».",
+    "Ты как медуза — медленный, бесполезный и жжётся.",
+    "Твои решения хуже, чем гороскоп в дешёвой газете.",
+    "Ты как ложка — всегда опаздываешь, когда тебя ищешь.",
+]
+
 user_anon_state = {}
-
-
-# ============== GARMIN INTEGRATION ==============
-def load_credentials() -> dict:
-    """Загружает данные пользователей из файла"""
-    try:
-        if Path(CREDENTIALS_FILE).exists():
-            with open(CREDENTIALS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception as e:
-        logger.error(f"Ошибка загрузки credentials: {e}")
-    return {}
-
-
-def save_credentials(data: dict):
-    """Сохраняет данные пользователей в файл"""
-    try:
-        with open(CREDENTIALS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        logger.error(f"Ошибка сохранения credentials: {e}")
-
-
-async def garmin_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /garmin add email password"""
-    user_id = str(update.message.from_user.id)
-    user_name = update.message.from_user.full_name or update.message.from_user.username or "Бегун"
-    
-    # Проверяем аргументы
-    if not context.args or len(context.args) < 2:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="❌ **Ошибка!** Используйте: `/garmin add email@example.com ваш_пароль`\n\nПример: `/garmin add example@gmail.com MyPassword123`",
-            parse_mode="Markdown",
-        )
-        return
-    
-    email = context.args[0]
-    password = " ".join(context.args[1:])  # Пароль может содержать спецсимволы
-    
-    # Удаляем сообщение пользователя для безопасности
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-    
-    # Отправляем сообщение о проверке
-    status_msg = await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="🔐 **Проверяю данные Garmin...**",
-        parse_mode="Markdown",
-    )
-    
-    # Проверяем логин через Garmin API
-    try:
-        import garminconnect
-        
-        client = garminconnect.Garmin(email, password)
-        client.login()
-        
-        # Если успешно — сохраняем зашифрованные данные
-        credentials = load_credentials()
-        
-        credentials[user_id] = {
-            "email": crypto_manager.encrypt(email),
-            "password": crypto_manager.encrypt(password),
-            "user_name": user_name,
-            "last_activity_id": 0
-        }
-        
-        save_credentials(credentials)
-        
-        await status_msg.edit_text(
-            text=f"✅ **{user_name}**, Garmin аккаунт успешно привязан!\n\nТеперь бот будет автоматически публиковать твои тренировки в чат.",
-            parse_mode="Markdown",
-        )
-        logger.info(f"Garmin аккаунт привязан для пользователя {user_id}")
-        
-    except Exception as e:
-        logger.error(f"Ошибка Garmin авторизации: {e}")
-        await status_msg.edit_text(
-            text="❌ **Ошибка авторизации!**\n\nПроверь email и пароль. Убедись, что в аккаунте Garmin нет двухфакторной аутентификации.",
-            parse_mode="Markdown",
-        )
-
-
-async def garmin_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Проверка статуса привязки Garmin"""
-    user_id = str(update.message.from_user.id)
-    
-    credentials = load_credentials()
-    
-    if user_id in credentials:
-        user_name = credentials[user_id].get("user_name", "Бегун")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"🟢 **{user_name}**, Garmin подключён!\n\nТвои тренировки будут автоматически публиковаться в чате.",
-            parse_mode="Markdown",
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="⚪ Garmin не подключён.\n\nИспользуй: `/garmin add email@example.com пароль`",
-            parse_mode="Markdown",
-        )
-    
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-
-
-async def garmin_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отвязка Garmin аккаунта"""
-    user_id = str(update.message.from_user.id)
-    
-    credentials = load_credentials()
-    
-    if user_id in credentials:
-        del credentials[user_id]
-        save_credentials(credentials)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="✅ Garmin аккаунт отвязан.",
-            parse_mode="Markdown",
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="⚪ Garmin не был привязан.",
-            parse_mode="Markdown",
-        )
-    
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-
-
-def format_activity_message(activity: dict, user_name: str) -> str:
-    """Форматирует сообщение о тренировке"""
-    
-    # Дистанция в км
-    distance_km = round(activity.get("distanceInMeters", 0) / 1000, 2)
-    
-    # Время в формате ЧЧ:ММ:СС
-    duration_seconds = activity.get("durationInSeconds", 0)
-    hours = duration_seconds // 3600
-    minutes = (duration_seconds % 3600) // 60
-    seconds = duration_seconds % 60
-    if hours > 0:
-        time_str = f"{hours}ч {minutes}м"
-    else:
-        time_str = f"{minutes}:{seconds:02d}"
-    
-    # Пульс
-    avg_heart_rate = activity.get("averageHeartRateInBeatsPerMinute", "—")
-    max_heart_rate = activity.get("maxHeartRateInBeatsPerMinute", "—")
-    
-    # Темп (мин/км)
-    avg_speed_mps = activity.get("averageSpeedInMetersPerSecond", 0)
-    if avg_speed_mps > 0:
-        pace_seconds_per_km = 1000 / avg_speed_mps
-        pace_minutes = int(pace_seconds_per_km // 60)
-        pace_seconds = int(pace_seconds_per_km % 60)
-        pace_str = f"{pace_minutes}:{pace_seconds:02d}"
-    else:
-        pace_str = "—"
-    
-    # Калории
-    calories = activity.get("calories", "—")
-    
-    # Тип активности
-    activity_type = activity.get("activityType", "Бег")
-    
-    # Формируем сообщение
-    message = (
-        f"🏃‍♂️ **{user_name}** завершил тренировку!\n\n"
-        f"📏 **Дистанция:** {distance_km} км\n"
-        f"⏱️ **Время:** {time_str}\n"
-        f"❤️ **Пульс:** {avg_heart_rate}/{max_heart_rate} (сред/макс)\n"
-        f"⚡ **Темп:** {pace_str} мин/км\n"
-        f"🔥 **Калории:** {calories}\n"
-        f"\n#{activity_type.replace(' ', '')} #тренировка"
-    )
-    
-    return message
-
-
-async def check_garmin_activities():
-    """Проверка новых тренировок у всех пользователей"""
-    global application
-    
-    if application is None:
-        return
-    
-    try:
-        credentials = load_credentials()
-        
-        if not credentials:
-            return
-        
-        import garminconnect
-        
-        for user_id, user_data in credentials.items():
-            try:
-                # Дешифруем данные
-                email = crypto_manager.decrypt(user_data["email"])
-                password = crypto_manager.decrypt(user_data["password"])
-                user_name = user_data.get("user_name", "Бегун")
-                last_activity_id = user_data.get("last_activity_id", 0)
-                
-                # Авторизуемся в Garmin
-                client = garminconnect.Garmin(email, password)
-                client.login()
-                
-                # Получаем последние 3 активности
-                activities = client.get_activities(limit=3)
-                
-                if not activities:
-                    continue
-                
-                # Ищем новую тренировку
-                for activity in activities:
-                    activity_id = activity.get("activityId", 0)
-                    
-                    if activity_id > last_activity_id:
-                        # Новая тренировка!
-                        logger.info(f"Новая тренировка для {user_name}: {activity_id}")
-                        
-                        # Форматируем и отправляем сообщение
-                        message = format_activity_message(activity, user_name)
-                        
-                        await application.bot.send_message(
-                            chat_id=CHAT_ID,
-                            text=message,
-                            parse_mode="Markdown",
-                        )
-                        
-                        # Обновляем last_activity_id
-                        user_data["last_activity_id"] = activity_id
-                        save_credentials(credentials)
-                        
-                        # Обновляем локальные данные
-                        credentials[user_id]["last_activity_id"] = activity_id
-                        
-            except Exception as e:
-                logger.error(f"Ошибка проверки Garmin для пользователя {user_id}: {e}")
-                continue
-                
-    except Exception as e:
-        logger.error(f"Ошибка в check_garmin_activities: {e}")
-
-
-async def garmin_scheduler_task():
-    """Планировщик проверки Garmin активностей каждые 15 минут"""
-    while bot_running:
-        try:
-            await check_garmin_activities()
-        except Exception as e:
-            logger.error(f"Ошибка в garmin_scheduler_task: {e}")
-        
-        await asyncio.sleep(900)  # 15 минут
 
 
 # ============== ПОГОДА ==============
@@ -500,6 +251,10 @@ def get_random_welcome() -> str:
 
 def get_random_motivation() -> str:
     return random.choice(MOTIVATION_QUOTES)
+
+
+def get_random_insult() -> str:
+    return random.choice(FUNNY_INSULTS)
 
 
 async def send_morning_greeting():
@@ -739,7 +494,6 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • 11:00 — Мотивация
 • 16:00 — Мотивация
 • 21:00 — Мотивация
-• Каждые 15 мин — Проверка Garmin тренировок
 
 **Команды:**
 • /start — показать это сообщение
@@ -747,11 +501,7 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • /stopmorning — удалить утреннее сообщение
 • /anon @никнейм текст — анонимное сообщение
 • /anonphoto — анонимная отправка фото
-
-**Garmin команды:**
-• /garmin add email пароль — привязать Garmin
-• /garmin status — проверить статус
-• /garmin remove — отвязать аккаунт"""
+• /remen — получить порцию смешных ругательств"""
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -806,6 +556,22 @@ async def stopmorning(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
+async def remen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Генератор смешных ругательств"""
+    insult = get_random_insult()
+    
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"😄 **{insult}**",
+        parse_mode="Markdown",
+    )
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.new_chat_members:
         return
@@ -849,17 +615,14 @@ def keep_alive_pinger():
                     logger.info(f"Ping successful: {RENDER_URL}/health")
                 else:
                     logger.warning(f"Ping returned status {response.status_code}")
-        except Exception as e:
-            # Время от времени пинг может не доходить — это нормально
+        except Exception:
             pass
 
 
 if __name__ == "__main__":
-    # Создаём цикл событий и запускаем всё
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    # Обработчики сигналов
     def stop_all():
         global bot_running
         bot_running = False
@@ -870,7 +633,6 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, stop_all)
     signal.signal(signal.SIGINT, stop_all)
     
-    # Запускаем Flask в отдельном потоке
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     logger.info("Flask запущен на порту 10000")
@@ -882,20 +644,12 @@ if __name__ == "__main__":
         .build()
     )
     
-    # Основные команды
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("morning", morning))
     application.add_handler(CommandHandler("stopmorning", stopmorning))
+    application.add_handler(CommandHandler("remen", remen))
     application.add_handler(CommandHandler("anon", anon))
     application.add_handler(CommandHandler("anonphoto", anonphoto))
-    
-    # Garmin команды
-    application.add_handler(CommandHandler("garmin", garmin_add))
-    application.add_handler(CommandHandler("garmin_add", garmin_add))
-    application.add_handler(CommandHandler("garmin_status", garmin_status))
-    application.add_handler(CommandHandler("garmin_remove", garmin_remove))
-    
-    # Обработчики сообщений
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_anon_text)
     )
@@ -906,20 +660,17 @@ if __name__ == "__main__":
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
     )
     
-    # Запускаем фоновые задачи
     loop.create_task(morning_scheduler_task())
     loop.create_task(motivation_scheduler_task())
     loop.create_task(delete_morning_message())
-    loop.create_task(garmin_scheduler_task())
     
-    # Запускаем keep-alive пингер
     pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
     pinger_thread.start()
     
     logger.info("Планировщики запущены")
     
-    # Запускаем polling
     application.run_polling(drop_pending_updates=True)
+
 
 
 
