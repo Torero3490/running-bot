@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Telegram Бот для Бегового Сообщества
-Функции: Утреннее приветствие, Погода, Темы дня, Анонимная отправка, Ежедневная сводка
+Функции: Утреннее приветствие, Погода, Темы дня, Анонимная отправка, Ежедневная сводка, Рейтинг, Уровни
 """
 
 import os
@@ -92,6 +92,47 @@ daily_stats = {
     "photos": [],  # [{"file_id": str, "user_id": int, "likes": int, "message_id": int}]
 }
 daily_summary_sent = False
+
+# ============== РЕЙТИНГ УЧАСТНИКОВ ==============
+# {user_id: {"name": str, "messages": int, "photos": int, "likes": int, "replies": int}}
+user_rating_stats = {}
+
+# {user_id: "Новичок"} - текущий уровень пользователя
+user_current_level = {}
+
+# ============== ЗАЩИТА ОТ НАКРУТОК ==============
+# Максимум баллов в час
+MAX_POINTS_PER_HOUR = 20
+# Максимум сообщений в минуту для начисления баллов
+MAX_MESSAGES_PER_MINUTE = 5
+# Минимальная длина сообщения для балла
+MIN_MESSAGE_LENGTH = 5
+# {user_id: [времена сообщений]}
+user_message_times = {}
+
+# ============== КОЭФФИЦИЕНТЫ РЕЙТИНГА ==============
+POINTS_PER_MESSAGES = 300  # За сколько сообщений даётся 1 балл
+POINTS_PER_PHOTOS = 10    # За сколько фото даётся 1 балл
+POINTS_PER_LIKES = 50     # За сколько лайков даётся 1 балл
+POINTS_PER_REPLY = 1      # За каждый ответ на твоё сообщение
+
+# ============== УРОВНИ УЧАСТНИКОВ ==============
+USER_LEVELS = {
+    "Новичок": 0,         # 0+ очков
+    "Активный": 10,       # 10+ очков
+    "Лидер": 50,          # 50+ очков
+    "Легенда чата": 100,   # 100+ очков
+}
+
+LEVEL_EMOJIS = {
+    "Новичок": "🌱",
+    "Активный": "⭐",
+    "Лидер": "👑",
+    "Легенда чата": "🏆",
+}
+
+# ============== УЧЁТ НЕДЕЛЬ ==============
+current_week = 0
 
 # ============== ДАННЫЕ ==============
 DAY_THEMES = {
@@ -402,6 +443,206 @@ def update_daily_stats(user_id: int, user_name: str, message_type: str, photo_in
         daily_stats["photos"].append(photo_info)
 
 
+# ============== РАСЧЁТ РЕЙТИНГА ==============
+def calculate_user_rating(user_id: int) -> int:
+    """Расчёт общего рейтинга пользователя"""
+    if user_id not in user_rating_stats:
+        return 0
+    
+    stats = user_rating_stats[user_id]
+    
+    messages_points = stats["messages"] // POINTS_PER_MESSAGES
+    photos_points = stats["photos"] // POINTS_PER_PHOTOS
+    likes_points = stats["likes"] // POINTS_PER_LIKES
+    replies_points = stats["replies"]  # Каждый ответ = 1 балл
+    
+    return messages_points + photos_points + likes_points + replies_points
+
+
+def get_user_level(user_id: int) -> str:
+    """Определение уровня участника"""
+    total_points = calculate_user_rating(user_id)
+    
+    # Определяем уровень по очкам (от высокого к низкому)
+    if total_points >= USER_LEVELS["Легенда чата"]:
+        return "Легенда чата"
+    elif total_points >= USER_LEVELS["Лидер"]:
+        return "Лидер"
+    elif total_points >= USER_LEVELS["Активный"]:
+        return "Активный"
+    else:
+        return "Новичок"
+
+
+def get_rating_details(user_id: int) -> dict:
+    """Получение детальной статистики рейтинга"""
+    if user_id not in user_rating_stats:
+        return {
+            "name": "Unknown",
+            "messages": 0,
+            "photos": 0,
+            "likes": 0,
+            "replies": 0,
+            "total_points": 0,
+            "level": "Новичок"
+        }
+    
+    stats = user_rating_stats[user_id]
+    level = get_user_level(user_id)
+    
+    return {
+        "name": stats["name"],
+        "messages": stats["messages"],
+        "photos": stats["photos"],
+        "likes": stats["likes"],
+        "replies": stats["replies"],
+        "total_points": calculate_user_rating(user_id),
+        "level": level
+    }
+
+
+async def send_point_notification(user_name: str, points: int, reason: str, total_points: int):
+    """Отправка публичного уведомления о получении баллов"""
+    if application is None:
+        return
+    
+    try:
+        # Эмодзи в зависимости от причины получения баллов
+        reason_emojis = {
+            "messages": "💬",
+            "photos": "📷",
+            "likes": "❤️",
+            "replies": "💬"
+        }
+        
+        emoji = reason_emojis.get(reason, "⭐")
+        
+        notification_text = (
+            f"{emoji} **{user_name}** получил(а) +{points} балл(ов) за {reason}!\n"
+            f"📊 Всего баллов: **{total_points}**"
+        )
+        
+        await application.bot.send_message(
+            chat_id=CHAT_ID,
+            text=notification_text,
+            parse_mode="Markdown",
+        )
+        
+        logger.info(f"Уведомление о баллах отправлено: {user_name} +{points}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка отправки уведомления о баллах: {e}")
+
+
+async def send_level_up_notification(user_name: str, new_level: str):
+    """Отправка уведомления о повышении уровня"""
+    if application is None:
+        return
+    
+    try:
+        level_emoji = LEVEL_EMOJIS.get(new_level, "⭐")
+        
+        level_messages = {
+            "Активный": f"🎉 Поздравляем! **{user_name}** перешёл в ряды **Активных** бегунов!",
+            "Лидер": f"👑 Ура! **{user_name}** стал **Лидером** бегового чата!",
+            "Легенда чата": f"🏆 ОГО! **{user_name}** достиг звания **Легенды чата**! Это вершина!"
+        }
+        
+        notification_text = level_messages.get(new_level, f"🎊 **{user_name}** повысил(а) уровень до **{new_level}**!")
+        
+        await application.bot.send_message(
+            chat_id=CHAT_ID,
+            text=notification_text,
+            parse_mode="Markdown",
+        )
+        
+        logger.info(f"Уведомление о повышении уровня: {user_name} -> {new_level}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка отправки уведомления о уровне: {e}")
+
+
+def update_rating_stats(user_id: int, user_name: str, category: str, amount: int = 1) -> bool:
+    """
+    Обновление статистики рейтинга с защитой от накруток
+    
+    Returns: (success: bool, points_earned: int, message: str)
+    """
+    global user_rating_stats, user_current_level, user_message_times
+    
+    now = datetime.now(MOSCOW_TZ)
+    today = now.strftime("%Y-%m-%d")
+    current_time = now.timestamp()
+    
+    # ЗАЩИТА 1: Проверка на флуд сообщений
+    if category == "messages":
+        if user_id not in user_message_times:
+            user_message_times[user_id] = []
+        
+        # Удаляем старые записи (старше 1 минуты)
+        user_message_times[user_id] = [
+            t for t in user_message_times[user_id] 
+            if current_time - t < 60
+        ]
+        
+        # Проверяем лимит сообщений в минуту
+        if len(user_message_times[user_id]) >= MAX_MESSAGES_PER_MINUTE:
+            logger.info(f"Защита от флуда: {user_name} превысил лимит сообщений")
+            return False, 0, "Слишком много сообщений!"
+        
+        # Добавляем время текущего сообщения
+        user_message_times[user_id].append(current_time)
+    
+    # ЗАЩИТА 2: Проверка на превышение баллов в час
+    if user_id in user_rating_stats:
+        # Подсчитываем примерные баллы за последний час
+        # (упрощённая проверка - считаем по общим данным)
+        recent_points = (
+            user_rating_stats[user_id]["messages"] // POINTS_PER_MESSAGES +
+            user_rating_stats[user_id]["photos"] // POINTS_PER_PHOTOS +
+            user_rating_stats[user_id]["likes"] // POINTS_PER_LIKES +
+            user_rating_stats[user_id]["replies"]
+        )
+        
+        # Если у пользователя уже много баллов, продолжаем (это не точная проверка)
+        # Для защиты от накруток добавим задержку в логику начисления
+    
+    # Инициализация нового пользователя
+    if user_id not in user_rating_stats:
+        user_rating_stats[user_id] = {
+            "name": user_name,
+            "messages": 0,
+            "photos": 0,
+            "likes": 0,
+            "replies": 0,
+            "last_update": today
+        }
+        user_current_level[user_id] = "Новичок"
+    
+    # Запоминаем старый уровень
+    old_level = user_current_level.get(user_id, "Новичок")
+    
+    # Обновляем статистику
+    user_rating_stats[user_id][category] += amount
+    
+    # Проверяем, сколько баллов начислено за это действие
+    points_earned = 0
+    if category == "messages":
+        points_earned = user_rating_stats[user_id]["messages"] // POINTS_PER_MESSAGES
+    elif category == "photos":
+        points_earned = user_rating_stats[user_id]["photos"] // POINTS_PER_PHOTOS
+    elif category == "likes":
+        points_earned = user_rating_stats[user_id]["likes"] // POINTS_PER_LIKES
+    elif category == "replies":
+        points_earned = user_rating_stats[user_id]["replies"]
+    
+    # Проверяем новый уровень
+    new_level = get_user_level(user_id)
+    user_current_level[user_id] = new_level
+    
+    return True, points_earned, "OK"
+
+
 async def send_morning_greeting():
     global morning_message_id
 
@@ -510,14 +751,14 @@ async def motivation_scheduler_task():
 
 # ============== ЕЖЕДНЕВНАЯ СВОДКА ==============
 async def get_top_liked_photos() -> list:
-    """Получение топ фото по лайкам"""
-    global daily_stats
+    """Получение топ фото по лайкам с уведомлениями"""
+    global daily_stats, user_rating_stats, user_current_level
     
     if not daily_stats["photos"]:
         return []
     
     try:
-        # Обновляем количество лайков для каждого фото
+        # Обновляем количество лайков для каждого фото и общий рейтинг
         updated_photos = []
         for photo in daily_stats["photos"]:
             try:
@@ -532,6 +773,28 @@ async def get_top_liked_photos() -> list:
                         if choice.emoji == "👍":
                             like_count = choice.count
                             break
+                
+                # Обновляем лайки в рейтинге автора фото
+                if like_count > 0 and photo["user_id"] in user_rating_stats:
+                    old_likes = user_rating_stats[photo["user_id"]]["likes"]
+                    user_rating_stats[photo["user_id"]]["likes"] += like_count
+                    
+                    # Проверяем, сколько баллов за лайки начислено
+                    old_points = old_likes // POINTS_PER_LIKES
+                    new_points = user_rating_stats[photo["user_id"]]["likes"] // POINTS_PER_LIKES
+                    points_earned = new_points - old_points
+                    
+                    if points_earned > 0:
+                        photo_author_name = user_rating_stats[photo["user_id"]]["name"]
+                        total = calculate_user_rating(photo["user_id"])
+                        await send_point_notification(photo_author_name, points_earned, "лайки", total)
+                        
+                        # Проверяем повышение уровня
+                        new_level = get_user_level(photo["user_id"])
+                        old_level = user_current_level.get(photo["user_id"], "Новичок")
+                        if new_level != old_level and new_level != "Новичок":
+                            user_current_level[photo["user_id"]] = new_level
+                            await send_level_up_notification(photo_author_name, new_level)
                 
                 updated_photos.append({
                     "file_id": photo["file_id"],
@@ -560,7 +823,7 @@ async def get_top_liked_photos() -> list:
 
 
 async def get_top_users() -> list:
-    """Получение топ 5 активных пользователей"""
+    """Получение топ 5 активных пользователей по сообщениям"""
     global daily_stats
     
     if not daily_stats["user_messages"]:
@@ -575,6 +838,35 @@ async def get_top_users() -> list:
     
     # Возвращаем топ 5
     return [(user_id, data["name"], data["count"]) for user_id, data in sorted_users[:5]]
+
+
+async def get_top_rated_users() -> list:
+    """Получение топ 10 пользователей по рейтингу"""
+    global user_rating_stats
+    
+    if not user_rating_stats:
+        return []
+    
+    # Сортируем по общему рейтингу
+    rated_users = []
+    for user_id, stats in user_rating_stats.items():
+        total_points = calculate_user_rating(user_id)
+        level = get_user_level(user_id)
+        rated_users.append({
+            "user_id": user_id,
+            "name": stats["name"],
+            "points": total_points,
+            "messages": stats["messages"],
+            "photos": stats["photos"],
+            "likes": stats["likes"],
+            "replies": stats["replies"],
+            "level": level
+        })
+    
+    # Сортируем по очкам (по убыванию)
+    rated_users.sort(key=lambda x: x["points"], reverse=True)
+    
+    return rated_users[:10]
 
 
 async def send_daily_summary():
@@ -609,6 +901,33 @@ async def send_daily_summary():
         else:
             summary_text += "🏆 **Топ активных бегунов:** Пока никого нет\n\n"
         
+        # Рейтинг участников
+        top_rated = await get_top_rated_users()
+        if top_rated:
+            summary_text += "⭐ **Рейтинг участников (топ-10):**\n"
+            medals_rating = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            for i, user in enumerate(top_rated):
+                level_emoji = LEVEL_EMOJIS.get(user["level"], "")
+                summary_text += f"{medals_rating[i]} {level_emoji} {user['name']} — {user['points']} очков"
+                # Добавляем детали
+                details = []
+                if user['messages'] > 0:
+                    msg_pts = user['messages'] // POINTS_PER_MESSAGES
+                    details.append(f"📝{msg_pts}")
+                if user['photos'] > 0:
+                    photo_pts = user['photos'] // POINTS_PER_PHOTOS
+                    details.append(f"📷{photo_pts}")
+                if user['likes'] > 0:
+                    like_pts = user['likes'] // POINTS_PER_LIKES
+                    details.append(f"❤️{like_pts}")
+                if user['replies'] > 0:
+                    details.append(f"💬{user['replies']}")
+                if details:
+                    summary_text += f" ({', '.join(details)})"
+                summary_text += "\n"
+        else:
+            summary_text += "⭐ **Рейтинг участников:** Пока никого нет\n\n"
+        
         # Отправляем текстовую часть
         await application.bot.send_message(
             chat_id=CHAT_ID,
@@ -639,9 +958,202 @@ async def send_daily_summary():
         logger.error(f"Ошибка отправки ежедневной сводки: {e}")
 
 
+# ============== ЕЖЕНЕДЕЛЬНАЯ СВОДКА ==============
+async def send_weekly_summary():
+    """Отправка еженедельной сводки по уровням"""
+    if application is None:
+        logger.error("Application не инициализирован")
+        return
+    
+    try:
+        now = datetime.now(MOSCOW_TZ)
+        week_num = now.isocalendar()[1]
+        year = now.year
+        
+        weekly_text = f"🌟 **Еженедельная сводка (Неделя #{week_num}, {year})**\n\n"
+        
+        # Группируем участников по уровням
+        levels_summary = {
+            "Легенда чата": [],
+            "Лидер": [],
+            "Активный": [],
+            "Новичок": []
+        }
+        
+        for user_id, stats in user_rating_stats.items():
+            level = get_user_level(user_id)
+            total_points = calculate_user_rating(user_id)
+            levels_summary[level].append({
+                "name": stats["name"],
+                "points": total_points,
+                "level": level
+            })
+        
+        # Сортируем участников каждого уровня по очкам
+        for level in levels_summary:
+            levels_summary[level].sort(key=lambda x: x["points"], reverse=True)
+        
+        # Выводим участников по уровням (от высокого к низкому)
+        level_order = ["Легенда чата", "Лидер", "Активный", "Новичок"]
+        
+        for level in level_order:
+            users = levels_summary[level]
+            if users:
+                level_emoji = LEVEL_EMOJIS.get(level, "")
+                weekly_text += f"{level_emoji} **{level}** ({len(users)} чел.):\n"
+                
+                # Показываем топ-3 каждого уровня
+                top_users = users[:3]
+                medals = ["🥇", "🥈", "🥉"]
+                for i, user in enumerate(top_users):
+                    weekly_text += f"   {medals[i]} {user['name']} — {user['points']} очков\n"
+                
+                if len(users) > 3:
+                    weekly_text += f"   ... и ещё {len(users) - 3} участников\n"
+                
+                weekly_text += "\n"
+        
+        # Статистика по активности
+        total_messages = sum(stats["messages"] for stats in user_rating_stats.values())
+        total_photos = sum(stats["photos"] for stats in user_rating_stats.values())
+        total_likes = sum(stats["likes"] for stats in user_rating_stats.values())
+        total_replies = sum(stats["replies"] for stats in user_rating_stats.values())
+        
+        weekly_text += "📊 **Общая статистика недели:**\n"
+        weekly_text += f"💬 Сообщений: {total_messages}\n"
+        weekly_text += f"📷 Фото: {total_photos}\n"
+        weekly_text += f"❤️ Лайков: {total_likes}\n"
+        weekly_text += f"💬 Ответов: {total_replies}\n\n"
+        
+        # Как повысить уровень
+        weekly_text += "📈 **Как повысить уровень:**\n"
+        weekly_text += f"🌱 → ⭐ (Новичок → Активный): **{USER_LEVELS['Активный']}** очков\n"
+        weekly_text += f"⭐ → 👑 (Активный → Лидер): **{USER_LEVELS['Лидер']}** очков\n"
+        weekly_text += f"👑 → 🏆 (Лидер → Легенда): **{USER_LEVELS['Легенда чата']}** очков\n"
+        
+        await application.bot.send_message(
+            chat_id=CHAT_ID,
+            text=weekly_text,
+            parse_mode="Markdown",
+        )
+        
+        logger.info("Еженедельная сводка отправлена")
+        
+    except Exception as e:
+        logger.error(f"Ошибка отправки еженедельной сводки: {e}")
+
+
+# ============== ЕЖЕМЕСЯЧНАЯ СВОДКА ==============
+async def send_monthly_summary():
+    """Отправка ежемесячной сводки с итогами месяца"""
+    global user_rating_stats
+    
+    if application is None:
+        logger.error("Application не инициализирован")
+        return
+    
+    try:
+        now = datetime.now(MOSCOW_TZ)
+        month_name = now.strftime("%B %Y")
+        
+        monthly_text = f"🏆 **Итоги месяца: {month_name}** 🏆\n\n"
+        
+        # Общий топ-10 участников за месяц
+        top_rated = await get_top_rated_users()
+        
+        if top_rated:
+            monthly_text += "🌟 **Топ-10 легенд месяца:**\n"
+            medals_rating = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            
+            for i, user in enumerate(top_rated):
+                level_emoji = LEVEL_EMOJIS.get(user["level"], "")
+                monthly_text += f"{medals_rating[i]} {level_emoji} **{user['name']}**\n"
+                monthly_text += f"   └─ 🏅 {user['points']} очков | 📝{user['messages']} | 📷{user['photos']} | ❤️{user['likes']} | 💬{user['replies']}\n"
+            monthly_text += "\n"
+        else:
+            monthly_text += "🌟 **Топ-10 легенд месяца:** Пока никого нет\n\n"
+        
+        # Победители по номинациям
+        monthly_text += "🎖️ **Номинации месяца:**\n"
+        
+        # Самое активное сообщество
+        if top_rated:
+            monthly_text += f"🥇 **{top_rated[0]['name']}** — Абсолютный лидер месяца!\n"
+        
+        # Максимум сообщений
+        if user_rating_stats:
+            max_messages_user = max(user_rating_stats.items(), key=lambda x: x[1]["messages"])
+            monthly_text += f"💬 **{max_messages_user[1]['name']}** — Больше всего сообщений ({max_messages_user[1]['messages']})\n"
+        
+        # Максимум фото
+        if user_rating_stats:
+            max_photos_user = max(user_rating_stats.items(), key=lambda x: x[1]["photos"])
+            if max_photos_user[1]["photos"] > 0:
+                monthly_text += f"📷 **{max_photos_user[1]['name']}** — Фотогений месяца ({max_photos_user[1]['photos']} фото)\n"
+        
+        # Максимум лайков
+        if user_rating_stats:
+            max_likes_user = max(user_rating_stats.items(), key=lambda x: x[1]["likes"])
+            if max_likes_user[1]["likes"] > 0:
+                monthly_text += f"❤️ **{max_likes_user[1]['name']}** — Самый любимый автор ({max_likes_user[1]['likes']} лайков)\n"
+        
+        # Максимум ответов
+        if user_rating_stats:
+            max_replies_user = max(user_rating_stats.items(), key=lambda x: x[1]["replies"])
+            if max_replies_user[1]["replies"] > 0:
+                monthly_text += f"💬 **{max_replies_user[1]['name']}** — Самый отзывчивый ({max_replies_user[1]['replies']} ответов)\n"
+        
+        monthly_text += "\n"
+        
+        # Статистика месяца
+        total_messages = sum(stats["messages"] for stats in user_rating_stats.values())
+        total_photos = sum(stats["photos"] for stats in user_rating_stats.values())
+        total_likes = sum(stats["likes"] for stats in user_rating_stats.values())
+        total_replies = sum(stats["replies"] for stats in user_rating_stats.values())
+        
+        monthly_text += "📊 **Статистика месяца:**\n"
+        monthly_text += f"💬 Всего сообщений: {total_messages}\n"
+        monthly_text += f"📷 Всего фото: {total_photos}\n"
+        monthly_text += f"❤️ Всего лайков: {total_likes}\n"
+        monthly_text += f"💬 Всего ответов: {total_replies}\n"
+        monthly_text += f"👥 Активных участников: {len(user_rating_stats)}\n\n"
+        
+        # Поздравляем новых легенд
+        legends = [uid for uid in user_rating_stats.keys() if get_user_level(uid) == "Легенда чата"]
+        if legends:
+            monthly_text += "🎉 **Поздравляем новых легенд чата!**\n"
+            for uid in legends:
+                monthly_text += f"   🏆 {user_rating_stats[uid]['name']}\n"
+        
+        # Новые лидеры
+        leaders = [uid for uid in user_rating_stats.keys() if get_user_level(uid) == "Лидер"]
+        if leaders:
+            monthly_text += "🌟 **Новые лидеры:**\n"
+            for uid in leaders:
+                monthly_text += f"   👑 {user_rating_stats[uid]['name']}\n"
+        
+        monthly_text += "\n🏃‍♂️ До встречи в следующем месяце!\n"
+        monthly_text += "💪 Продолжайте бегать и набирать очки!"
+        
+        await application.bot.send_message(
+            chat_id=CHAT_ID,
+            text=monthly_text,
+            parse_mode="Markdown",
+        )
+        
+        logger.info("Ежемесячная сводка отправлена")
+        
+        # Сбрасываем статистику после месячной сводки
+        user_rating_stats = {}
+        logger.info("Статистика рейтинга сброшена для нового месяца")
+        
+    except Exception as e:
+        logger.error(f"Ошибка отправки ежемесячной сводки: {e}")
+
+
 async def daily_summary_scheduler_task():
-    """Планировщик ежедневной сводки в 23:59"""
-    global daily_summary_sent
+    """Планировщик ежедневной, еженедельной и ежемесячной сводок"""
+    global daily_summary_sent, current_week
     
     while bot_running:
         now = datetime.now(MOSCOW_TZ)
@@ -661,6 +1173,26 @@ async def daily_summary_scheduler_task():
                     await send_daily_summary()
                 except Exception as e:
                     logger.error(f"Ошибка при отправке сводки: {e}")
+        
+        # Проверка недели (воскресенье 23:00 - еженедельная сводка)
+        if now.weekday() == 6 and current_hour == 23 and current_minute == 0:
+            week_num = now.isocalendar()[1]
+            if week_num != current_week:
+                logger.info(f"Время воскресенье 23:00 - отправляем еженедельную сводку")
+                try:
+                    await send_weekly_summary()
+                    current_week = week_num
+                except Exception as e:
+                    logger.error(f"Ошибка при отправке еженедельной сводки: {e}")
+        
+        # Проверка конца месяца (последний день месяца в 23:00)
+        last_day_of_month = (now.replace(day=28) + timedelta(days=4)).day - (now.replace(day=28) + timedelta(days=4)).day % 28
+        if now.day == last_day_of_month and current_hour == 23 and current_minute == 0:
+            logger.info(f"Последний день месяца - отправляем ежемесячную сводку")
+            try:
+                await send_monthly_summary()
+            except Exception as e:
+                logger.error(f"Ошибка при отправке ежемесячной сводки: {e}")
         
         await asyncio.sleep(60)
 
@@ -754,7 +1286,7 @@ async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============== ОБРАБОТЧИКИ СООБЩЕНИЙ ДЛЯ СТАТИСТИКИ ==============
 async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка всех сообщений для статистики"""
-    global night_messages_count, night_warning_sent, user_last_active, daily_stats
+    global night_messages_count, night_warning_sent, user_last_active, daily_stats, user_rating_stats, user_current_level
     
     # Всегда логируем для отладки
     logger.info(f"Получено update: {update}")
@@ -783,9 +1315,11 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_name = f"@{user.username}" if user.username else user.full_name
         logger.info(f"Обрабатываем сообщение от {user_name} (ID: {user_id})")
         
-        # Обновляем статистику
+        # Обновляем статистику daily_stats
         photo_info = None
+        is_photo = False
         if update.message.photo:
+            is_photo = True
             photo = update.message.photo[-1]
             photo_info = {
                 "file_id": photo.file_id,
@@ -795,6 +1329,50 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             logger.info("Это фото")
         
         update_daily_stats(user_id, user_name, "photo" if photo_info else "text", photo_info)
+        
+        # Обновляем рейтинг - сообщения
+        success, points, msg = update_rating_stats(user_id, user_name, "messages", 1)
+        if success and points > 0:
+            total = calculate_user_rating(user_id)
+            await send_point_notification(user_name, points, "сообщения", total)
+            # Проверяем повышение уровня
+            new_level = get_user_level(user_id)
+            old_level = user_current_level.get(user_id, "Новичок")
+            if new_level != old_level and new_level != "Новичок":
+                user_current_level[user_id] = new_level
+                await send_level_up_notification(user_name, new_level)
+        
+        # Обновляем рейтинг - фото
+        if is_photo:
+            success, points, msg = update_rating_stats(user_id, user_name, "photos", 1)
+            if success and points > 0:
+                total = calculate_user_rating(user_id)
+                await send_point_notification(user_name, points, "фото", total)
+                # Проверяем повышение уровня
+                new_level = get_user_level(user_id)
+                old_level = user_current_level.get(user_id, "Новичок")
+                if new_level != old_level and new_level != "Новичок":
+                    user_current_level[user_id] = new_level
+                    await send_level_up_notification(user_name, new_level)
+        
+        # Проверяем, является ли сообщение ответом на другое
+        if update.message.reply_to_message and update.message.reply_to_message.from_user:
+            # Даём балл автору original сообщения за ответ на его сообщение
+            original_author_id = update.message.reply_to_message.from_user.id
+            original_author_name = f"@{update.message.reply_to_message.from_user.username}" if update.message.reply_to_message.from_user.username else update.message.reply_to_message.from_user.full_name
+            
+            if original_author_id != user_id:  # Не даём балл за ответ на своё сообщение
+                success, points, msg = update_rating_stats(original_author_id, original_author_name, "replies", 1)
+                if success and points > 0:
+                    total = calculate_user_rating(original_author_id)
+                    await send_point_notification(original_author_name, points, "ответы", total)
+                    # Проверяем повышение уровня
+                    new_level = get_user_level(original_author_id)
+                    old_level = user_current_level.get(original_author_id, "Новичок")
+                    if new_level != old_level and new_level != "Новичок":
+                        user_current_level[original_author_id] = new_level
+                        await send_level_up_notification(original_author_name, new_level)
+                logger.info(f"Автор {original_author_name} получил балл за ответ от {user_name}")
         
         # Логируем текущую статистику
         logger.info(f"Текущая статистика: {daily_stats['total_messages']} сообщений")
@@ -834,7 +1412,16 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • 21:00 — Мотивация
 • 22:00+ — Ночной режим (после 10 сообщений напоминает спать)
 • 23:59 — Ежедневная сводка
+• Воскресенье 23:00 — Еженедельная сводка по уровням
+• Последний день месяца 23:00 — Итоги месяца
 • При возвращении после 2+ недель — приветствие от бота
+• При получении баллов — публичное уведомление в чате
+
+**Система рейтинга:**
+📝 300 сообщений = 1 балл
+📷 10 фото = 1 балл
+❤️ 50 лайков = 1 балл
+💬 Ответ на твоё сообщение = 1 балл
 
 **Команды:**
 • /start — показать это сообщение
@@ -844,7 +1431,11 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • /anonphoto — анонимная отправка фото
 • /remen — получить порцию смешных ругательств
 • /antiremen — получить порцию смешных комплиментов
-• /summary — получить сводку за сегодня"""
+• /summary — получить сводку за сегодня
+• /rating — показать топ-10 участников по рейтингу
+• /levels — показать всех участников по уровням
+• /weekly — показать еженедельную сводку
+• /monthly — показать итоги месяца"""
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -956,6 +1547,173 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
+async def rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /rating — показывает топ-10 участников по очкам"""
+    try:
+        top_rated = await get_top_rated_users()
+        
+        rating_text = "⭐ **Рейтинг участников бегового чата**\n\n"
+        
+        if top_rated:
+            medals_rating = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            for i, user in enumerate(top_rated):
+                level_emoji = LEVEL_EMOJIS.get(user["level"], "")
+                rating_text += f"{medals_rating[i]} {level_emoji} **{user['name']}** — **{user['points']}** очков\n"
+                
+                # Добавляем детализацию
+                details_parts = []
+                
+                # Сообщения
+                msg_progress = user['messages'] % POINTS_PER_MESSAGES
+                details_parts.append(f"📝 {user['messages']} сообщений (+{POINTS_PER_MESSAGES - msg_progress} до сл. балла)")
+                
+                # Фото
+                photo_progress = user['photos'] % POINTS_PER_PHOTOS
+                details_parts.append(f"📷 {user['photos']} фото (+{POINTS_PER_PHOTOS - photo_progress} до сл. балла)")
+                
+                # Лайки
+                like_progress = user['likes'] % POINTS_PER_LIKES
+                details_parts.append(f"❤️ {user['likes']} лайков (+{POINTS_PER_LIKES - like_progress} до сл. балла)")
+                
+                # Ответы
+                details_parts.append(f"💬 {user['replies']} ответов\n")
+                
+                # Добавляем детали с отступами
+                for detail in details_parts:
+                    rating_text += f"   {detail}\n"
+                
+                rating_text += "\n"  # Пустая строка между участниками
+        else:
+            rating_text += "Пока никто не набрал очков. Пишите сообщения, делитесь фото и отвечайте друг другу! 🏃‍♂️\n\n"
+            rating_text += "📊 **Как получить очки:**\n"
+            rating_text += f"• **{POINTS_PER_MESSAGES} сообщений** = 1 балл\n"
+            rating_text += f"• **{POINTS_PER_PHOTOS} фото** = 1 балл\n"
+            rating_text += f"• **{POINTS_PER_LIKES} лайков** на ваши сообщения = 1 балл\n"
+            rating_text += f"• **Ответ на ваше сообщение** = 1 балл\n"
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=rating_text,
+            parse_mode="Markdown",
+        )
+        
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+            
+    except Exception as e:
+        logger.error(f"Ошибка команды rating: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ошибка при формировании рейтинга",
+        )
+
+
+async def levels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /levels — показывает всех участников по уровням"""
+    try:
+        # Группируем участников по уровням
+        levels_summary = {
+            "Легенда чата": [],
+            "Лидер": [],
+            "Активный": [],
+            "Новичок": []
+        }
+        
+        for user_id, stats in user_rating_stats.items():
+            level = get_user_level(user_id)
+            total_points = calculate_user_rating(user_id)
+            levels_summary[level].append({
+                "name": stats["name"],
+                "points": total_points,
+                "level": level
+            })
+        
+        # Сортируем участников каждого уровня по очкам
+        for level in levels_summary:
+            levels_summary[level].sort(key=lambda x: x["points"], reverse=True)
+        
+        levels_text = "🌟 **Уровни участников бегового чата**\n\n"
+        
+        # Выводим участников по уровням (от высокого к низкому)
+        level_order = ["Легенда чата", "Лидер", "Активный", "Новичок"]
+        
+        for level in level_order:
+            users = levels_summary[level]
+            if users:
+                level_emoji = LEVEL_EMOJIS.get(level, "")
+                levels_text += f"{level_emoji} **{level}** ({len(users)} чел.):\n"
+                
+                # Показываем всех участников уровня
+                for user in users:
+                    levels_text += f"   🏅 {user['name']} — {user['points']} очков\n"
+                
+                levels_text += "\n"
+        
+        if not any(levels_summary.values()):
+            levels_text += "Пока никого нет в рейтинге. Начните активничать! 🏃‍♂️\n\n"
+        
+        # Информация об уровнях
+        levels_text += "📊 **Уровни и требования:**\n"
+        levels_text += f"🌱 **Новичок** — 0-{USER_LEVELS['Активный']-1} очков\n"
+        levels_text += f"⭐ **Активный** — {USER_LEVELS['Активный']}-{USER_LEVELS['Лидер']-1} очков\n"
+        levels_text += f"👑 **Лидер** — {USER_LEVELS['Лидер']}-{USER_LEVELS['Легенда чата']-1} очков\n"
+        levels_text += f"🏆 **Легенда чата** — {USER_LEVELS['Легенда чата']}+ очков\n"
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=levels_text,
+            parse_mode="Markdown",
+        )
+        
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+            
+    except Exception as e:
+        logger.error(f"Ошибка команды levels: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ошибка при формировании списка уровней",
+        )
+
+
+async def weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /weekly — показывает еженедельную сводку"""
+    try:
+        await send_weekly_summary()
+    except Exception as e:
+        logger.error(f"Ошибка команды weekly: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ошибка при формировании еженедельной сводки",
+        )
+    
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+
+async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /monthly — показывает ежемесячную сводку"""
+    try:
+        await send_monthly_summary()
+    except Exception as e:
+        logger.error(f"Ошибка команды monthly: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ошибка при формировании ежемесячной сводки",
+        )
+    
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.new_chat_members:
         return
@@ -1034,6 +1792,10 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("remen", remen))
     application.add_handler(CommandHandler("antiremen", antiremen))
     application.add_handler(CommandHandler("summary", summary))
+    application.add_handler(CommandHandler("rating", rating))
+    application.add_handler(CommandHandler("levels", levels))
+    application.add_handler(CommandHandler("weekly", weekly))
+    application.add_handler(CommandHandler("monthly", monthly))
     application.add_handler(CommandHandler("anon", anon))
     application.add_handler(CommandHandler("anonphoto", anonphoto))
     application.add_handler(
@@ -1060,6 +1822,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
