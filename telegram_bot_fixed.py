@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Telegram Бот для Бегового Сообщества
-Функции: Утреннее приветствие, Погода, Темы дня, Анонимная отправка, Защита от засыпания
+Функции: Утреннее приветствие, Погода, Темы дня, Анонимная отправка
 """
 
 import os
@@ -24,18 +24,18 @@ from telegram.ext import (
     filters,
 )
 import pytz
-from flask import Flask, request, jsonify
+from flask import Flask
 
 # ============== КОНФИГУРАЦИЯ ==============
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("Токен бота не найден! Установите переменную окружения TELEGRAM_BOT_TOKEN")
+    raise ValueError("Токен бота не найден!")
 
 RENDER_URL = os.environ.get("RENDER_URL", "")
 
 CHAT_ID = os.environ.get("CHAT_ID")
 if not CHAT_ID:
-    raise ValueError("CHAT_ID не найден! Установите переменную окружения CHAT_ID")
+    raise ValueError("CHAT_ID не найден!")
 
 try:
     CHAT_ID = int(CHAT_ID)
@@ -64,24 +64,7 @@ def health():
     return "OK"
 
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    """Обработка webhook запросов от Telegram"""
-    if request.content_type != "application/json":
-        return jsonify({"status": "error", "message": "Invalid content type"}), 400
-    
-    try:
-        update = Update.de_json(request.get_json(), application.bot)
-        if update:
-            asyncio.run(application.process_update(update))
-        return jsonify({"status": "ok"}), 200
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        return jsonify({"status": "error"}), 500
-
-
 def run_flask():
-    """Запуск Flask сервера"""
     app.run(host="0.0.0.0", port=10000)
 
 
@@ -116,7 +99,6 @@ WELCOME_MESSAGES = [
     "Добро пожаловать в чат, где километры — это не просто цифры, а истории! Ты кто: тот, кто только мечтает о первом забеге, уже собирает медали или готов пробежать 42 км ради шутки?",
 ]
 
-# Мотивации на день
 MOTIVATION_QUOTES = [
     "🏃 Сегодня отличный день, чтобы стать лучше!",
     "💪 Каждый км — это победа над собой!",
@@ -477,7 +459,11 @@ def main():
     signal.signal(signal.SIGTERM, lambda s, f: stop_all())
     signal.signal(signal.SIGINT, lambda s, f: stop_all())
 
-    logger.info("Запуск бота с webhook...")
+    logger.info("Запуск бота...")
+
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("Flask запущен на порту 10000")
 
     application = (
         ApplicationBuilder()
@@ -502,29 +488,7 @@ def main():
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
     )
 
-    # Запускаем Flask в отдельном потоке
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    logger.info("Flask запущен на порту 10000")
-
-    # Запускаем асинхронные задачи
-    asyncio.run(morning_scheduler_task())
-    asyncio.run(delete_morning_message())
-
-    # Запускаем пингер
-    pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
-    pinger_thread.start()
-
-    # Запускаем webhook
-    webhook_url = f"{RENDER_URL}/webhook" if RENDER_URL else ""
-    
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=10000,
-        url_path="webhook",
-        webhook_url=webhook_url,
-        drop_pending_updates=True,
-    )
+    application.run_polling(drop_pending_updates=True)
 
 
 def stop_all():
