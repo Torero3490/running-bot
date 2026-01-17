@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Telegram Бот для Бегового Сообщества
-Функции: Утреннее приветствие, Погода, Темы дня, Анонимная отправка, Ежедневная сводка, Рейтинг, Уровни
+Функции: Утреннее приветствие, Погода, Темы дня, Анонимная отправка, Ежедневная сводка, Рейтинг, Уровни, Голосовые сообщения
 """
 
 import os
@@ -14,6 +14,7 @@ import random
 import httpx
 import signal
 import sys
+from io import BytesIO
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import (
@@ -526,15 +527,27 @@ async def send_point_notification(user_name: str, points: int, reason: str, tota
         
         emoji = reason_emojis.get(reason, "⭐")
         
+        # Экранируем спецсимволы Markdown для Telegram
+        import re
+        def escape_markdown(text: str) -> str:
+            # Экранируем символы: _ * [ ] ( ) ~ ` > # + - = | { } . !
+            # Но НЕ экранируем @ и : для корректной работы ссылок и упоминаний
+            special_chars = r'[_*\[\]()~`>#+\-=|{}.!]'
+            return re.sub(special_chars, lambda m: '\\' + m.group(0), str(text))
+        
+        safe_user_name = escape_markdown(user_name)
+        safe_reason = escape_markdown(reason)
+        safe_total_points = escape_markdown(total_points)
+        
         notification_text = (
-            f"{emoji} **{user_name}** получил(а) +{points} балл(ов) за {reason}!\n"
-            f"📊 Всего баллов: **{total_points}**"
+            f"{emoji} **{safe_user_name}** получил(а) +{points} балл(ов) за {safe_reason}!\n"
+            f"📊 Всего баллов: **{safe_total_points}**"
         )
         
         await application.bot.send_message(
             chat_id=CHAT_ID,
             text=notification_text,
-            parse_mode="Markdown",
+            parse_mode="MarkdownV2",
         )
         
         logger.info(f"[NOTIFY] ✅ Уведомление отправлено для {user_name}")
@@ -553,18 +566,27 @@ async def send_level_up_notification(user_name: str, new_level: str):
     try:
         level_emoji = LEVEL_EMOJIS.get(new_level, "⭐")
         
+        # Экранируем спецсимволы Markdown
+        import re
+        def escape_markdown(text: str) -> str:
+            special_chars = r'[_*\[\]()~`>#+\-=|{}.!]'
+            return re.sub(special_chars, lambda m: '\\' + m.group(0), str(text))
+        
+        safe_user_name = escape_markdown(user_name)
+        safe_level = escape_markdown(new_level)
+        
         level_messages = {
-            "Активный": f"🎉 Поздравляем! **{user_name}** перешёл в ряды **Активных** бегунов!",
-            "Лидер": f"👑 Ура! **{user_name}** стал **Лидером** бегового чата!",
-            "Легенда чата": f"🏆 ОГО! **{user_name}** достиг звания **Легенды чата**! Это вершина!"
+            "Активный": f"🎉 Поздравляем! **{safe_user_name}** перешёл в ряды **Активных** бегунов!",
+            "Лидер": f"👑 Ура! **{safe_user_name}** стал **Лидером** бегового чата!",
+            "Легенда чата": f"🏆 ОГО! **{safe_user_name}** достиг звания **Легенды чата**! Это вершина!"
         }
         
-        notification_text = level_messages.get(new_level, f"🎊 **{user_name}** повысил(а) уровень до **{new_level}**!")
+        notification_text = level_messages.get(new_level, f"🎊 **{safe_user_name}** повысил(а) уровень до **{safe_level}**!")
         
         await application.bot.send_message(
             chat_id=CHAT_ID,
             text=notification_text,
-            parse_mode="Markdown",
+            parse_mode="MarkdownV2",
         )
         
         logger.info(f"Уведомление о повышении уровня: {user_name} -> {new_level}")
@@ -1865,8 +1887,6 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
-
-
 
 
 
