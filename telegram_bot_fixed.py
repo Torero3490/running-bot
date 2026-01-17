@@ -754,62 +754,34 @@ async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============== ОБРАБОТЧИКИ СООБЩЕНИЙ ДЛЯ СТАТИСТИКИ ==============
 async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка всех сообщений для статистики"""
-    global night_messages_count, night_warning_sent, user_last_active
+    global night_messages_count, night_warning_sent, user_last_active, daily_stats
     
-    # Игнорируем если нет сообщения
+    # Всегда логируем для отладки
+    logger.info(f"Получено update: {update}")
+    
     if not update.message:
+        logger.debug("Нет сообщения в update")
         return
     
-    # Игнорируем если это команда
+    # Пропускаем команды
     if update.message.text and update.message.text.startswith('/'):
+        logger.debug("Это команда, пропускаем")
         return
     
-    # Игнорируем ботов
+    # Пропускаем сообщения от ботов
     if update.message.from_user and update.message.from_user.is_bot:
+        logger.debug("Сообщение от бота, пропускаем")
         return
     
     try:
         user = update.message.from_user
         if not user:
+            logger.debug("Нет информации о пользователе")
             return
             
         user_id = user.id
         user_name = f"@{user.username}" if user.username else user.full_name
-        
-        # Проверка на возвращенца (не писал 2+ недели)
-        now = datetime.now(MOSCOW_TZ)
-        two_weeks_ago = now - timedelta(days=14)
-        
-        if user_id in user_last_active:
-            last_active = user_last_active[user_id]
-            if last_active < two_weeks_ago:
-                greeting = random.choice(RETURN_GREETINGS)
-                try:
-                    await context.bot.send_message(
-                        chat_id=CHAT_ID,
-                        text=greeting,
-                    )
-                    logger.info(f"Приветствие возвращенцу {user_name}")
-                except Exception as e:
-                    logger.error(f"Ошибка приветствия: {e}")
-        
-        # Обновляем время активности
-        user_last_active[user_id] = now
-        
-        # Проверка ночного режима (после 22:00)
-        now = datetime.now(MOSCOW_TZ)
-        if now.hour >= 22 and now.hour < 24:
-            night_messages_count += 1
-            if night_messages_count >= 10 and not night_warning_sent:
-                warning = random.choice(NIGHT_WARNINGS)
-                try:
-                    await context.bot.send_message(
-                        chat_id=CHAT_ID,
-                        text=warning,
-                    )
-                    night_warning_sent = True
-                except Exception as e:
-                    logger.error(f"Ошибка ночного предупреждения: {e}")
+        logger.info(f"Обрабатываем сообщение от {user_name} (ID: {user_id})")
         
         # Обновляем статистику
         photo_info = None
@@ -820,12 +792,29 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "user_id": user_id,
                 "message_id": update.message.message_id,
             }
+            logger.info("Это фото")
         
         update_daily_stats(user_id, user_name, "photo" if photo_info else "text", photo_info)
-        logger.debug(f"Статистика обновлена для {user_name}")
+        
+        # Логируем текущую статистику
+        logger.info(f"Текущая статистика: {daily_stats['total_messages']} сообщений")
+        
+        # Проверка ночного режима
+        now = datetime.now(MOSCOW_TZ)
+        if now.hour >= 22 and now.hour < 24:
+            night_messages_count += 1
+            logger.info(f"Ночной режим: {night_messages_count} сообщений после 22:00")
+            if night_messages_count >= 10 and not night_warning_sent:
+                warning = random.choice(NIGHT_WARNINGS)
+                try:
+                    await context.bot.send_message(chat_id=CHAT_ID, text=warning)
+                    night_warning_sent = True
+                    logger.info("Отправлено ночное предупреждение")
+                except Exception as e:
+                    logger.error(f"Ошибка ночного предупреждения: {e}")
         
     except Exception as e:
-        logger.error(f"Ошибка в handle_all_messages: {e}")
+        logger.error(f"Ошибка в handle_all_messages: {e}", exc_info=True)
 
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
