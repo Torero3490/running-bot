@@ -624,14 +624,6 @@ async def send_daily_summary():
         
     except Exception as e:
         logger.error(f"Ошибка отправки ежедневной сводки: {e}")
-                except Exception as e:
-                    logger.error(f"Ошибка отправки фото: {e}")
-        
-        daily_summary_sent = True
-        logger.info("Ежедневная сводка отправлена")
-        
-    except Exception as e:
-        logger.error(f"Ошибка отправки ежедневной сводки: {e}")
 
 
 async def daily_summary_scheduler_task():
@@ -1053,3 +1045,4 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
