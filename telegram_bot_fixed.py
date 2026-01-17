@@ -1363,9 +1363,12 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await send_point_notification(original_name, 1, "ответ", new_total)
                 logger.info(f"[PLUS] {user_name} дал(+) {original_name}. Всего: {new_total}")
         
-        # === НОЧНОЙ РЕЖИМ ===
+        # === НОЧНОЙ РЕЖИМ (22:00 - 08:00 по Москве) ===
         now = datetime.now(MOSCOW_TZ)
-        if now.hour >= 22 and now.hour < 24:
+        hour = now.hour
+        is_night = hour >= 22 or hour < 8
+        
+        if is_night:
             if user_id not in user_night_messages:
                 user_night_messages[user_id] = 0
             if user_night_warning_sent.get(user_id, "") != today:
@@ -1374,12 +1377,13 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             
             user_night_messages[user_id] += 1
             count = user_night_messages[user_id]
+            logger.info(f"[NIGHT] {user_name}: {count}/10 ночных сообщений (час {hour})")
             
             if count == 10:
                 warning = random.choice(NIGHT_WARNINGS)
                 await context.bot.send_message(chat_id=CHAT_ID, text=warning)
                 user_night_warning_sent[user_id] = today
-                logger.info(f"[NIGHT] Предупреждение отправлено {user_name}")
+                logger.info(f"[NIGHT] ⚠️ Предупреждение отправлено {user_name}")
             else:
                 logger.info(f"[NIGHT] {user_name}: {count}/10 ночных сообщений")
         
