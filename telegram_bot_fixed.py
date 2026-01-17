@@ -1368,13 +1368,14 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # Проверяем, является ли сообщение ответом на другое с "+"
         if update.message.reply_to_message and update.message.reply_to_message.from_user:
+            # Получаем данные об авторе оригинального сообщения
+            original_author_id = update.message.reply_to_message.from_user.id
+            original_author_name = f"@{update.message.reply_to_message.from_user.username}" if update.message.reply_to_message.from_user.username else update.message.reply_to_message.from_user.full_name
+            
             # Балл даётся только за ответ "+" (плюс)
             message_text = update.message.text or ""
             if message_text.strip() == "+" and original_author_id != user_id:
                 # Даём балл автору оригинального сообщения за "+" в ответ
-                original_author_id = update.message.reply_to_message.from_user.id
-                original_author_name = f"@{update.message.reply_to_message.from_user.username}" if update.message.reply_to_message.from_user.username else update.message.reply_to_message.from_user.full_name
-                
                 success, points, msg = update_rating_stats(original_author_id, original_author_name, "replies", 1)
                 if success:
                     total = calculate_user_rating(original_author_id)
