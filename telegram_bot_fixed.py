@@ -24,7 +24,7 @@ from telegram.ext import (
     filters,
 )
 import pytz
-from flask import Flask
+from flask import Flask, request, jsonify
 
 # ============== КОНФИГУРАЦИЯ ==============
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -64,7 +64,24 @@ def health():
     return "OK"
 
 
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    """Обработка webhook запросов от Telegram"""
+    if request.content_type != "application/json":
+        return jsonify({"status": "error", "message": "Invalid content type"}), 400
+    
+    try:
+        update = Update.de_json(request.get_json(), application.bot)
+        if update:
+            asyncio.run(application.process_update(update))
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return jsonify({"status": "error"}), 500
+
+
 def run_flask():
+    """Запуск Flask сервера"""
     app.run(host="0.0.0.0", port=10000)
 
 
@@ -351,7 +368,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=START_MESSAGE,
     )
 
-    # Удаляем команду /start
     try:
         await update.message.delete()
     except Exception:
@@ -440,6 +456,7 @@ async def get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ============== KEEP-ALIVE ==============
 def keep_alive_pinger():
+    """Пингование для keep-alive"""
     while bot_running:
         try:
             time.sleep(300)
@@ -460,11 +477,7 @@ def main():
     signal.signal(signal.SIGTERM, lambda s, f: stop_all())
     signal.signal(signal.SIGINT, lambda s, f: stop_all())
 
-    logger.info("Запуск бота...")
-
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    logger.info("Flask запущен на порту 10000")
+    logger.info("Запуск бота с webhook...")
 
     application = (
         ApplicationBuilder()
@@ -489,7 +502,29 @@ def main():
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
     )
 
-    application.run_polling(drop_pending_updates=True)
+    # Запускаем Flask в отдельном потоке
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("Flask запущен на порту 10000")
+
+    # Запускаем асинхронные задачи
+    asyncio.run(morning_scheduler_task())
+    asyncio.run(delete_morning_message())
+
+    # Запускаем пингер
+    pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
+    pinger_thread.start()
+
+    # Запускаем webhook
+    webhook_url = f"{RENDER_URL}/webhook" if RENDER_URL else ""
+    
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=10000,
+        url_path="webhook",
+        webhook_url=webhook_url,
+        drop_pending_updates=True,
+    )
 
 
 def stop_all():
@@ -502,5 +537,6 @@ def stop_all():
 
 if __name__ == "__main__":
     main()
+
 
 
