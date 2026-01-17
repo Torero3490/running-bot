@@ -1234,41 +1234,44 @@ async def handle_anon_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
 
     if user_id not in user_anon_state:
-        return
+        return  # Пользователь не в режиме анонимной отправки - пропускаем дальше
 
-    if user_anon_state[user_id] == "waiting_for_text":
-        text = update.message.text
-        target_mention = ""
-        
-        # Проверяем, есть ли упоминание @никнейм в начале
-        import re
-        match = re.match(r'^@(\w+)\s+(.+)', text)
-        
-        if match:
-            target_username = match.group(1)
-            message_text = match.group(2)
-            target_mention = f"@{target_username}"
-        else:
-            message_text = text
-        
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
+    if user_anon_state[user_id] != "waiting_for_text":
+        return  # Не ожидаем текст - пропускаем дальше
 
-        # Формируем сообщение
-        if target_mention:
-            anon_text = f"📬 **Анонимное сообщение для {target_mention}:**\n\n{message_text}"
-        else:
-            anon_text = f"📬 **Анонимное сообщение:**\n\n{message_text}"
-        
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            text=anon_text,
-            parse_mode="Markdown",
-        )
+    # Продолжаем обработку анонимного текста
+    text = update.message.text
+    target_mention = ""
+    
+    # Проверяем, есть ли упоминание @никнейм в начале
+    import re
+    match = re.match(r'^@(\w+)\s+(.+)', text)
+    
+    if match:
+        target_username = match.group(1)
+        message_text = match.group(2)
+        target_mention = f"@{target_username}"
+    else:
+        message_text = text
+    
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
 
-        del user_anon_state[user_id]
+    # Формируем сообщение
+    if target_mention:
+        anon_text = f"📬 **Анонимное сообщение для {target_mention}:**\n\n{message_text}"
+    else:
+        anon_text = f"📬 **Анонимное сообщение:**\n\n{message_text}"
+    
+    await context.bot.send_message(
+        chat_id=CHAT_ID,
+        text=anon_text,
+        parse_mode="Markdown",
+    )
+
+    del user_anon_state[user_id]
 
 
 async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1298,7 +1301,7 @@ async def handle_anon_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============== ОБРАБОТЧИКИ СООБЩЕНИЙ ДЛЯ СТАТИСТИКИ ==============
 async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка всех сообщений для статистики"""
-    global night_messages_count, night_warning_sent, user_last_active, daily_stats, user_rating_stats, user_current_level
+    global user_last_active, daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent
     
     # Всегда логируем для отладки
     logger.info(f"Получено update: {update}")
@@ -1882,6 +1885,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
