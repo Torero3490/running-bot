@@ -1346,7 +1346,9 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
         if daily_stats["date"] != today:
-            daily_stats = {"date": today, "total_messages": 0, "user_messages": {}, "photos": []}
+            # Очищаем глобальный словарь и заполняем заново
+            daily_stats.clear()
+            daily_stats.update({"date": today, "total_messages": 0, "user_messages": {}, "photos": []})
         
         daily_stats["total_messages"] += 1
         if user_id not in daily_stats["user_messages"]:
@@ -1862,6 +1864,7 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
+
 
 
 
