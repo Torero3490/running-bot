@@ -310,7 +310,7 @@ def get_random_tip(category: str = None) -> str:
         return "💡 Совет: Не забывайте регулярно тренироваться и прислушиваться к своему телу!"
     
     tip = random.choice(tips_list)
-    return f"💡 **Совет по {cat_name} (источник: marathonec.ru):**\n\n{tip}
+    return f"💡 **Совет по {cat_name} (источник: marathonec.ru):**\n\n{tip}"
 
 
 MOTIVATION_QUOTES = [
