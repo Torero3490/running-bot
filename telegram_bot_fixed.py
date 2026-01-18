@@ -14,6 +14,8 @@ import random
 import httpx
 import signal
 import sys
+import json
+import base64
 from io import BytesIO
 from datetime import datetime, timedelta
 from telegram import Update
@@ -27,6 +29,18 @@ from telegram.ext import (
 )
 import pytz
 from flask import Flask
+
+# ============== GARMIN INTEGRATION ==============
+try:
+    import garminconnect
+    from cryptography.fernet import Fernet
+    GARMIN_AVAILABLE = True
+except ImportError:
+    GARMIN_AVAILABLE = False
+    logger.warning("Garmin libraries not available. Install: pip install garminconnect cryptography")
+
+# Ключ шифрования для паролей Garmin (генерируется при первом запуске)
+GARMIN_ENCRYPTION_KEY = None
 
 # ============== КОНФИГУРАЦИЯ ==============
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -109,6 +123,16 @@ user_rating_stats = {}
 # {user_id: "Новичок"} - текущий уровень пользователя
 user_current_level = {}
 
+# ============== GARMIN INTEGRATION ==============
+# {user_id: {"name": str, "email": str, "last_activity_id": str, "monthly_distance": float, "monthly_activities": int}}
+garmin_users = {}
+
+# Файл для хранения зашифрованных данных Garmin
+GARMIN_DATA_FILE = "garmin_users.json"
+GARMIN_KEY_FILE = "garmin_key.key"
+
+# ============== ЗАЩИТА ОТ НАКРУТОК ==============
+
 # ============== ЗАЩИТА ОТ НАКРУТОК ==============
 # Максимум баллов в час
 MAX_POINTS_PER_HOUR = 20
@@ -142,6 +166,112 @@ LEVEL_EMOJIS = {
 
 # ============== УЧЁТ НЕДЕЛЬ ==============
 current_week = 0
+
+# ============== GARMIN UTILS ==============
+def get_garmin_key():
+    """Получение или создание ключа шифрования"""
+    global GARMIN_ENCRYPTION_KEY
+    
+    if GARMIN_ENCRYPTION_KEY is not None:
+        return GARMIN_ENCRYPTION_KEY
+    
+    try:
+        if os.path.exists(GARMIN_KEY_FILE):
+            with open(GARMIN_KEY_FILE, 'rb') as f:
+                GARMIN_ENCRYPTION_KEY = f.read()
+            logger.info("[GARMIN] Ключ шифрования загружен из файла")
+        else:
+            GARMIN_ENCRYPTION_KEY = Fernet.generate_key()
+            with open(GARMIN_KEY_FILE, 'wb') as f:
+                f.write(GARMIN_ENCRYPTION_KEY)
+            logger.info("[GARMIN] Создан новый ключ шифрования")
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка работы с ключом: {e}")
+        # Создаем ключ в памяти как запасной вариант
+        GARMIN_ENCRYPTION_KEY = Fernet.generate_key()
+    
+    return GARMIN_ENCRYPTION_KEY
+
+
+def encrypt_garmin_password(password: str) -> str:
+    """Шифрование пароля Garmin"""
+    try:
+        key = get_garmin_key()
+        f = Fernet(key)
+        encrypted = f.encrypt(password.encode())
+        return base64.b64encode(encrypted).decode()
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка шифрования: {e}")
+        return ""
+
+
+def decrypt_garmin_password(encrypted_password: str) -> str:
+    """Расшифровка пароля Garmin"""
+    try:
+        key = get_garmin_key()
+        f = Fernet(key)
+        decoded = base64.b64decode(encrypted_password.encode())
+        decrypted = f.decrypt(decoded)
+        return decrypted.decode()
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка дешифрования: {e}")
+        return ""
+
+
+def save_garmin_users():
+    """Сохранение данных пользователей Garmin в файл"""
+    try:
+        # Конвертируем для JSON (ключи должны быть строками)
+        save_data = {}
+        for user_id, data in garmin_users.items():
+            save_data[str(user_id)] = {
+                "name": data["name"],
+                "email": data["email"],
+                "encrypted_password": data["encrypted_password"],
+                "last_activity_id": data.get("last_activity_id", ""),
+                "monthly_distance": data.get("monthly_distance", 0.0),
+                "monthly_activities": data.get("monthly_activities", 0),
+                "last_activity_date": data.get("last_activity_date", "")
+            }
+        
+        with open(GARMIN_DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(save_data, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"[GARMIN] Данные сохранены: {len(garmin_users)} пользователей")
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка сохранения: {e}")
+
+
+def load_garmin_users():
+    """Загрузка данных пользователей Garmin из файла"""
+    global garmin_users
+    
+    try:
+        if not os.path.exists(GARMIN_DATA_FILE):
+            logger.info("[GARMIN] Файл данных не найден, создаём пустой")
+            garmin_users = {}
+            return
+        
+        with open(GARMIN_DATA_FILE, 'r', encoding='utf-8') as f:
+            load_data = json.load(f)
+        
+        # Конвертируем обратно (ключи -> int)
+        garmin_users = {}
+        for user_id_str, data in load_data.items():
+            garmin_users[int(user_id_str)] = {
+                "name": data["name"],
+                "email": data["email"],
+                "encrypted_password": data["encrypted_password"],
+                "last_activity_id": data.get("last_activity_id", ""),
+                "monthly_distance": data.get("monthly_distance", 0.0),
+                "monthly_activities": data.get("monthly_activities", 0),
+                "last_activity_date": data.get("last_activity_date", "")
+            }
+        
+        logger.info(f"[GARMIN] Загружено пользователей: {len(garmin_users)}")
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка загрузки: {e}")
+        garmin_users = {}
 
 # ============== ДАННЫЕ ==============
 DAY_THEMES = {
@@ -182,6 +312,202 @@ _tips_cache = {
 }
 
 CACHE_DURATION = 3600  # Обновлять советы каждый час
+
+
+# ============== GARMIN CHECKER ==============
+async def check_garmin_activities():
+    """Проверка новых пробежек у всех зарегистрированных пользователей"""
+    global garmin_users, user_running_stats
+    
+    if not GARMIN_AVAILABLE:
+        logger.warning("[GARMIN] Библиотека недоступна")
+        return
+    
+    if not garmin_users:
+        logger.debug("[GARMIN] Нет зарегистрированных пользователей")
+        return
+    
+    logger.info(f"[GARMIN] Проверяем активности у {len(garmin_users)} пользователей...")
+    
+    now = datetime.now(MOSCOW_TZ)
+    today = now.strftime("%Y-%m-%d")
+    current_month = now.strftime("%Y-%m")
+    
+    for user_id, user_data in garmin_users.items():
+        try:
+            # Расшифровываем пароль
+            password = decrypt_garmin_password(user_data["encrypted_password"])
+            email = user_data["email"]
+            
+            # Проверяем Garmin
+            client = garminconnect.Garmin(email, password)
+            client.login()
+            
+            # Получаем последние активности (последние 5 для надёжности)
+            activities = client.get_activities(0, 5)
+            
+            if not activities:
+                continue
+            
+            # Проверяем каждую активность
+            for activity in activities:
+                activity_type = activity.get('activityType', {}).get('typeKey', '')
+                
+                # Фильтруем только бег
+                if activity_type not in ['running', 'treadmill_running', 'trail_running']:
+                    continue
+                
+                activity_id = str(activity['activityId'])
+                activity_date = activity.get('startTimeInSeconds', 0)
+                activity_date_dt = datetime.fromtimestamp(activity_date, tz=MOSCOW_TZ)
+                activity_date_str = activity_date_dt.strftime("%Y-%m-%d")
+                
+                # Проверяем, новая ли это активность
+                if activity_id == user_data.get("last_activity_id", ""):
+                    continue
+                
+                # Проверяем, не старая ли активность (больше 2 дней -> пропускаем)
+                days_diff = (now - activity_date_dt).days
+                if days_diff > 2:
+                    logger.debug(f"[GARMIN] Активность {activity_id} слишком старая ({days_diff} дней), пропускаем")
+                    continue
+                
+                # Это новая пробежка! Публикуем в чат
+                await publish_run_result(user_data, activity, now, current_month)
+                
+                # Обновляем last_activity_id
+                user_data["last_activity_id"] = activity_id
+                user_data["last_activity_date"] = activity_date_str
+                
+                logger.info(f"[GARMIN] Обработана пробежка {activity_id} от {user_data['name']}")
+            
+            # Сохраняем данные
+            save_garmin_users()
+            
+        except Exception as e:
+            logger.error(f"[GARMIN] Ошибка проверки пользователя {user_data['email']}: {e}")
+            continue
+
+
+async def publish_run_result(user_data, activity, now, current_month):
+    """Публикация результатов пробежки в чат"""
+    global application, user_running_stats
+    
+    try:
+        # Извлекаем данные активности
+        distance_meters = activity.get('distance', 0)
+        distance_km = distance_meters / 1000
+        
+        duration_seconds = activity.get('duration', 0)
+        duration_min = duration_seconds // 60
+        duration_sec = duration_seconds % 60
+        
+        avg_heartrate = activity.get('averageHeartRate', 0)
+        calories = activity.get('calories', 0)
+        
+        # Вычисляем темп
+        if distance_km > 0:
+            pace_seconds = duration_seconds / distance_km
+            pace_min = int(pace_seconds // 60)
+            pace_sec = int(pace_seconds % 60)
+            pace_str = f"{pace_min}:{pace_sec:02d} мин/км"
+        else:
+            pace_str = "N/A"
+        
+        # Форматируем время
+        time_str = f"{duration_min}:{duration_sec:02d}"
+        
+        # Проверяем новый месяц для сброса
+        user_monthly = user_data.get("last_activity_date", "")
+        if user_monthly and user_monthly[:7] != current_month:
+            # Новый месяц - сбрасываем счётчики
+            user_data["monthly_distance"] = 0.0
+            user_data["monthly_activities"] = 0
+            logger.info(f"[GARMIN] Новый месяц для {user_data['name']}, сброс счётчиков")
+        
+        # Обновляем статистику пользователя
+        user_data["monthly_distance"] = user_data.get("monthly_distance", 0.0) + distance_km
+        user_data["monthly_activities"] = user_data.get("monthly_activities", 0) + 1
+        
+        # Обновляем общую статистику бега
+        if user_id not in user_running_stats:
+            user_running_stats[user_id] = {
+                "name": user_data["name"],
+                "activities": 0,
+                "distance": 0.0,
+                "duration": 0,
+                "calories": 0
+            }
+        
+        user_running_stats[user_id]["activities"] += 1
+        user_running_stats[user_id]["distance"] += distance_meters
+        user_running_stats[user_id]["duration"] += duration_seconds
+        user_running_stats[user_id]["calories"] += calories
+        
+        # Формируем сообщение
+        message_text = (
+            f"🏃‍♂️ **{user_data['name']}** завершил(а) пробежку!\n\n"
+            f"📍 *Дистанция:* {distance_km:.2f} км\n"
+            f"⏱️ *Время:* {time_str} ({pace_str})\n"
+        )
+        
+        if avg_heartrate > 0:
+            message_text += f"❤️ *Пульс:* {avg_heartrate} уд/мин\n"
+        
+        if calories > 0:
+            message_text += f"🔥 *Калории:* {calories} ккал\n"
+        
+        message_text += (
+            f"\n📅 *За месяц:* {user_data['monthly_distance']:.1f} км / {user_data['monthly_activities']} тренировок"
+        )
+        
+        # Отправляем в чат
+        if application and CHAT_ID:
+            await application.bot.send_message(
+                chat_id=CHAT_ID,
+                text=message_text,
+                parse_mode="Markdown"
+            )
+            logger.info(f"[GARMIN] Результат опубликован: {user_data['name']} - {distance_km:.2f} км")
+        
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка публикации: {e}", exc_info=True)
+
+
+async def garmin_scheduler_task():
+    """Планировщик проверки Garmin (каждые 10 минут)"""
+    global bot_running
+    
+    check_interval = 600  # 10 минут
+    
+    while bot_running:
+        try:
+            # Ждём до следующей проверки
+            await asyncio.sleep(check_interval)
+            
+            # Проверяем Garmin
+            await check_garmin_activities()
+            
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"[GARMIN] Ошибка в планировщике: {e}")
+            await asyncio.sleep(60)  # Подождём минуту при ошибке
+
+
+def init_garmin_on_startup():
+    """Инициализация Garmin при запуске бота"""
+    global garmin_users
+    
+    try:
+        if GARMIN_AVAILABLE:
+            # Загружаем сохранённых пользователей
+            load_garmin_users()
+            logger.info(f"[GARMIN] Инициализация завершена. Пользователей: {len(garmin_users)}")
+        else:
+            logger.warning("[GARMIN] Библиотека недоступна, интеграция отключена")
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка инициализации: {e}")
 
 
 async def fetch_tips_from_url(url: str, category: str) -> List[str]:
@@ -488,7 +814,7 @@ RETURN_GREETINGS = [
     "🎩 Ба! Ба! Ба! Какие гости! Давно не виделись, а ты всё ещё бегаешь?",
     "😎 Легенда в чате! Мы уже хотели вешать твой портрет на стену!",
     "🏆 О, великий вернулся! Без тебя чат совсем скучал (нет)!",
-    "🌟 Свет мой, вернулся! Заждались мы тебя, аж 2 недели прошло!",
+    "🌟 Свет мой, вернулся! Заждались мы тебя, аж несколько дней прошло!",
     "🎪 Цирк в городе! Знаменитость почтила нас своим присутствием!",
     "🤴 Принц вернулся в королевство! Трон ждёт, ваше величество!",
     "🦁 Царь лесов объявился! Пропадал — охотился на марафоны?",
@@ -654,6 +980,67 @@ def get_rating_details(user_id: int) -> dict:
         "total_points": calculate_user_rating(user_id),
         "level": level
     }
+
+
+# ============== СТАТИСТИКА БЕГА ==============
+def update_running_stats(user_id: int, user_name: str, distance: float, duration: int, calories: int):
+    """Обновление статистики бега для участника"""
+    global user_running_stats
+    
+    if user_id not in user_running_stats:
+        user_running_stats[user_id] = {
+            "name": user_name,
+            "activities": 0,
+            "distance": 0.0,
+            "duration": 0,
+            "calories": 0
+        }
+    
+    user_running_stats[user_id]["activities"] += 1
+    user_running_stats[user_id]["distance"] += distance
+    user_running_stats[user_id]["duration"] += duration
+    user_running_stats[user_id]["calories"] += calories
+
+
+def get_top_runners() -> list:
+    """Получение топ-10 бегунов по километрам за месяц"""
+    global user_running_stats
+    
+    if not user_running_stats:
+        return []
+    
+    # Сортируем по дистанции
+    runners = []
+    for user_id, stats in user_running_stats.items():
+        runners.append({
+            "user_id": user_id,
+            "name": stats["name"],
+            "activities": stats["activities"],
+            "distance": stats["distance"],
+            "duration": stats["duration"],
+            "calories": stats["calories"]
+        })
+    
+    # Сортируем по километрам (по убыванию)
+    runners.sort(key=lambda x: x["distance"], reverse=True)
+    
+    return runners[:10]
+
+
+def reset_monthly_running_stats():
+    """Сброс статистики бега в новый месяц"""
+    global user_running_stats
+    
+    logger.info(f"[RUNNING] Сброс статистики бега. Статистика за месяц:")
+    
+    # Логируем статистику перед сбросом
+    if user_running_stats:
+        for user_id, stats in user_running_stats.items():
+            logger.info(f"[RUNNING] {stats['name']}: {stats['activities']} тренировок, {stats['distance']/1000:.1f} км")
+    
+    # Сбрасываем статистику
+    user_running_stats = {}
+    logger.info("[RUNNING] Статистика бега сброшена для нового месяца")
 
 
 async def send_point_notification(user_name: str, points: int, reason: str, total_points: int):
@@ -1216,7 +1603,7 @@ async def send_weekly_summary():
 # ============== ЕЖЕМЕСЯЧНАЯ СВОДКА ==============
 async def send_monthly_summary():
     """Отправка ежемесячной сводки с итогами месяца"""
-    global user_rating_stats
+    global user_rating_stats, user_running_stats
     
     if application is None:
         logger.error("Application не инициализирован")
@@ -1288,6 +1675,18 @@ async def send_monthly_summary():
         monthly_text += f"💬 Всего ответов: {total_replies}\n"
         monthly_text += f"👥 Активных участников: {len(user_rating_stats)}\n\n"
         
+        # Статистика бега
+        if user_running_stats:
+            running_distance = sum(stats["distance"] for stats in user_running_stats.values()) / 1000
+            running_activities = sum(stats["activities"] for stats in user_running_stats.values())
+            running_calories = sum(stats["calories"] for stats in user_running_stats.values())
+            
+            monthly_text += "🏃‍♂️ **Статистика бега за месяц:**\n"
+            monthly_text += f"📍 Всего пробежали: {running_distance:.1f} км\n"
+            monthly_text += f"🏃‍♂️ Всего тренировок: {running_activities}\n"
+            monthly_text += f"🔥 Сожгли калорий: {running_calories} ккал\n"
+            monthly_text += f"👥 Бегунов в чате: {len(user_running_stats)}\n\n"
+        
         # Поздравляем новых легенд
         legends = [uid for uid in user_rating_stats.keys() if get_user_level(uid) == "Легенда чата"]
         if legends:
@@ -1323,7 +1722,7 @@ async def send_monthly_summary():
 
 async def daily_summary_scheduler_task():
     """Планировщик ежедневной, еженедельной и ежемесячной сводок"""
-    global daily_summary_sent, current_week
+    global daily_summary_sent, current_week, user_running_stats
     
     while bot_running:
         now = datetime.now(MOSCOW_TZ)
@@ -1361,6 +1760,10 @@ async def daily_summary_scheduler_task():
             logger.info(f"Последний день месяца - отправляем ежемесячную сводку")
             try:
                 await send_monthly_summary()
+                # Сбрасываем статистику бега для нового месяца
+                reset_monthly_running_stats()
+            except Exception as e:
+                logger.error(f"Ошибка при отправке ежемесячной сводки: {e}")
             except Exception as e:
                 logger.error(f"Ошибка при отправке ежемесячной сводки: {e}")
         
@@ -1391,7 +1794,7 @@ async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============== ЕДИНЫЙ ОБРАБОТЧИК СООБЩЕНИЙ ==============
 async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Единый обработчик всех сообщений - и статистика, и анонимка"""
-    global daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent, mam_message_id
+    global daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent, mam_message_id, user_last_active
     
     # ОТЛАДКА - проверяем что функция вызывается
     try:
@@ -1420,6 +1823,37 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         is_photo = bool(update.message.photo)
         
         logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
+        
+        # === ПРОВЕРКА ВОЗВРАЩЕНЦА ===
+        moscow_now = datetime.now(MOSCOW_TZ)
+        today = moscow_now.strftime("%Y-%m-%d")
+        
+        if user_id in user_last_active:
+            last_active_date = user_last_active[user_id]
+            
+            # Проверяем, прошло ли 5+ дней с последнего сообщения
+            try:
+                last_date_obj = datetime.strptime(last_active_date, "%Y-%m-%d")
+                days_since = (moscow_now.date() - last_date_obj.date()).days
+                
+                if days_since >= 5:
+                    # Пользователь вернулся после 5+ дней молчания
+                    return_greeting = random.choice(RETURN_GREETINGS)
+                    
+                    # Пытаемся отправить приветствие
+                    try:
+                        await context.bot.send_message(
+                            chat_id=CHAT_ID,
+                            text=f"{user_name} {return_greeting}",
+                        )
+                        logger.info(f"[RETURN] Приветствие возвращенца отправлено: {user_name}, отсутствовал {days_since} дней")
+                    except Exception as e:
+                        logger.error(f"[RETURN] Ошибка отправки приветствия: {e}")
+            except Exception as e:
+                logger.error(f"[RETURN] Ошибка расчёта дней: {e}")
+        
+        # Обновляем дату последней активности
+        user_last_active[user_id] = today
         
         # === АНОНИМНАЯ ОТПРАВКА ===
         if user_id in user_anon_state:
@@ -1609,9 +2043,88 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка callback-запросов (реакций)"""
-    # Здесь можно обрабатывать реакции, если нужно
-    # Telegram Bot API не всегда предоставляет информацию о реакциях в callback
-    pass
+    try:
+        if update.callback_query:
+            callback_data = update.callback_query.data
+            logger.info(f"[CALLBACK] Получен callback: {callback_data}")
+            
+            # Здесь можно обрабатывать различные callback-запросы
+            await update.callback_query.answer()
+            
+    except Exception as e:
+        logger.error(f"[CALLBACK] Ошибка обработки callback: {e}")
+
+
+async def handle_reactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка реакций на сообщения - подсчёт ВСЕХ реакций в реальном времени"""
+    global user_rating_stats, user_current_level
+    
+    try:
+        if not update.message or not update.message.reactions:
+            return
+        
+        # Получаем информацию о реакциях
+        reaction_list = update.message.reactions
+        user_id = update.message.from_user.id if update.message.from_user else None
+        message_id = update.message.message_id
+        
+        logger.info(f"[REACTION] Пользователь {user_id} добавил реакцию на сообщение {message_id}")
+        
+        # Считаем ВСЕ реакции (любые эмодзи)
+        total_reactions = 0
+        for reaction in reaction_list:
+            for choice in reaction.choices:
+                total_reactions += choice.count
+        
+        logger.info(f"[REACTION] Всего реакций на сообщение {message_id}: {total_reactions}")
+        
+        if total_reactions > 0:
+            # Ищем это сообщение в daily_stats["photos"]
+            if "photos" in daily_stats and daily_stats["photos"]:
+                for photo_info in daily_stats["photos"]:
+                    if photo_info["message_id"] == message_id:
+                        photo_author_id = photo_info["user_id"]
+                        
+                        # Инициализируем пользователя если нужно
+                        if photo_author_id not in user_rating_stats:
+                            user_rating_stats[photo_author_id] = {
+                                "name": "Unknown",
+                                "messages": 0,
+                                "photos": 0,
+                                "likes": 0,
+                                "replies": 0
+                            }
+                            user_current_level[photo_author_id] = "Новичок"
+                        
+                        # Обновляем общее количество лайков/реакций
+                        old_likes = user_rating_stats[photo_author_id]["likes"]
+                        user_rating_stats[photo_author_id]["likes"] = total_reactions
+                        new_likes = user_rating_stats[photo_author_id]["likes"]
+                        
+                        logger.info(f"[REACTION] Реакции для пользователя {photo_author_id}: {old_likes} -> {new_likes}")
+                        
+                        # Проверяем, начислились ли баллы
+                        POINTS_PER_LIKES = 50  # 50 реакций = 1 балл
+                        old_points = old_likes // POINTS_PER_LIKES
+                        new_points = new_likes // POINTS_PER_LIKES
+                        points_earned = new_points - old_points
+                        
+                        if points_earned > 0:
+                            photo_author_name = user_rating_stats[photo_author_id]["name"]
+                            total = calculate_user_rating(photo_author_id)
+                            await send_point_notification(photo_author_name, points_earned, "лайки", total)
+                            
+                            # Проверяем повышение уровня
+                            new_level = get_user_level(photo_author_id)
+                            old_level = user_current_level.get(photo_author_id, "Новичок")
+                            if new_level != old_level and new_level != "Новичок":
+                                user_current_level[photo_author_id] = new_level
+                                await send_level_up_notification(photo_author_name, new_level)
+                        
+                        break
+    
+    except Exception as e:
+        logger.error(f"[REACTION] Ошибка обработки реакции: {e}", exc_info=True)
 
 
 # ============== ОБРАБОТЧИКИ ==============
@@ -1626,7 +2139,7 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • 23:59 — Ежедневная сводка
 • Воскресенье 23:00 — Еженедельная сводка по уровням
 • Последний день месяца 23:00 — Итоги месяца
-• При возвращении после 2+ недель — приветствие от бота
+• При возвращении после 5+ дней — приветствие от бота
 • При получении баллов — публичное уведомление в чате
 
 **Система рейтинга:**
@@ -1647,7 +2160,11 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • /advice — получить совет по бегу из интернета
 • /summary — получить сводку за сегодня
 • /rating — показать топ-10 участников по рейтингу
+• /likes — показать рейтинг участников только по лайкам
 • /levels — показать всех участников по уровням
+• /running — показать рейтинг бегунов за месяц
+• /garmin email пароль — привязать аккаунт Garmin Connect
+• /garmin_stop — отключить аккаунт Garmin
 • /weekly — показать еженедельную сводку
 • /monthly — показать итоги месяца"""
 
@@ -1982,6 +2499,332 @@ async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
+async def running(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /running — показывает рейтинг бегунов за месяц"""
+    global user_running_stats
+    
+    try:
+        now = datetime.now(MOSCOW_TZ)
+        month_name = now.strftime("%B %Y")
+        
+        top_runners = get_top_runners()
+        
+        running_text = f"🏃‍♂️ **Рейтинг бегунов за {month_name}**\n\n"
+        
+        if top_runners:
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            
+            for i, runner in enumerate(top_runners):
+                if i >= len(medals):
+                    break
+                
+                name = runner["name"]
+                activities = runner["activities"]
+                distance_km = runner["distance"] / 1000  # конвертируем в км
+                duration_min = runner["duration"] // 60  # конвертируем в минуты
+                calories = runner["calories"]
+                
+                running_text += f"{medals[i]} **{name}**\n"
+                running_text += f"   📍 {distance_km:.1f} км | 🏃‍♂️ {activities} тренировок\n"
+                running_text += f"   ⏱️ {duration_min} мин | 🔥 {calories} ккал\n\n"
+            
+            # Общая статистика
+            total_distance = sum(r["distance"] for r in top_runners) / 1000
+            total_activities = sum(r["activities"] for r in top_runners)
+            total_calories = sum(r["calories"] for r in top_runners)
+            total_duration = sum(r["duration"] for r in top_runners) // 60
+            
+            running_text += "📊 **Общая статистика чата:**\n"
+            running_text += f"📍 Всего пробежали: {total_distance:.1f} км\n"
+            running_text += f"🏃‍♂️ Всего тренировок: {total_activities}\n"
+            running_text += f"⏱️ Общее время: {total_duration} мин\n"
+            running_text += f"🔥 Всего калорий: {total_calories} ккал\n"
+        else:
+            running_text += "Пока никто не зарегистрировал пробежки с Garmin.\n\n"
+            running_text += "🏃‍♂️ **Как присоединиться к рейтингу:**\n"
+            running_text += "• Используйте часы Garmin\n"
+            running_text += "• Синхронизируйте тренировки с Garmin Connect\n"
+            running_text += "• Бот автоматически отследит ваши пробежки!\n\n"
+            running_text += "📱 **Команда для регистрации:** /garmin — привяжите аккаунт Garmin!"
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=running_text,
+            parse_mode="Markdown",
+        )
+        
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+            
+    except Exception as e:
+        logger.error(f"Ошибка команды running: {e}", exc_info=True)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ошибка при формировании рейтинга бегунов",
+        )
+
+
+# ============== GARMIN COMMANDS ==============
+async def garmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /garmin — привязка аккаунта Garmin Connect"""
+    if not GARMIN_AVAILABLE:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Интеграция с Garmin недоступна.\nУстановите библиотеку: pip install garminconnect cryptography",
+        )
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        return
+    
+    user_id = update.message.from_user.id
+    user_name = f"@{update.message.from_user.username}" if update.message.from_user.username else update.message.from_user.full_name
+    
+    args = context.args
+    
+    if len(args) != 2:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="🏃‍♂️ **Регистрация Garmin Connect**\n\n"
+                 "📝 Использование: /garmin <email> <password>\n\n"
+                 "⚠️ *После ввода сообщение будет удалено для безопасности*\n\n"
+                 "📱 *Пример:* /garmin myemail@gmail.com MyPassword123\n\n"
+                 "🔒 Ваш пароль хранится в зашифрованном виде",
+            parse_mode="Markdown",
+        )
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        return
+    
+    email = args[0]
+    password = args[1]
+    
+    # Удаляем сообщение с паролем сразу
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+    
+    # Пытаемся войти в Garmin
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"🔄 Проверяю данные Garmin для {email}...",
+    )
+    
+    try:
+        # Тестовый вход в Garmin
+        client = garminconnect.Garmin(email, password)
+        client.login()
+        
+        # Успех! Сохраняем данные
+        encrypted_password = encrypt_garmin_password(password)
+        
+        garmin_users[user_id] = {
+            "name": user_name,
+            "email": email,
+            "encrypted_password": encrypted_password,
+            "last_activity_id": "",
+            "monthly_distance": 0.0,
+            "monthly_activities": 0,
+            "last_activity_date": ""
+        }
+        
+        # Сохраняем в файл
+        save_garmin_users()
+        
+        # Подтверждение
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"✅ *Garmin аккаунт подключён!*\n\n"
+                 f"📧 Email: {email}\n"
+                 f"👤 Пользователь: {user_name}\n\n"
+                 f"🏃 Теперь бот будет автоматически отслеживать ваши пробежки и публиковать их в чат!",
+            parse_mode="Markdown",
+        )
+        
+        logger.info(f"[GARMIN] Пользователь {user_name} подключил аккаунт {email}")
+        
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка входа для {email}: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"❌ *Ошибка подключения Garmin*\n\n"
+                 f"Проверьте правильность email и пароля.\n"
+                 f"Возможно, включена двухфакторная аутентификация.\n\n"
+                 f"Ошибка: {str(e)[:100]}...",
+            parse_mode="Markdown",
+        )
+
+
+async def garmin_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /garmin_stop — отключение аккаунта Garmin"""
+    user_id = update.message.from_user.id
+    user_name = f"@{update.message.from_user.username}" if update.message.from_user.username else update.message.from_user.full_name
+    
+    if user_id not in garmin_users:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ У вас нет подключённого аккаунта Garmin.\n\n"
+                 "📝 Используйте /garmin для подключения.",
+        )
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        return
+    
+    # Удаляем данные пользователя
+    email = garmin_users[user_id]["email"]
+    del garmin_users[user_id]
+    
+    # Сохраняем изменения
+    save_garmin_users()
+    
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"✅ *Аккаунт Garmin отключён*\n\n"
+             f"📧 Email: {email}\n\n"
+             f"Ваши пробежки больше не будут публиковаться в чате.",
+        parse_mode="Markdown",
+    )
+    
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+    
+    logger.info(f"[GARMIN] Пользователь {user_name} отключил аккаунт")
+
+
+async def garmin_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /garmin_list — список зарегистрированных пользователей (только для админов)"""
+    if not garmin_users:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="📊 **Garmin пользователи**\n\nПока никто не подключил Garmin аккаунт.",
+            parse_mode="Markdown",
+        )
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        return
+    
+    text = f"📊 **Garmin пользователи** ({len(garmin_users)} чел.):\n\n"
+    
+    for user_id, data in garmin_users.items():
+        text += f"• {data['name']} — {data['email']}\n"
+        text += f"   📍 {data.get('monthly_distance', 0):.1f} км за месяц\n"
+    
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=text,
+        parse_mode="Markdown",
+    )
+    
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+
+async def likes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /likes — показывает рейтинг участников только по лайкам"""
+    global user_rating_stats
+    
+    try:
+        if not user_rating_stats:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="📊 **Рейтинг лайков**\n\nПока никто не получил лайков. Делитесь фото и ставьте реакции! ❤️",
+                parse_mode="Markdown",
+            )
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+            return
+        
+        # Сортируем участников по количеству лайков
+        sorted_by_likes = sorted(
+            user_rating_stats.items(),
+            key=lambda x: x[1]["likes"],
+            reverse=True
+        )
+        
+        # Фильтруем только тех, у кого есть лайки
+        users_with_likes = [(uid, stats) for uid, stats in sorted_by_likes if stats["likes"] > 0]
+        
+        likes_text = "❤️ **Рейтинг лайков участников**\n\n"
+        
+        if users_with_likes:
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟", "1️⃣1️⃣", "1️⃣2️⃣", "1️⃣3️⃣", "1️⃣4️⃣", "1️⃣5️⃣", "1️⃣6️⃣", "1️⃣7️⃣", "1️⃣8️⃣", "1️⃣9️⃣", "2️⃣0️⃣"]
+            
+            for i, (user_id, stats) in enumerate(users_with_likes):
+                if i >= len(medals):
+                    break
+                    
+                name = stats["name"]
+                likes_count = stats["likes"]
+                
+                # Получаем уровень пользователя
+                level = get_user_level(user_id)
+                level_emoji = LEVEL_EMOJIS.get(level, "")
+                
+                likes_text += f"{medals[i]} {level_emoji} **{name}** — **{likes_count}** лайков\n"
+                
+                # Добавляем информацию о фото
+                photos_count = stats["photos"]
+                if photos_count > 0:
+                    avg_likes = likes_count / photos_count
+                    likes_text += f"   📷 {photos_count} фото (среднее: {avg_likes:.1f} лайков/фото)\n"
+                
+                likes_text += "\n"
+            
+            # Общая статистика
+            total_likes = sum(stats["likes"] for stats in user_rating_stats.values())
+            total_photos = sum(stats["photos"] for stats in user_rating_stats.values())
+            active_users = len(users_with_likes)
+            
+            likes_text += "📈 **Общая статистика:**\n"
+            likes_text += f"❤️ Всего лайков: {total_likes}\n"
+            likes_text += f"📷 Всего фото: {total_photos}\n"
+            likes_text += f"👥 Участников с лайками: {active_users}\n"
+            
+            if total_photos > 0:
+                overall_avg = total_likes / total_photos
+                likes_text += f"📊 Среднее по чату: {overall_avg:.1f} лайков/фото\n"
+        else:
+            likes_text += "Пока никто не получил лайков. Делитесь фото! 📸\n\n"
+            likes_text += "❤️ **Как получить лайки:**\n"
+            likes_text += "• Выкладывайте фото с пробежек\n"
+            likes_text += "• Ставьте реакции на фото других участников\n"
+            likes_text += "• Чем интереснее фото — тем больше лайков! 🏃‍♂️"
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=likes_text,
+            parse_mode="Markdown",
+        )
+        
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+            
+    except Exception as e:
+        logger.error(f"Ошибка команды likes: {e}", exc_info=True)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ошибка при формировании рейтинга лайков",
+        )
+
+
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.new_chat_members:
         return
@@ -2066,7 +2909,12 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("advice", advice))
     application.add_handler(CommandHandler("summary", summary))
     application.add_handler(CommandHandler("rating", rating))
+    application.add_handler(CommandHandler("likes", likes))
     application.add_handler(CommandHandler("levels", levels))
+    application.add_handler(CommandHandler("running", running))
+    application.add_handler(CommandHandler("garmin", garmin))
+    application.add_handler(CommandHandler("garmin_stop", garmin_stop))
+    application.add_handler(CommandHandler("garmin_list", garmin_list))
     application.add_handler(CommandHandler("weekly", weekly))
     application.add_handler(CommandHandler("monthly", monthly))
     application.add_handler(CommandHandler("anon", anon))
@@ -2075,6 +2923,9 @@ if __name__ == "__main__":
         MessageHandler(filters.ALL & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_all_messages)
     )
     application.add_handler(CallbackQueryHandler(handle_callback_query))
+    application.add_handler(
+        MessageHandler(filters.UpdateType.REACTION, handle_reactions)
+    )
     application.add_handler(
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
     )
@@ -2086,7 +2937,12 @@ if __name__ == "__main__":
     pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
     pinger_thread.start()
     
+    # Инициализация Garmin
+    init_garmin_on_startup()
+    
+    # Запускаем планировщик проверки Garmin
+    loop.create_task(garmin_scheduler_task())
+    
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
-
