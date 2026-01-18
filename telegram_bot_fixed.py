@@ -357,16 +357,31 @@ async def check_garmin_activities():
                 activity_type = activity.get('activityType', {}).get('typeKey', 'unknown')
                 activity_id = str(activity.get('activityId', 'unknown'))
                 
-                logger.info(f"[GARMIN] Проверяем активность: id={activity_id}, type={activity_type}")
+                # Проверяем timestamp - Garmin может возвращать разные форматы
+                start_time_seconds = activity.get('startTimeInSeconds', 0)
+                start_time_nano = activity.get('startTimeInNanoSeconds', 0)
+                
+                # Логируем что получаем
+                logger.info(f"[GARMIN] Raw activity: id={activity_id}, type={activity_type}")
+                logger.info(f"[GARMIN] Timestamp: seconds={start_time_seconds}, nano={start_time_nano}")
+                
+                # Пробуем разные форматы timestamp
+                if start_time_seconds and start_time_seconds > 0:
+                    activity_date_dt = datetime.fromtimestamp(start_time_seconds, tz=MOSCOW_TZ)
+                elif start_time_nano and start_time_nano > 0:
+                    # Наносекунды - переводим в секунды
+                    activity_date_dt = datetime.fromtimestamp(start_time_nano // 1000000000, tz=MOSCOW_TZ)
+                else:
+                    activity_date_dt = now  # Используем текущее время как fallback
+                
+                activity_date_str = activity_date_dt.strftime("%Y-%m-%d")
+                
+                logger.info(f"[GARMIN] Дата активности: {activity_date_str}")
                 
                 # Фильтруем только бег
                 if activity_type not in ['running', 'treadmill_running', 'trail_running']:
                     logger.debug(f"[GARMIN] Пропускаем (не бег): {activity_type}")
                     continue
-                
-                activity_date = activity.get('startTimeInSeconds', 0)
-                activity_date_dt = datetime.fromtimestamp(activity_date, tz=MOSCOW_TZ)
-                activity_date_str = activity_date_dt.strftime("%Y-%m-%d")
                 
                 logger.info(f"[GARMIN] Найден бег: id={activity_id}, date={activity_date_str}")
                 
@@ -376,10 +391,12 @@ async def check_garmin_activities():
                     logger.info(f"[GARMIN] Это старая активность (уже обработана)")
                     continue
                 
-                # Проверяем, не старая ли активность (больше 2 дней -> пропускаем)
+                # Проверяем, не старая ли активность (для тестирования уменьшено до 60 дней)
+                # После успешного тестирования вернуть обратно на 2 дня
                 days_diff = (now - activity_date_dt).days
-                if days_diff > 2:
-                    logger.warning(f"[GARMIN] Активность {activity_id} слишком старая ({days_diff} дней), пропускаем")
+                max_days = 60
+                if days_diff > max_days:
+                    logger.warning(f"[GARMIN] Активность {activity_id} старше {max_days} дней ({days_diff} дней), пропускаем")
                     continue
                 
                 # Это новая пробежка! Публикуем в чат
@@ -2958,11 +2975,6 @@ if __name__ == "__main__":
     
     # Запускаем планировщик проверки Garmin
     loop.create_task(garmin_scheduler_task())
-    
-    logger.info("Планировщики запущены")
-    
-    application.run_polling(drop_pending_updates=True)
-
     
     logger.info("Планировщики запущены")
     
