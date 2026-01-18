@@ -343,36 +343,47 @@ async def check_garmin_activities():
             client = garminconnect.Garmin(email, password)
             client.login()
             
-            # Получаем последние активности (последние 5 для надёжности)
-            activities = client.get_activities(0, 5)
+            # Получаем последние активности (последние 10 для надёжности)
+            activities = client.get_activities(0, 10)
             
             if not activities:
+                logger.info(f"[GARMIN] У пользователя {email} нет активностей")
                 continue
+            
+            logger.info(f"[GARMIN] У пользователя {email} найдено {len(activities)} активностей")
             
             # Проверяем каждую активность
             for activity in activities:
-                activity_type = activity.get('activityType', {}).get('typeKey', '')
+                activity_type = activity.get('activityType', {}).get('typeKey', 'unknown')
+                activity_id = str(activity.get('activityId', 'unknown'))
+                
+                logger.info(f"[GARMIN] Проверяем активность: id={activity_id}, type={activity_type}")
                 
                 # Фильтруем только бег
                 if activity_type not in ['running', 'treadmill_running', 'trail_running']:
+                    logger.debug(f"[GARMIN] Пропускаем (не бег): {activity_type}")
                     continue
                 
-                activity_id = str(activity['activityId'])
                 activity_date = activity.get('startTimeInSeconds', 0)
                 activity_date_dt = datetime.fromtimestamp(activity_date, tz=MOSCOW_TZ)
                 activity_date_str = activity_date_dt.strftime("%Y-%m-%d")
                 
+                logger.info(f"[GARMIN] Найден бег: id={activity_id}, date={activity_date_str}")
+                
                 # Проверяем, новая ли это активность
-                if activity_id == user_data.get("last_activity_id", ""):
+                last_id = user_data.get("last_activity_id", "")
+                if activity_id == last_id:
+                    logger.info(f"[GARMIN] Это старая активность (уже обработана)")
                     continue
                 
                 # Проверяем, не старая ли активность (больше 2 дней -> пропускаем)
                 days_diff = (now - activity_date_dt).days
                 if days_diff > 2:
-                    logger.debug(f"[GARMIN] Активность {activity_id} слишком старая ({days_diff} дней), пропускаем")
+                    logger.warning(f"[GARMIN] Активность {activity_id} слишком старая ({days_diff} дней), пропускаем")
                     continue
                 
                 # Это новая пробежка! Публикуем в чат
+                logger.info(f"[GARMIN] Публикую пробежку: {activity_id}")
                 await publish_run_result(user_data, activity, now, current_month)
                 
                 # Обновляем last_activity_id
@@ -385,7 +396,7 @@ async def check_garmin_activities():
             save_garmin_users()
             
         except Exception as e:
-            logger.error(f"[GARMIN] Ошибка проверки пользователя {user_data['email']}: {e}")
+            logger.error(f"[GARMIN] Ошибка проверки пользователя {user_data['email']}: {e}", exc_info=True)
             continue
 
 
@@ -2947,6 +2958,11 @@ if __name__ == "__main__":
     
     # Запускаем планировщик проверки Garmin
     loop.create_task(garmin_scheduler_task())
+    
+    logger.info("Планировщики запущены")
+    
+    application.run_polling(drop_pending_updates=True)
+
     
     logger.info("Планировщики запущены")
     
