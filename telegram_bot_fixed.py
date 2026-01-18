@@ -1793,8 +1793,16 @@ async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ============== ЕДИНЫЙ ОБРАБОТЧИК СООБЩЕНИЙ ==============
 async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Единый обработчик всех сообщений - и статистика, и анонимка"""
+    """Единый обработчик всех сообщений - и статистика, и реакции"""
     global daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent, mam_message_id, user_last_active
+    
+    # === ПРОВЕРКА РЕАКЦИЙ (до обычных сообщений) ===
+    if update.message and update.message.reactions:
+        try:
+            await handle_reactions(update, context)
+        except Exception as e:
+            logger.error(f"[REACTION] Ошибка в обработке реакций: {e}")
+        return  # Это reaction update, не нужно обрабатывать как сообщение
     
     # ОТЛАДКА - проверяем что функция вызывается
     try:
@@ -2057,7 +2065,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def handle_reactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка реакций на сообщения - подсчёт ВСЕХ реакций в реальном времени"""
-    global user_rating_stats, user_current_level
+    global user_rating_stats, user_current_level, daily_stats
     
     try:
         if not update.message or not update.message.reactions:
@@ -2923,9 +2931,6 @@ if __name__ == "__main__":
         MessageHandler(filters.ALL & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_all_messages)
     )
     application.add_handler(CallbackQueryHandler(handle_callback_query))
-    application.add_handler(
-        MessageHandler(filters.UpdateType.REACTION, handle_reactions)
-    )
     application.add_handler(
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member)
     )
