@@ -545,6 +545,15 @@ async def garmin_scheduler_task():
             await asyncio.sleep(60)  # Подождём минуту при ошибке
 
 
+def garmin_scheduler_sync():
+    """Синхронная обёртка для запуска в отдельном потоке"""
+    logger.info("[GARMIN] Планировщик запущен (sync wrapper)")
+    try:
+        asyncio.run(garmin_scheduler_task())
+    except Exception as e:
+        logger.error(f"[GARMIN] Критическая ошибка в потоке планировщика: {e}")
+
+
 def init_garmin_on_startup():
     """Инициализация Garmin при запуске бота"""
     global garmin_users
@@ -3002,8 +3011,11 @@ if __name__ == "__main__":
     # Инициализация Garmin
     init_garmin_on_startup()
     
-    # Запускаем планировщик проверки Garmin
-    loop.create_task(garmin_scheduler_task())
+    # Запускаем планировщик проверки Garmin в отдельном потоке
+    import threading
+    garmin_thread = threading.Thread(target=lambda: asyncio.run(garmin_scheduler_sync()), daemon=True)
+    garmin_thread.start()
+    logger.info("Garmin планировщик запущен в отдельном потоке")
     
     logger.info("Планировщики запущены")
     
