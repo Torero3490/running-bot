@@ -373,12 +373,16 @@ async def check_garmin_activities():
             password = decrypt_garmin_password(user_data["encrypted_password"])
             email = user_data["email"]
             
-            # Проверяем Garmin
-            client = garminconnect.Garmin(email, password)
-            client.login()
-            
-            # Получаем последние активности (последние 10 для надёжности)
-            activities = client.get_activities(0, 10)
+            # Проверяем Garmin (с дополнительной защитой)
+            try:
+                client = garminconnect.Garmin(email, password)
+                client.login()
+                
+                # Получаем последние активности (последние 10 для надёжности)
+                activities = client.get_activities(0, 10)
+            except Exception as garmin_error:
+                logger.error(f"[GARMIN] Ошибка подключения к Garmin для {email}: {garmin_error}")
+                continue
             
             if not activities:
                 logger.info(f"[GARMIN] У пользователя {email} нет активностей")
@@ -487,7 +491,10 @@ async def check_garmin_activities():
             save_garmin_users()
             
         except Exception as e:
-            logger.error(f"[GARMIN] Ошибка проверки пользователя {user_data['email']}: {e}", exc_info=True)
+            # Безопасная обработка ошибки - user_data может быть None
+            user_email = user_data.get("email", "Unknown") if user_data else "Unknown"
+            user_id_str = str(user_id) if user_id is not None else "None"
+            logger.error(f"[GARMIN] Ошибка проверки пользователя {user_id_str} ({user_email}): {e}", exc_info=True)
             continue
 
 
@@ -3523,6 +3530,10 @@ if __name__ == "__main__":
     birthday_thread.start()
     logger.info("Планировщик дней рождения запущен")
     
+    logger.info("Планировщики запущены")
+    
+    application.run_polling(drop_pending_updates=True)
+
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
