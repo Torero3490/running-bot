@@ -347,26 +347,46 @@ async def check_garmin_activities():
     today = now.strftime("%Y-%m-%d")
     current_month = now.strftime("%Y-%m")
     
-    # Безопасная итерация по копии словаря
-    for user_id, user_data in list(garmin_users.items()):
+    # Создаём БЕЗОПАСНУЮ копию словаря для итерации
+    try:
+        users_items = list(garmin_users.items()) if garmin_users else []
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка создания копии словаря: {e}")
+        return
+    
+    for user_id, user_data in users_items:
         try:
-            # Проверяем, что user_id и user_data валидны
-            if user_id is None:
-                logger.warning(f"[GARMIN] Пропускаем запись с None user_id")
-                continue
-            if user_data is None:
-                logger.warning(f"[GARMIN] Пропускаем запись с None user_data для user_id={user_id}")
-                continue
-            if not isinstance(user_data, dict):
-                logger.warning(f"[GARMIN] user_data не является словарём для user_id={user_id}")
+            # ========== МАКСИМАЛЬНАЯ ЗАЩИТА ОТ None ==========
+            # Защищаемся от любых проблем с user_id
+            try:
+                user_id_str = str(user_id) if user_id is not None else "None"
+            except Exception:
+                user_id_str = "ERROR_CONVERTING"
+            
+            # Защищаемся от любых проблем с user_data
+            try:
+                user_data_is_dict = isinstance(user_data, dict) if user_data is not None else False
+            except Exception:
+                user_data_is_dict = False
+            
+            # Если что-то не так - пропускаем этот элемент
+            if user_id is None or user_data is None or not user_data_is_dict:
+                logger.warning(f"[GARMIN] 🛡️ Пропускаем повреждённые данные: user_id={user_id_str}, user_data type={type(user_data)}")
+                try:
+                    if user_id is not None and user_id in garmin_users:
+                        del garmin_users[user_id]
+                        save_garmin_users()
+                        logger.info(f"[GARMIN] 🗑️ Удалён повреждённый пользователь {user_id_str} из базы")
+                except Exception as del_error:
+                    logger.error(f"[GARMIN] Не удалось удалить повреждённые данные: {del_error}")
                 continue
             
             # Проверяем наличие обязательных полей
             if "encrypted_password" not in user_data:
-                logger.warning(f"[GARMIN] Пропускаем user_id={user_id} без encrypted_password")
+                logger.warning(f"[GARMIN] Пропускаем user_id={user_id_str} без encrypted_password")
                 continue
             if "email" not in user_data:
-                logger.warning(f"[GARMIN] Пропускаем user_id={user_id} без email")
+                logger.warning(f"[GARMIN] Пропускаем user_id={user_id_str} без email")
                 continue
             
             # Расшифровываем пароль
@@ -3530,10 +3550,6 @@ if __name__ == "__main__":
     birthday_thread.start()
     logger.info("Планировщик дней рождения запущен")
     
-    logger.info("Планировщики запущены")
-    
-    application.run_polling(drop_pending_updates=True)
-
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
