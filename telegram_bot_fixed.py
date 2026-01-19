@@ -127,6 +127,9 @@ user_current_level = {}
 # {user_id: {"name": str, "email": str, "last_activity_id": str, "monthly_distance": float, "monthly_activities": int}}
 garmin_users = {}
 
+# {user_id: {"name": str, "activities": int, "distance": float, "duration": int, "calories": int}}
+user_running_stats = {}
+
 # Файл для хранения зашифрованных данных Garmin
 GARMIN_DATA_FILE = "garmin_users.json"
 GARMIN_KEY_FILE = "garmin_key.key"
@@ -1098,7 +1101,7 @@ def reset_monthly_running_stats():
             logger.info(f"[RUNNING] {stats['name']}: {stats['activities']} тренировок, {stats['distance']/1000:.1f} км")
     
     # Сбрасываем статистику
-    user_running_stats = {}
+    user_running_stats.clear()
     logger.info("[RUNNING] Статистика бега сброшена для нового месяца")
 
 
