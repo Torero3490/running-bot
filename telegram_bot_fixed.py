@@ -1832,39 +1832,40 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"[HANDLER] Ошибка логирования: {e}")
     
-    # === ПРОВЕРКА РЕАКЦИЙ ===
-    if update.message and update.message.reactions:
-        logger.info(f"[HANDLER] Это реакция!")
-        try:
-            await handle_reactions(update, context)
-        except Exception as e:
-            logger.error(f"[REACTION] Ошибка: {e}")
-        return
-    
-    if not update.message:
-        logger.debug(f"[HANDLER] Нет message, пропускаем")
-        return
-    
-    if update.message.from_user and update.message.from_user.is_bot:
-        logger.debug(f"[HANDLER] Это бот, пропускаем")
-        return
-    
-    user = update.message.from_user
-    if not user:
-        logger.debug(f"[HANDLER] Нет user, пропускаем")
-        return
+    try:
+        # === ПРОВЕРКА РЕАКЦИЙ ===
+        if update.message and update.message.reactions:
+            logger.info(f"[HANDLER] Это реакция!")
+            try:
+                await handle_reactions(update, context)
+            except Exception as e:
+                logger.error(f"[REACTION] Ошибка: {e}")
+            return
         
-    user_id = user.id
-    user_name = f"@{user.username}" if user.username else user.full_name
-    message_text = update.message.text or ""
-    is_photo = bool(update.message.photo)
-    
-    logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
-    
-    # Проверяем, не команда ли это
-    if message_text and message_text.startswith('/'):
-        logger.info(f"[MSG] Это команда, пропускаем")
-        return
+        if not update.message:
+            logger.debug(f"[HANDLER] Нет message, пропускаем")
+            return
+        
+        if update.message.from_user and update.message.from_user.is_bot:
+            logger.debug(f"[HANDLER] Это бот, пропускаем")
+            return
+        
+        user = update.message.from_user
+        if not user:
+            logger.debug(f"[HANDLER] Нет user, пропускаем")
+            return
+            
+        user_id = user.id
+        user_name = f"@{user.username}" if user.username else user.full_name
+        message_text = update.message.text or ""
+        is_photo = bool(update.message.photo)
+        
+        logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
+        
+        # Проверяем, не команда ли это
+        if message_text and message_text.startswith('/'):
+            logger.info(f"[MSG] Это команда, пропускаем")
+            return
         
         # === ПРОВЕРКА ВОЗВРАЩЕНЦА ===
         moscow_now = datetime.now(MOSCOW_TZ)
@@ -2078,7 +2079,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             logger.info(f"[NIGHT] ☀️ День - ночной режим не активен (Москва {moscow_hour}:00)")
         
         logger.info(f"[MSG] === КОНЕЦ обработки {user_name} ===")
-        
+    
     except Exception as e:
         logger.error(f"[MSG] 💥 КРИТИЧЕСКАЯ ОШИБКА: {e}", exc_info=True)
 
@@ -2986,6 +2987,3 @@ if __name__ == "__main__":
     
     application.run_polling(drop_pending_updates=True)
 
-    logger.info("Планировщики запущены")
-    
-    application.run_polling(drop_pending_updates=True)
