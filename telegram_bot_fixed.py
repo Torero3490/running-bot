@@ -358,21 +358,43 @@ async def check_garmin_activities():
                 activity_id = str(activity.get('activityId', 'unknown'))
                 
                 # Проверяем timestamp - Garmin может возвращать разные форматы
+                start_time_local = activity.get('startTimeLocal', '')
                 start_time_seconds = activity.get('startTimeInSeconds', 0)
                 start_time_nano = activity.get('startTimeInNanoSeconds', 0)
                 
                 # Логируем что получаем
                 logger.info(f"[GARMIN] Raw activity: id={activity_id}, type={activity_type}")
-                logger.info(f"[GARMIN] Timestamp: seconds={start_time_seconds}, nano={start_time_nano}")
+                logger.info(f"[GARMIN] Timestamp: local='{start_time_local}', seconds={start_time_seconds}, nano={start_time_nano}")
                 
-                # Пробуем разные форматы timestamp
-                if start_time_seconds and start_time_seconds > 0:
-                    activity_date_dt = datetime.fromtimestamp(start_time_seconds, tz=MOSCOW_TZ)
-                elif start_time_nano and start_time_nano > 0:
-                    # Наносекунды - переводим в секунды
-                    activity_date_dt = datetime.fromtimestamp(start_time_nano // 1000000000, tz=MOSCOW_TZ)
-                else:
+                # Пробуем разные форматы timestamp (в порядке приоритета)
+                activity_date_dt = None
+                
+                if start_time_local:
+                    try:
+                        # Пробуем парсить startTimeLocal (формат: "YYYY-MM-DD HH:MM:SS")
+                        activity_date_dt = datetime.strptime(start_time_local, "%Y-%m-%d %H:%M:%S").replace(tzinfo=MOSCOW_TZ)
+                        logger.info(f"[GARMIN] Успешно распознали startTimeLocal: {start_time_local}")
+                    except Exception as e:
+                        logger.warning(f"[GARMIN] Не удалось распознать startTimeLocal: {e}")
+                
+                if activity_date_dt is None and start_time_seconds and start_time_seconds > 0:
+                    try:
+                        activity_date_dt = datetime.fromtimestamp(start_time_seconds, tz=MOSCOW_TZ)
+                        logger.info(f"[GARMIN] Используем startTimeInSeconds: {start_time_seconds}")
+                    except Exception as e:
+                        logger.warning(f"[GARMIN] Не удалось распознать startTimeInSeconds: {e}")
+                
+                if activity_date_dt is None and start_time_nano and start_time_nano > 0:
+                    try:
+                        # Наносекунды - переводим в секунды
+                        activity_date_dt = datetime.fromtimestamp(start_time_nano // 1000000000, tz=MOSCOW_TZ)
+                        logger.info(f"[GARMIN] Используем startTimeInNanoSeconds: {start_time_nano}")
+                    except Exception as e:
+                        logger.warning(f"[GARMIN] Не удалось распознать startTimeInNanoSeconds: {e}")
+                
+                if activity_date_dt is None:
                     activity_date_dt = now  # Используем текущее время как fallback
+                    logger.warning(f"[GARMIN] Не удалось распознать timestamp, используем текущее время")
                 
                 activity_date_str = activity_date_dt.strftime("%Y-%m-%d")
                 
@@ -1834,7 +1856,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     try:
         # === ПРОВЕРКА РЕАКЦИЙ ===
-        if update.message and update.message.reactions:
+        if update.message and hasattr(update.message, 'reactions') and update.message.reactions:
             logger.info(f"[HANDLER] Это реакция!")
             try:
                 await handle_reactions(update, context)
@@ -2986,4 +3008,3 @@ if __name__ == "__main__":
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
-
