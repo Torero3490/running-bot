@@ -130,7 +130,14 @@ garmin_users = {}
 # {user_id: {"name": str, "activities": int, "distance": float, "duration": int, "calories": int}}
 user_running_stats = {}
 
-# Файл для хранения зашифрованных данных Garmin
+# ============== ДНИ РОЖДЕНИЯ ==============
+# {user_id: {"name": str, "birthday": "DD.MM"}}
+user_birthdays = {}
+
+# Файл для хранения дней рождения
+BIRTHDAYS_FILE = "birthdays.json"
+
+# ============== GARMIN INTEGRATION ==============
 GARMIN_DATA_FILE = "garmin_users.json"
 GARMIN_KEY_FILE = "garmin_key.key"
 
@@ -424,15 +431,24 @@ async def check_garmin_activities():
                     logger.warning(f"[GARMIN] Активность {activity_id} старше {max_days} дней ({days_diff} дней), пропускаем")
                     continue
                 
-                # Это новая пробежка! Публикуем в чат
-                logger.info(f"[GARMIN] Публикую пробежку: {activity_id}")
-                await publish_run_result(user_id, user_data, activity, now, current_month)
-                
-                # Обновляем last_activity_id
+                # Временно обновляем last_activity_id ПЕРЕД публикацией
+                # Это предотвращает повторную публикацию при сбоях
+                old_activity_id = user_data.get("last_activity_id", "")
                 user_data["last_activity_id"] = activity_id
                 user_data["last_activity_date"] = activity_date_str
+                save_garmin_users()
                 
-                logger.info(f"[GARMIN] Обработана пробежка {activity_id} от {user_data['name']}")
+                # Это новая пробежка! Публикуем в чат
+                logger.info(f"[GARMIN] Публикую пробежку: {activity_id}")
+                success = await publish_run_result(user_id, user_data, activity, now, current_month)
+                
+                if success:
+                    logger.info(f"[GARMIN] ✅ Пробежка {activity_id} успешно опубликована")
+                else:
+                    # Публикация не удалась — откатываем last_activity_id
+                    logger.warning(f"[GARMIN] ⚠️ Публикация не удалась, откат last_activity_id")
+                    user_data["last_activity_id"] = old_activity_id
+                    save_garmin_users()
             
             # Сохраняем данные
             save_garmin_users()
@@ -443,7 +459,7 @@ async def check_garmin_activities():
 
 
 async def publish_run_result(user_id, user_data, activity, now, current_month):
-    """Публикация результатов пробежки в чат"""
+    """Публикация результатов пробежки в чат. Возвращает True при успехе."""
     global application, user_running_stats
     
     try:
@@ -522,9 +538,12 @@ async def publish_run_result(user_id, user_data, activity, now, current_month):
                 parse_mode="Markdown"
             )
             logger.info(f"[GARMIN] Результат опубликован: {user_data['name']} - {distance_km:.2f} км")
+            return True
+        return False
         
     except Exception as e:
         logger.error(f"[GARMIN] Ошибка публикации: {e}", exc_info=True)
+        return False
 
 
 async def garmin_scheduler_task():
@@ -570,6 +589,153 @@ def init_garmin_on_startup():
             logger.warning("[GARMIN] Библиотека недоступна, интеграция отключена")
     except Exception as e:
         logger.error(f"[GARMIN] Ошибка инициализации: {e}")
+
+
+# ============== ФУНКЦИИ ДЛЯ ДНЕЙ РОЖДЕНИЯ ==============
+def save_birthdays():
+    """Сохранение дней рождения в файл"""
+    try:
+        save_data = {}
+        for user_id, data in user_birthdays.items():
+            save_data[str(user_id)] = {
+                "name": data["name"],
+                "birthday": data["birthday"]
+            }
+        
+        with open(BIRTHDAYS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(save_data, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"[BIRTHDAY] Дни рождения сохранены: {len(user_birthdays)} пользователей")
+    except Exception as e:
+        logger.error(f"[BIRTHDAY] Ошибка сохранения: {e}")
+
+
+def load_birthdays():
+    """Загрузка дней рождения из файла"""
+    global user_birthdays
+    
+    try:
+        if not os.path.exists(BIRTHDAYS_FILE):
+            logger.info("[BIRTHDAY] Файл дней рождения не найден")
+            user_birthdays = {}
+            return
+        
+        with open(BIRTHDAYS_FILE, 'r', encoding='utf-8') as f:
+            load_data = json.load(f)
+        
+        user_birthdays = {}
+        for user_id_str, data in load_data.items():
+            user_birthdays[int(user_id_str)] = {
+                "name": data["name"],
+                "birthday": data["birthday"]
+            }
+        
+        logger.info(f"[BIRTHDAY] Загружено дней рождения: {len(user_birthdays)}")
+    except Exception as e:
+        logger.error(f"[BIRTHDAY] Ошибка загрузки: {e}")
+        user_birthdays = {}
+
+
+async def send_birthday_congratulation(user_id, user_data):
+    """Отправка поздравления с Днём рождения"""
+    global application
+    
+    try:
+        name = user_data["name"]
+        
+        # Выбираем случайное пожелание
+        wish = random.choice(BIRTHDAY_WISHES).format(name=name)
+        
+        # Праздничное сообщение с картинкой
+        birthday_text = f"""🎉 **{name}, с Днём рождения!** 🎂
+
+{wish}
+
+🎈 Сегодня твой особенный день — отдыхай, радуйся и наслаждайся! 
+
+💐 С любовью, твой беговой клуб! ❤️"""
+
+        # Отправляем в чат
+        if application and CHAT_ID:
+            # Попробуем отправить с праздничной картинкой (торт)
+            try:
+                await application.bot.send_photo(
+                    chat_id=CHAT_ID,
+                    photo="https://cdn-icons-png.flaticon.com/512/3081/3081559.png",  # Праздничный торт
+                    caption=birthday_text,
+                    parse_mode="Markdown"
+                )
+            except Exception as img_error:
+                # Если картинка не загрузилась — отправляем просто текст
+                logger.warning(f"[BIRTHDAY] Не удалось загрузить картинку: {img_error}")
+                await application.bot.send_message(
+                    chat_id=CHAT_ID,
+                    text=birthday_text,
+                    parse_mode="Markdown"
+                )
+            
+            logger.info(f"[BIRTHDAY] Поздравление отправлено: {name}")
+        
+    except Exception as e:
+        logger.error(f"[BIRTHDAY] Ошибка отправки поздравления: {e}", exc_info=True)
+
+
+async def check_birthdays():
+    """Проверка дней рождения и отправка поздравлений"""
+    global user_birthdays
+    
+    try:
+        now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
+        today = now.strftime("%d.%m")  # Формат DD.MM
+        
+        logger.info(f"[BIRTHDAY] Проверка дней рождения на {today}")
+        
+        for user_id, user_data in user_birthdays.items():
+            birthday = user_data["birthday"]
+            
+            if birthday == today:
+                logger.info(f"[BIRTHDAY] Сегодня ДР у: {user_data['name']}")
+                await send_birthday_congratulation(user_id, user_data)
+        
+    except Exception as e:
+        logger.error(f"[BIRTHDAY] Ошибка проверки: {e}", exc_info=True)
+
+
+async def birthday_scheduler_task():
+    """Планировщик проверки дней рождения (каждый день в 9:00)"""
+    global bot_running
+    
+    logger.info("[BIRTHDAY] Планировщик дней рождения запущен")
+    
+    while bot_running:
+        try:
+            await asyncio.sleep(3600)  # Проверяем каждый час
+            
+            now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
+            current_hour = now.hour
+            current_minute = now.minute
+            
+            # Проверяем в 9:00 утра
+            if current_hour == 9 and current_minute == 0:
+                logger.info("[BIRTHDAY] Время 9:00 — проверяем дни рождения")
+                await check_birthdays()
+                
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"[BIRTHDAY] Ошибка в планировщике: {e}")
+            await asyncio.sleep(60)
+
+
+def init_birthdays_on_startup():
+    """Инициализация дней рождения при запуске бота"""
+    global user_birthdays
+    
+    try:
+        load_birthdays()
+        logger.info(f"[BIRTHDAY] Инициализация завершена. Дней рождения: {len(user_birthdays)}")
+    except Exception as e:
+        logger.error(f"[BIRTHDAY] Ошибка инициализации: {e}")
 
 
 async def fetch_tips_from_url(url: str, category: str) -> List[str]:
@@ -739,6 +905,49 @@ MOTIVATION_QUOTES = [
     "🔥 Тренировки формируют характер!",
     "💪 Верь в себя — и беги!",
     "🌟 Ты можешь больше, чем думаешь!",
+]
+
+# ============== ЦИТАТЫ ВЕЛИКИХ БЕГУНОВ ==============
+GREAT_RUNNER_QUOTES = [
+    "🏃‍♂️ «Бег — это самый честный спорт. Он показывает, кто ты на самом деле.» — Элиуд Кипчоге",
+    "⚡ «Не имеет значения, насколько быстро ты бежишь. Важно, что ты не останавливаешься.» — Стив Префонтейн",
+    "🌟 «Тело может выдержать почти всё. Это вопрос силы воли.» — Эмиль Затопек",
+    "💪 «Ты не проиграл, если не финишировал первым. Ты проиграл, если не начал.» — Хаile Гебреселассие",
+    "🏃‍♀️ «Бег — это свобода. Когда бежишь, ты контролируешь свою жизнь.» — Билл Бауэрман",
+    "🔥 «Бег — это лекарство, которое всегда под рукой.» — Джордж Шихан",
+    "🚀 «Марафон — это не 42 км. Это 42 км вопросов к себе.» — Фред Лебоу",
+    "⭐ «Неважно, как медленно ты бежишь. Ты всё равно быстрее того, кто сидит на диване.» — Джон Бингам",
+    "💥 «Если ты чувствуешь боль, значит, ты ещё жив. Продолжай бежать.» — Пааво Нурми",
+    "🏆 «Цель не всегда должна быть достигнута. Иногда достаточно просто бежать к ней.» — Роджер Баннистер",
+    "🌈 «Каждый круг — это шанс стать лучше. Не упусти его.» — Пааво Нурми",
+    "💫 «Трудный день на тренировке — это лёгкий день на соревнованиях.» — Билл Бауэрман",
+    "🎯 «Бег — это танец между телом и волей.» — Эмиль Затопек",
+    "🔥 «Ты бежишь не для того, чтобы похудеть. Ты бежишь, чтобы жить.» — Стив Префонтейн",
+    "🏃‍♂️ «Никакой ветер не может остановить того, кто уже решил бежать.» — Элиуд Кипчоге",
+    "💪 «Бег учит нас, что падать — это нормально. Главное — подниматься.» — Хаile Гебреселассие",
+    "⭐ «Финишная прямая — это только начало твоего следующего забега.» — Фред Лебоу",
+    "🌟 «Секрет не в том, чтобы бегать быстро. Секрет в том, чтобы бежать.» — Роджер Баннистер",
+    "⚡ «Бег — это поэзия движения и музыка души.» — Джордж Шихан",
+    "🏅 «Когда думаешь, что не можешь — ты можешь. Просто поверь.» — Стив Префонтейн",
+]
+
+# ============== ПОЖЕЛАНИЯ КО ДНЮ РОЖДЕНИЯ ==============
+BIRTHDAY_WISHES = [
+    "🎂 {name}, с Днём рождения! Желаю бегать быстрее ветра, преодолевать любые дистанции и всегда достигать своих целей! 🌟",
+    "🎈 {name}, поздравляю! Пусть каждый твой забег приносит радость, новые победы и отличное настроение! 🏃‍♂️",
+    "🎉 {name}, с ДР! Желаю сил, выносливости и всегда хорошей погоды для пробежек! ☀️",
+    "🌟 {name}, с Днём рождения! Пусть будет много километров, мало травм и много радости от бега! 💪",
+    "🎁 {name}, поздравляю! Желаю здоровья, энергии и новых личных рекордов! 🏆",
+    "💐 {name}, с Днём рождения! Пусть бег приносит столько же радости, сколько ты приносишь в наш чат! ❤️",
+    "🎊 {name}, с ДР! Желаю преодолевать все препятствия и всегда финишировать с улыбкой! 😊",
+    "🌈 {name}, поздравляю! Пусть каждый день начинается с улыбки и заканчивается довольной усталостью! 🏃‍♀️",
+    "✨ {name}, с Днём рождения! Желаю много друзей-единомышленников и крутых забегов! 👟",
+    "🎯 {name}, с ДР! Пусть цели будут достигнуты, а новые горизонты — покорены! 🎯",
+    "💫 {name}, поздравляю! Желаю never stop running и always finish strong! 🏁",
+    "🌅 {name}, с Днём рождения! Пусть утренние пробежки дают энергию на весь день! ☀️",
+    "🎖️ {name}, с ДР! Желаю медалей, кубков и незабываемых соревнований! 🥇",
+    "💝 {name}, поздравляю! Ты — звезда нашего бегового клуба! Пусть сияешь ещё ярче! 🌟",
+    "🎨 {name}, с Днём рождения! Желаю, чтобы жизнь была яркой, как разноцветные кроссовки! 👟",
 ]
 
 # ============== СМЕШНЫЕ РУГАТЕЛЬСТВА ==============
@@ -1087,6 +1296,127 @@ def get_top_runners() -> list:
     runners.sort(key=lambda x: x["distance"], reverse=True)
     
     return runners[:10]
+
+
+async def send_weekly_running_summary():
+    """Отправка еженедельной сводки по бегу (воскресенье 23:00)"""
+    global application, user_running_stats
+    
+    try:
+        if not user_running_stats:
+            logger.info("[RUNNING] Нет данных для еженедельной сводки")
+            return
+        
+        now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
+        week_num = now.isocalendar()[1]
+        year = now.year
+        
+        # Считаем общую статистику
+        total_activities = sum(stats["activities"] for stats in user_running_stats.values())
+        total_distance = sum(stats["distance"] for stats in user_running_stats.values()) / 1000  # в км
+        total_calories = sum(stats["calories"] for stats in user_running_stats.values())
+        
+        # Получаем топ бегунов
+        top_runners = get_top_runners()
+        
+        weekly_text = f"🏃‍♂️ **Еженедельная сводка по бегу (Неделя #{week_num}, {year})**\n\n"
+        
+        # Общая статистика недели
+        weekly_text += f"📊 **Общая статистика недели:**\n"
+        weekly_text += f"🏃‍♂️ Всего пробежек: {total_activities}\n"
+        weekly_text += f"📍 Общая дистанция: {total_distance:.1f} км\n"
+        weekly_text += f"🔥 Сожжено калорий: {total_calories}\n"
+        weekly_text += f"👥 Участников бега: {len(user_running_stats)}\n\n"
+        
+        # Топ-3 бегунов
+        if top_runners:
+            medals = ["🥇", "🥈", "🥉"]
+            weekly_text += f"🏆 **Топ бегунов недели:**\n"
+            for i, runner in enumerate(top_runners[:3]):
+                distance_km = runner["distance"] / 1000
+                weekly_text += f"{medals[i]} {runner['name']} — {distance_km:.1f} км ({runner['activities']} тренировок)\n"
+            weekly_text += "\n"
+        
+        # Индивидуальная статистика всех
+        weekly_text += "📝 **Все участники:**\n"
+        for runner in top_runners:
+            distance_km = runner["distance"] / 1000
+            weekly_text += f"• {runner['name']}: {distance_km:.1f} км ({runner['activities']} тренировок)\n"
+        
+        # Мотивация
+        weekly_text += "\n" + random.choice(GREAT_RUNNER_QUOTES)
+        
+        # Отправляем в чат
+        if application and CHAT_ID:
+            await application.bot.send_message(
+                chat_id=CHAT_ID,
+                text=weekly_text,
+                parse_mode="Markdown"
+            )
+            logger.info("[RUNNING] Еженедельная сводка по бегу отправлена")
+        
+    except Exception as e:
+        logger.error(f"[RUNNING] Ошибка отправки еженедельной сводки: {e}", exc_info=True)
+
+
+async def send_monthly_running_summary():
+    """Отправка ежемесячной сводки по бегу (последний день месяца)"""
+    global application, user_running_stats
+    
+    try:
+        if not user_running_stats:
+            logger.info("[RUNNING] Нет данных для ежемесячной сводки")
+            return
+        
+        now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
+        month_name = now.strftime("%B %Y")
+        
+        # Считаем общую статистику
+        total_activities = sum(stats["activities"] for stats in user_running_stats.values())
+        total_distance = sum(stats["distance"] for stats in user_running_stats.values()) / 1000  # в км
+        total_calories = sum(stats["calories"] for stats in user_running_stats.values())
+        total_duration = sum(stats["duration"] for stats in user_running_stats.values())
+        
+        # Получаем топ бегунов
+        top_runners = get_top_runners()
+        
+        monthly_text = f"🏆 **Ежемесячная сводка по бегу ({month_name})**\n\n"
+        
+        # Общая статистика месяца
+        monthly_text += f"📊 **Итоги месяца:**\n"
+        monthly_text += f"🏃‍♂️ Всего пробежек: {total_activities}\n"
+        monthly_text += f"📍 Общая дистанция: {total_distance:.1f} км\n"
+        monthly_text += f"⏱️ Общее время: {total_duration // 3600}ч {(total_duration % 3600) // 60}м\n"
+        monthly_text += f"🔥 Сожжено калорий: {total_calories}\n"
+        monthly_text += f"👥 Участников бега: {len(user_running_stats)}\n\n"
+        
+        # Топ-3 бегунов с медалями
+        if top_runners:
+            medals = ["🥇", "🥈", "🥉"]
+            monthly_text += f"🏅 **Лучшие бегуны месяца:**\n"
+            for i, runner in enumerate(top_runners[:3]):
+                distance_km = runner["distance"] / 1000
+                hours = runner["duration"] // 3600
+                minutes = (runner["duration"] % 3600) // 60
+                monthly_text += f"{medals[i]} **{runner['name']}**\n"
+                monthly_text += f"   📍 {distance_km:.1f} км | ⏱️ {hours}ч {minutes}м | 🔥 {runner['calories']} ккал\n\n"
+        
+        monthly_text += "💪 **Поздравляем всех с отличным месяцем! Keep running!**\n"
+        
+        # Мотивация
+        monthly_text += "\n" + random.choice(GREAT_RUNNER_QUOTES)
+        
+        # Отправляем в чат
+        if application and CHAT_ID:
+            await application.bot.send_message(
+                chat_id=CHAT_ID,
+                text=monthly_text,
+                parse_mode="Markdown"
+            )
+            logger.info("[RUNNING] Ежемесячная сводка по бегу отправлена")
+        
+    except Exception as e:
+        logger.error(f"[RUNNING] Ошибка отправки ежемесячной сводки: {e}", exc_info=True)
 
 
 def reset_monthly_running_stats():
@@ -1805,16 +2135,23 @@ async def daily_summary_scheduler_task():
                 except Exception as e:
                     logger.error(f"Ошибка при отправке сводки: {e}")
         
-        # Проверка недели (воскресенье 23:00 - еженедельная сводка)
+        # Проверка недели (воскресенье 23:00 - еженедельная сводка + бег)
         if now.weekday() == 6 and current_hour == 23 and current_minute == 0:
             week_num = now.isocalendar()[1]
             if week_num != current_week:
                 logger.info(f"Время воскресенье 23:00 - отправляем еженедельную сводку")
                 try:
                     await send_weekly_summary()
-                    current_week = week_num
                 except Exception as e:
                     logger.error(f"Ошибка при отправке еженедельной сводки: {e}")
+                
+                # Также отправляем сводку по бегу
+                try:
+                    await send_weekly_running_summary()
+                except Exception as e:
+                    logger.error(f"Ошибка при отправке еженедельной сводки по бегу: {e}")
+                
+                current_week = week_num
         
         # Проверка конца месяца (последний день месяца в 23:00)
         last_day_of_month = (now.replace(day=28) + timedelta(days=4)).day - (now.replace(day=28) + timedelta(days=4)).day % 28
@@ -1822,12 +2159,20 @@ async def daily_summary_scheduler_task():
             logger.info(f"Последний день месяца - отправляем ежемесячную сводку")
             try:
                 await send_monthly_summary()
-                # Сбрасываем статистику бега для нового месяца
+            except Exception as e:
+                logger.error(f"Ошибка при отправке ежемесячной сводки: {e}")
+            
+            # Также отправляем сводку по бегу за месяц
+            try:
+                await send_monthly_running_summary()
+            except Exception as e:
+                logger.error(f"Ошибка при отправке ежемесячной сводки по бегу: {e}")
+            
+            # Сбрасываем статистику бега для нового месяца
+            try:
                 reset_monthly_running_stats()
             except Exception as e:
-                logger.error(f"Ошибка при отправке ежемесячной сводки: {e}")
-            except Exception as e:
-                logger.error(f"Ошибка при отправке ежемесячной сводки: {e}")
+                logger.error(f"Ошибка при сбросе статистики бега: {e}")
         
         await asyncio.sleep(60)
 
@@ -1851,6 +2196,66 @@ async def anonphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.delete()
     except Exception:
         pass
+
+
+# ============== КОМАНДА ДЛЯ ДНЯ РОЖДЕНИЯ ==============
+async def birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /birthday DD.MM — установка дня рождения"""
+    global user_birthdays
+    
+    try:
+        user_id = update.message.from_user.id
+        user_name = f"@{update.message.from_user.username}" if update.message.from_user.username else update.message.from_user.full_name
+        
+        # Проверяем аргументы
+        if not context.args or len(context.args) != 1:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🎂 **Команда /birthday**\n\n"
+                     "📝 Используй: `/birthday DD.MM`\n"
+                     "📱 *Пример:* `/birthday 15.06`\n\n"
+                     "Бот будет поздравлять тебя с Днём рождения каждый год! 🎉",
+                parse_mode="Markdown"
+            )
+            return
+        
+        # Парсим дату
+        birthday_str = context.args[0]
+        try:
+            datetime.strptime(birthday_str, "%d.%m")
+        except ValueError:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="❌ Неправильный формат даты!\n\n"
+                     "Используй: `/birthday DD.MM`\n"
+                     "📱 *Пример:* `/birthday 15.06`",
+                parse_mode="Markdown"
+            )
+            return
+        
+        # Сохраняем день рождения
+        user_birthdays[user_id] = {
+            "name": user_name,
+            "birthday": birthday_str
+        }
+        save_birthdays()
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"✅ *День рождения сохранён!* 🎂\n\n"
+                 f"👤 {user_name}\n"
+                 f"📅 Дата: {birthday_str}\n\n"
+                 f"Бот запомнит и поздравит тебя в следующий ДР! 🎉",
+            parse_mode="Markdown"
+        )
+        logger.info(f"[BIRTHDAY] День рождения сохранён: {user_name} — {birthday_str}")
+        
+    except Exception as e:
+        logger.error(f"[BIRTHDAY] Ошибка команды: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Ошибка при сохранении дня рождения"
+        )
 
 
 # ============== ЕДИНЫЙ ОБРАБОТЧИК СООБЩЕНИЙ ==============
@@ -1987,6 +2392,30 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                     logger.error(f"[MAM] Ошибка отправки фото: {e}")
                 # Сбрасываем mam_message_id чтобы не реагировать на повторные ответы
                 mam_message_id = None
+        
+        # === ОТВЕТ НА "СПОКОЙНОЙ НОЧИ" ===
+        if message_text.lower() in ['спокойной ночи', 'спокойной ночи!', 'спокойной ночи всем', 'всем спокойной ночи', 'good night', 'good night!', 'gn', 'спок']:
+            good_night_responses = [
+                f"🌙 {user_name}, спокойной ночи! 🌟",
+                f"💤 {user_name}, сладких снов! 💫",
+                f"🌙 {user_name}, пусть тебе приснятся звёзды! ✨",
+                f"💫 {user_name}, доброй ночи! 🌙",
+                f"🌟 {user_name}, спокойной ночи! Пусть ночь подарит тебе отдых! 💤",
+                f"🌙 {user_name}, сладких снов! Завтра будет новый день! ☀️",
+                f"💤 {user_name}, отличной ночи! 🌙",
+                f"✨ {user_name}, спокойной ночи! Пусть сон будет крепким! 💫",
+                f"🌙 {user_name}, доброй ночи! Мечтай о хорошем! 💭",
+                f"💫 {user_name}, спокойной ночи! Утро будет радостным! ☀️",
+                f"🌟 {user_name}, сладких снов! Ты молодец сегодня! 💪",
+                f"💤 {user_name}, спокойной ночи! Завтра всё будет хорошо! 🌈",
+                f"🌙 {user_name}, доброй ночи! Отдыхай! ✨",
+                f"💫 {user_name}, спокойной ночи! Луна присмотрит за тобой! 🌙",
+                f"🌟 {user_name}, сладких снов! До завтра! 💤",
+            ]
+            response = random.choice(good_night_responses)
+            await context.bot.send_message(chat_id=CHAT_ID, text=response)
+            logger.info(f"[GOODNIGHT] Ответил на спокойную ночь от {user_name}")
+            # Не делаем return, чтобы статистика тоже считалась
         
         # === СТАТИСТИКА ===
         
@@ -2242,6 +2671,7 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • /running — показать рейтинг бегунов за месяц
 • /garmin email пароль — привязать аккаунт Garmin Connect
 • /garmin_stop — отключить аккаунт Garmin
+• /birthday DD.MM — указать дату рождения для поздравлений
 • /weekly — показать еженедельную сводку
 • /monthly — показать итоги месяца"""
 
@@ -2543,7 +2973,7 @@ async def levels(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /weekly — показывает еженедельную сводку"""
+    """Команда /weekly — показывает еженедельную сводку (общая + бег)"""
     try:
         await send_weekly_summary()
     except Exception as e:
@@ -2553,6 +2983,12 @@ async def weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text="❌ Ошибка при формировании еженедельной сводки",
         )
     
+    # Также отправляем сводку по бегу
+    try:
+        await send_weekly_running_summary()
+    except Exception as e:
+        logger.error(f"Ошибка команды weekly (бег): {e}")
+    
     try:
         await update.message.delete()
     except Exception:
@@ -2560,7 +2996,7 @@ async def weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /monthly — показывает ежемесячную сводку"""
+    """Команда /monthly — показывает ежемесячную сводку (общая + бег)"""
     try:
         await send_monthly_summary()
     except Exception as e:
@@ -2569,6 +3005,12 @@ async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text="❌ Ошибка при формировании ежемесячной сводки",
         )
+    
+    # Также отправляем сводку по бегу
+    try:
+        await send_monthly_running_summary()
+    except Exception as e:
+        logger.error(f"Ошибка команды monthly (бег): {e}")
     
     try:
         await update.message.delete()
@@ -2992,6 +3434,7 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("garmin", garmin))
     application.add_handler(CommandHandler("garmin_stop", garmin_stop))
     application.add_handler(CommandHandler("garmin_list", garmin_list))
+    application.add_handler(CommandHandler("birthday", birthday))
     application.add_handler(CommandHandler("weekly", weekly))
     application.add_handler(CommandHandler("monthly", monthly))
     application.add_handler(CommandHandler("anon", anon))
@@ -3014,11 +3457,19 @@ if __name__ == "__main__":
     # Инициализация Garmin
     init_garmin_on_startup()
     
+    # Инициализация дней рождения
+    init_birthdays_on_startup()
+    
     # Запускаем планировщик проверки Garmin в отдельном потоке
     import threading
     garmin_thread = threading.Thread(target=lambda: asyncio.run(garmin_scheduler_sync()), daemon=True)
     garmin_thread.start()
     logger.info("Garmin планировщик запущен в отдельном потоке")
+    
+    # Запускаем планировщик дней рождения
+    birthday_thread = threading.Thread(target=lambda: asyncio.run(birthday_scheduler_task()), daemon=True)
+    birthday_thread.start()
+    logger.info("Планировщик дней рождения запущен")
     
     logger.info("Планировщики запущены")
     
