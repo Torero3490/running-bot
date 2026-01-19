@@ -1824,41 +1824,47 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Единый обработчик всех сообщений - и статистика, и реакции"""
     global daily_stats, user_rating_stats, user_current_level, user_night_messages, user_night_warning_sent, mam_message_id, user_last_active
     
-    # === ПРОВЕРКА РЕАКЦИЙ (до обычных сообщений) ===
+    # ОТЛАДКА - логируем ЧТО ПРИШЛО
+    try:
+        logger.info(f"[HANDLER] Получен update: type={type(update)}, message={update.message is not None}")
+        if update.message:
+            logger.info(f"[HANDLER] message_id={update.message.message_id}, text='{update.message.text or ''[:50]}'")
+    except Exception as e:
+        logger.error(f"[HANDLER] Ошибка логирования: {e}")
+    
+    # === ПРОВЕРКА РЕАКЦИЙ ===
     if update.message and update.message.reactions:
+        logger.info(f"[HANDLER] Это реакция!")
         try:
             await handle_reactions(update, context)
         except Exception as e:
-            logger.error(f"[REACTION] Ошибка в обработке реакций: {e}")
-        return  # Это reaction update, не нужно обрабатывать как сообщение
+            logger.error(f"[REACTION] Ошибка: {e}")
+        return
     
-    # ОТЛАДКА - проверяем что функция вызывается
-    try:
-        if update.message:
-            logger.info(f"[DEBUG] update.message_id={update.message.message_id}, text='{update.message.text or ''}'")
-        else:
-            logger.info("[DEBUG] update.message is None")
-    except:
-        logger.info("[DEBUG] Ошибка при отладке update")
+    if not update.message:
+        logger.debug(f"[HANDLER] Нет message, пропускаем")
+        return
     
-    try:
-        # Проверяем базовые условия
-        if not update.message:
-            return
+    if update.message.from_user and update.message.from_user.is_bot:
+        logger.debug(f"[HANDLER] Это бот, пропускаем")
+        return
+    
+    user = update.message.from_user
+    if not user:
+        logger.debug(f"[HANDLER] Нет user, пропускаем")
+        return
         
-        if update.message.from_user and update.message.from_user.is_bot:
-            return
-        
-        user = update.message.from_user
-        if not user:
-            return
-            
-        user_id = user.id
-        user_name = f"@{user.username}" if user.username else user.full_name
-        message_text = update.message.text or ""
-        is_photo = bool(update.message.photo)
-        
-        logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
+    user_id = user.id
+    user_name = f"@{user.username}" if user.username else user.full_name
+    message_text = update.message.text or ""
+    is_photo = bool(update.message.photo)
+    
+    logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
+    
+    # Проверяем, не команда ли это
+    if message_text and message_text.startswith('/'):
+        logger.info(f"[MSG] Это команда, пропускаем")
+        return
         
         # === ПРОВЕРКА ВОЗВРАЩЕНЦА ===
         moscow_now = datetime.now(MOSCOW_TZ)
@@ -2976,6 +2982,10 @@ if __name__ == "__main__":
     # Запускаем планировщик проверки Garmin
     loop.create_task(garmin_scheduler_task())
     
+    logger.info("Планировщики запущены")
+    
+    application.run_polling(drop_pending_updates=True)
+
     logger.info("Планировщики запущены")
     
     application.run_polling(drop_pending_updates=True)
