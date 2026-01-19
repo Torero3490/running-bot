@@ -449,8 +449,8 @@ async def publish_run_result(user_data, activity, now, current_month):
         distance_km = distance_meters / 1000
         
         duration_seconds = activity.get('duration', 0)
-        duration_min = duration_seconds // 60
-        duration_sec = duration_seconds % 60
+        duration_min = int(duration_seconds // 60)
+        duration_sec = int(duration_seconds % 60)
         
         avg_heartrate = activity.get('averageHeartRate', 0)
         calories = activity.get('calories', 0)
