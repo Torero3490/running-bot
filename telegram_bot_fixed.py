@@ -127,6 +127,10 @@ user_current_level = {}
 # {user_id: {"name": str, "email": str, "last_activity_id": str, "monthly_distance": float, "monthly_activities": int}}
 garmin_users = {}
 
+# Множество для отслеживания уже обработанных активностей (idempotency)
+# Формат: "user_id:activity_id"
+processed_activities = set()
+
 # {user_id: {"name": str, "activities": int, "distance": float, "duration": int, "calories": int}}
 user_running_stats = {}
 
@@ -419,6 +423,13 @@ async def check_garmin_activities():
                 
                 # Проверяем, новая ли это активность
                 last_id = user_data.get("last_activity_id", "")
+                
+                # Дополнительная проверка: отслеживаем обработанные активности в памяти
+                activity_key = f"{user_id}:{activity_id}"
+                if activity_key in processed_activities:
+                    logger.info(f"[GARMIN] 🛡️ Активность {activity_id} уже обработана в этой сессии (idempotency check)")
+                    continue
+                
                 if activity_id == last_id:
                     logger.info(f"[GARMIN] Это старая активность (уже обработана)")
                     continue
@@ -443,6 +454,8 @@ async def check_garmin_activities():
                 success = await publish_run_result(user_id, user_data, activity, now, current_month)
                 
                 if success:
+                    # Добавляем в множество обработанных активностей
+                    processed_activities.add(activity_key)
                     logger.info(f"[GARMIN] ✅ Пробежка {activity_id} успешно опубликована")
                 else:
                     # Публикация не удалась — откатываем last_activity_id
