@@ -423,7 +423,7 @@ async def check_garmin_activities():
                 
                 # Это новая пробежка! Публикуем в чат
                 logger.info(f"[GARMIN] Публикую пробежку: {activity_id}")
-                await publish_run_result(user_data, activity, now, current_month)
+                await publish_run_result(user_id, user_data, activity, now, current_month)
                 
                 # Обновляем last_activity_id
                 user_data["last_activity_id"] = activity_id
@@ -439,7 +439,7 @@ async def check_garmin_activities():
             continue
 
 
-async def publish_run_result(user_data, activity, now, current_month):
+async def publish_run_result(user_id, user_data, activity, now, current_month):
     """Публикация результатов пробежки в чат"""
     global application, user_running_stats
     
@@ -525,10 +525,10 @@ async def publish_run_result(user_data, activity, now, current_month):
 
 
 async def garmin_scheduler_task():
-    """Планировщик проверки Garmin (каждые 10 минут)"""
+    """Планировщик проверки Garmin (каждые 5 минут)"""
     global bot_running
     
-    check_interval = 600  # 10 минут
+    check_interval = 300  # 5 минут
     
     while bot_running:
         try:
