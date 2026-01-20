@@ -2667,6 +2667,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_id = user.id
         user_name = f"@{user.username}" if user.username else user.full_name
         message_text = update.message.text or ""
+        message_caption = update.message.caption or ""
         is_photo = bool(update.message.photo)
 
         logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
@@ -2804,7 +2805,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             'спок', 'спок!', 'gn!',
         ]
         
-        if any(keyword in message_text.lower() for keyword in good_night_keywords):
+        if any(keyword in check_text for keyword in good_night_keywords):
             good_night_responses = [
                 f"🌙 {user_name}, спокойной ночи! 🌟",
                 f"💤 {user_name}, сладких снов! 💫",
@@ -2846,10 +2847,12 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # Также реагируем на слова о пробуждении
         wake_up_words = ['проснулся', 'проснулась', 'встал', 'встала', 'просыпаюсь']
-        is_waking_up = any(word in message_text.lower() for word in wake_up_words)
-        
+        # Проверяем и текст, и подпись к фото (caption) для сообщений с фото
+        check_text = (message_text + " " + message_caption).strip().lower()
+        is_waking_up = any(word in check_text for word in wake_up_words)
+
         # === ПРОВЕРКА НА "ДОБРОЕ УТРО" ИЛИ ПРОБУЖДЕНИЕ ===
-        if any(keyword in message_text.lower() for keyword in good_morning_keywords) or is_waking_up:
+        if any(keyword in check_text for keyword in good_morning_keywords) or is_waking_up:
             # Кино-тематика для доброго утра (БЕЗ БЕГА!)
             movie_morning_responses = [
                 # МАТРИЦА
