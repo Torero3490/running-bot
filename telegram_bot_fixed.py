@@ -1939,6 +1939,84 @@ async def morning_scheduler_task():
         await asyncio.sleep(60)
 
 
+# ============== КОФЕЙНЫЙ ПЛАНОВЩИК (10:30 БУДНИ) ==============
+COFFEE_MESSAGES = [
+    "☕ **А не пора ли по кофейку?",
+    "☕ Кто сегодня ещё не пил кофе? Поднимите руку!",
+    "☕ Кофе — это не напиток, это ритуал!",
+    "☕ Эспрессо, капучино, латте — выбирайте свой!",
+    "☕ Без кофе не туда, не сюда — нужен кофе!",
+    "☕ Кофе мастер, где ты? Чашка ждёт!",
+    "☕ Кофейная пауза — священное время!",
+    "☕ Кто с нами? Кофе ждёт!",
+    "☕ Утро без кофе — как день без солнца!",
+    "☕ Погнали на кофе! ☕",
+]
+
+COFFEE_IMAGES = [
+    "https://cdn-icons-png.flaticon.com/512/3028/3028993.png",  # Чашка кофе
+    "https://cdn-icons-png.flaticon.com/512/2935/2935413.png",  # Кофе
+    "https://cdn-icons-png.flaticon.com/512/3127/3127421.png",  # Стакан кофе
+    "https://cdn-icons-png.flaticon.com/512/2246/2246910.png",  # Кружка
+    "https://cdn-icons-png.flaticon.com/512/2966/2966327.png",  # Кофе
+]
+
+
+async def send_coffee_reminder():
+    """Отправка напоминания о кофе с картинкой"""
+    if application is None:
+        logger.error("Application не инициализирован")
+        return
+
+    try:
+        import random
+        
+        coffee_text = random.choice(COFFEE_MESSAGES)
+        coffee_image = random.choice(COFFEE_IMAGES)
+        
+        full_text = f"{coffee_text}\n\n🥤 Время взбодриться!"
+        
+        await application.bot.send_photo(
+            chat_id=CHAT_ID,
+            photo=coffee_image,
+            caption=full_text,
+            parse_mode="Markdown"
+        )
+        
+        logger.info("[COFFEE] Напоминание о кофе отправлено")
+        
+    except Exception as e:
+        logger.error(f"[COFFEE] Ошибка отправки: {e}")
+
+
+async def coffee_scheduler_task():
+    """Планировщик напоминаний о кофе в 10:30 по будням"""
+    
+    while bot_running:
+        try:
+            await asyncio.sleep(30)  # Проверяем каждые 30 секунд
+            
+            now = datetime.now(MOSCOW_TZ)
+            current_hour = now.hour
+            current_minute = now.minute
+            current_weekday = now.weekday()  # 0 = понедельник, 6 = воскресенье
+            
+            # Проверяем: 10:30 и будний день (пн-пт)
+            if current_hour == 10 and current_minute == 30 and current_weekday < 5:
+                logger.info("[COFFEE] Время 10:30 - отправляем напоминание о кофе")
+                try:
+                    await send_coffee_reminder()
+                    # Ждём минуту, чтобы не отправить дважды
+                    await asyncio.sleep(60)
+                except Exception as e:
+                    logger.error(f"[COFFEE] Ошибка при отправке: {e}")
+        
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"[COFFEE] Ошибка в планировщике: {e}")
+
+
 # ============== МОТИВАЦИОННЫЕ СООБЩЕНИЯ ==============
 async def send_motivation():
     """Отправка мотивационного сообщения"""
@@ -3983,6 +4061,11 @@ if __name__ == "__main__":
     loop.create_task(morning_scheduler_task())
     loop.create_task(motivation_scheduler_task())
     loop.create_task(daily_summary_scheduler_task())
+    
+    # Запускаем планировщик кофе в 10:30 по будням
+    coffee_thread = threading.Thread(target=lambda: asyncio.run(coffee_scheduler_task()), daemon=True)
+    coffee_thread.start()
+    logger.info("Планировщик кофе запущен (10:30 будни)")
     
     pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
     pinger_thread.start()
