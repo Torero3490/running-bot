@@ -1899,7 +1899,7 @@ user_last_active = {}
 
 # ============== СТАТИСТИКА ДЛЯ ЕЖЕДНЕВНОЙ СВОДКИ ==============
 daily_stats = {
-    "date": "",
+    "date": datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d"),
     "total_messages": 0,
     "user_messages": {},  # {user_id: {"name": str, "count": int}}
     "photos": [],  # [{"file_id": str, "user_id": int, "likes": int, "message_id": int}]
@@ -5054,8 +5054,10 @@ def update_daily_stats(user_id: int, user_name: str, message_type: str, photo_in
     
     # Обновление счётчика сообщений пользователя
     if user_id not in daily_stats["user_messages"]:
+        # Экранируем спецсимволы Markdown в имени при сохранении
+        safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
         daily_stats["user_messages"][user_id] = {
-            "name": user_name,
+            "name": safe_name,
             "count": 0,
         }
     daily_stats["user_messages"][user_id]["count"] += 1
@@ -5066,7 +5068,9 @@ def update_daily_stats(user_id: int, user_name: str, message_type: str, photo_in
         # Запоминаем первого автора фото (для двойных баллов)
         if daily_stats["first_photo_user_id"] is None:
             daily_stats["first_photo_user_id"] = user_id
-            daily_stats["first_photo_user_name"] = user_name
+            # Экранируем имя для Markdown
+            safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+            daily_stats["first_photo_user_name"] = safe_name
 
 
 # ============== РАСЧЁТ РЕЙТИНГА ==============
@@ -6053,7 +6057,20 @@ async def send_daily_summary(force: bool = False):
     
     try:
         today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
-        
+
+        # Проверяем и исправляем daily_stats если дата пустая или не сегодня
+        saved_date = daily_stats.get("date", "")
+        if saved_date != today:
+            logger.warning(f"[SUMMARY] Дата в daily_stats ({saved_date}) не совпадает с сегодня ({today}) - сбрасываем статистику")
+            daily_stats = {
+                "date": today,
+                "total_messages": 0,
+                "user_messages": {},
+                "photos": [],
+                "first_photo_user_id": None,
+                "first_photo_user_name": None,
+            }
+
         # ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ - что у нас в daily_stats
         msg_count = daily_stats.get("total_messages", 0)
         photo_count = len(daily_stats.get("photos", []))
@@ -8315,22 +8332,28 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.info(f"[MSG] Сообщение #{current_count} от {user_name}")
         
         if user_id not in daily_stats["user_messages"]:
-            daily_stats["user_messages"][user_id] = {"name": user_name, "count": 0}
+            # Экранируем спецсимволы Markdown в имени при сохранении
+            safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+            daily_stats["user_messages"][user_id] = {"name": safe_name, "count": 0}
         daily_stats["user_messages"][user_id]["count"] += 1
-        
+
         if is_photo:
             photo = update.message.photo[-1]
+            # Экранируем имя пользователя для Markdown
+            safe_photo_user_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
             daily_stats["photos"].append({
                 "file_id": photo.file_id,
                 "user_id": user_id,
                 "message_id": update.message.message_id,
                 "likes": 0,  # Инициализируем лайки
-                "user_name": user_name  # Сохраняем имя автора
+                "user_name": safe_photo_user_name  # Сохраняем имя автора (экранировано)
             })
             # Запоминаем первого автора фото (для двойных баллов)
             if daily_stats.get("first_photo_user_id") is None:
                 daily_stats["first_photo_user_id"] = user_id
-                daily_stats["first_photo_user_name"] = user_name
+                # Экранируем имя для Markdown
+                safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+                daily_stats["first_photo_user_name"] = safe_name
         
         # Сохраняем ежедневную статистику в канал
         save_daily_stats()
