@@ -6059,7 +6059,8 @@ async def send_daily_summary(force: bool = False):
         today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
 
         # Проверяем и исправляем daily_stats если дата пустая или не сегодня
-        saved_date = daily_stats.get("date", "")
+        global daily_stats
+        saved_date = daily_stats.get("date", "") if isinstance(daily_stats, dict) else ""
         if saved_date != today:
             logger.warning(f"[SUMMARY] Дата в daily_stats ({saved_date}) не совпадает с сегодня ({today}) - сбрасываем статистику")
             daily_stats = {

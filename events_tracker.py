@@ -1704,7 +1704,12 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     if year_match:
         year = int(year_match.group())
 
-    # Если год не найден или меньше 2026 - пропускаем
+    # Если год не найден (0) - пропускаем
+    if year == 0:
+        logger.info(f"[EVENTS] Год не определён, пропускаем: {event.get('title', 'Без названия')}")
+        return True  # Пропускаем
+
+    # Если год меньше 2026 - пропускаем
     if year < 2026:
         logger.info(f"[EVENTS] Пропуск мероприятия (год {year}): {event.get('title', 'Без названия')}")
         return False
@@ -1729,6 +1734,11 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     # Проверяем, относится ли мероприятие к целевому региону
     is_moscow = any(x in city for x in moscow_region_keywords)
     is_spb = any(x in city for x in spb_region_keywords)
+
+    # Если город не определён (пустой или "Россия") - пропускаем как Москву
+    if not city or city.lower() in ['', 'россия', 'russia']:
+        logger.info(f"[EVENTS] Город не определён, пропускаем: {event.get('title', 'Без названия')}")
+        return True  # Пропускаем как Московское мероприятие
 
     if not (is_moscow or is_spb):
         logger.info(f"[EVENTS] Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - {event.get('city', '')}")
