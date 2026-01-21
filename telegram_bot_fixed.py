@@ -6256,11 +6256,12 @@ async def send_daily_summary(force: bool = False):
             logger.error(f"[SUMMARY] Найдены неэкранированные скобки: {unescaped_parens[:3]}")
 
         # Отправляем в чат (в топик "Новости")
+        # Используем Markdown (не MarkdownV2) для совместимости
         await application.bot.send_message(
             chat_id=CHAT_ID,
             message_thread_id=NEWS_TOPIC_ID,
             text=summary_text,
-            parse_mode="MarkdownV2",
+            parse_mode="Markdown",
         )
         
         # Пытаемся отправить топ фото с 4+ лайками (в топик "Новости")
@@ -6291,6 +6292,13 @@ async def send_daily_summary(force: bool = False):
         
     except Exception as e:
         logger.error(f"Ошибка ежедневной сводки: {e}", exc_info=True)
+
+        # Показываем первые 200 символов текста сводки для отладки
+        try:
+            debug_text = summary_text[:200] if 'summary_text' in dir() else "summary_text не определён"
+            logger.error(f"[SUMMARY DEBUG] Текст сводки (первые 200 символов): {debug_text}")
+        except Exception:
+            pass
 
         # Отладочная информация о состоянии данных
         logger.error(f"[SUMMARY DEBUG] daily_stats date: {daily_stats.get('date', 'EMPTY')}")

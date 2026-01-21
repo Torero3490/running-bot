@@ -1814,8 +1814,9 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
                             registration_info = "\n📅 Успей зарегистрироваться!"
                         logger.info(f"[EVENTS] Регистрация ОТКРЫТА: {title}")
                     else:
-                        registration_status = "🔒 **РЕГИСТРАЦИЯ ЗАКРЫТА**"
-                        logger.info(f"[EVENTS] Регистрация ЗАКРЫТА: {title} - публикуем с предупреждением")
+                        # Регистрация закрыта - НЕ публикуем мероприятие
+                        logger.info(f"[EVENTS] Регистрация ЗАКРЫТА, пропускаем: {title}")
+                        return False  # Пропускаем мероприятие
             except Exception as e:
                 logger.warning(f"[EVENTS] Не удалось проверить регистрацию: {e}")
                 registration_status = "ℹ️ **Статус регистрации уточняйте на сайте**"
@@ -1851,14 +1852,29 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
         logger.info(f"[EVENTS] DEBUG: message_thread_id={message_thread_id}, EVENTS_TOPIC_ID={EVENTS_TOPIC_ID}, target={target_thread_id}")
 
         # Отправляем в чат
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            message_thread_id=target_thread_id,
-            text=text,
-            parse_mode="Markdown",
-            reply_markup=reply_markup,
-            disable_web_page_preview=True
-        )
+        try:
+            await context.bot.send_message(
+                chat_id=CHAT_ID,
+                message_thread_id=target_thread_id,
+                text=text,
+                parse_mode="Markdown",
+                reply_markup=reply_markup,
+                disable_web_page_preview=True
+            )
+        except Exception as pub_error:
+            error_str = str(pub_error).lower()
+            # Если топик не найден - пробуем без топика (в основной чат)
+            if "message thread not found" in error_str or "thread not found" in error_str:
+                logger.warning(f"[EVENTS] Топик {target_thread_id} не найден, публикуем в основной чат")
+                await context.bot.send_message(
+                    chat_id=CHAT_ID,
+                    text=text,
+                    parse_mode="Markdown",
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=True
+                )
+            else:
+                raise  # Другие ошибки - пробрасываем
 
         # Сохраняем в историю
         published_events_db.add(event_hash)
