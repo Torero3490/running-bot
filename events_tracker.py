@@ -1752,12 +1752,40 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
             logger.info(f"[EVENTS] Мероприятие уже опубликовано: {title}")
             return False
 
+        # Проверяем статус регистрации
+        registration_status = ""
+        registration_info = ""
+        if url:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    page_response = await client.get(url, follow_redirects=True)
+                    page_text = page_response.text.lower()
+                    
+                    # Проверяем статус
+                    if is_registration_open(page_text, url):
+                        registration_status = "🔓 **РЕГИСТРАЦИЯ ОТКРЫТА**"
+                        # Ищем дедлайн
+                        deadline = extract_registration_deadline(page_response.text)
+                        if deadline:
+                            registration_info = f"\n📅 Дедлайн регистрации: {deadline}"
+                        else:
+                            registration_info = "\n📅 Успей зарегистрироваться!"
+                    else:
+                        registration_status = "🔒 **РЕГИСТРАЦИЯ ЗАКРЫТА**"
+            except Exception as e:
+                logger.warning(f"[EVENTS] Не удалось проверить регистрацию: {e}")
+                registration_status = "ℹ️ **Статус регистрации уточняйте на сайте**"
+
         # Формируем сообщение
         text = f"🏃 **{title}**\n\n"
         text += f"📅 Дата: {date}\n"
         text += f"📍 Место: {city}\n"
         text += f"🏃 Дистанции: {distances}\n"
-
+        
+        # Добавляем статус регистрации
+        if registration_status:
+            text += f"\n{registration_status}{registration_info}\n"
+        
         if url:
             text += f"\n🔗 [Регистрация на сайте]({url})"
 
@@ -1769,6 +1797,9 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
 
         # Определяем topic_id: если передан (ручная команда) - используем его, иначе - EVENTS_TOPIC_ID (расписание)
         target_thread_id = message_thread_id if message_thread_id is not None else EVENTS_TOPIC_ID
+        
+        # ОТЛАДКА - логируем какой топик используем
+        logger.info(f"[EVENTS] DEBUG: message_thread_id={message_thread_id}, EVENTS_TOPIC_ID={EVENTS_TOPIC_ID}, target={target_thread_id}")
 
         # Отправляем в чат
         await context.bot.send_message(

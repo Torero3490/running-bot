@@ -2331,15 +2331,23 @@ def save_daily_stats():
     global daily_stats
     
     try:
+        # Логируем что сохраняем
+        msg_count = daily_stats.get("total_messages", 0)
+        photo_count = len(daily_stats.get("photos", []))
+        user_count = len(daily_stats.get("user_messages", {}))
+        logger.info(f"[PERSIST] Сохранение daily_stats: {msg_count} сообщений, {photo_count} фото, {user_count} пользователей")
+        
         # Сохраняем в канал асинхронно
         if DATA_CHANNEL_ID and application and hasattr(application, 'bot') and application.bot:
             try:
                 loop = get_bot_loop()
                 loop.create_task(save_to_channel(application.bot, "daily", daily_stats))
-            except Exception:
-                pass  # Игнорируем ошибки планирования
+                logger.info(f"[PERSIST] Ежедневная статистика отправлена в канал")
+            except Exception as e:
+                logger.error(f"[PERSIST] Ошибка планирования сохранения daily: {e}")
+        else:
+            logger.warning(f"[PERSIST] DATA_CHANNEL_ID не настроен, статистика не сохраняется в канал")
         
-        logger.info("[PERSIST] Ежедневная статистика сохранена в канал")
     except Exception as e:
         logger.error(f"[PERSIST] Ошибка сохранения daily: {e}")
 
@@ -5984,7 +5992,7 @@ async def get_top_users() -> list:
     """Получение топ 5 активных пользователей по сообщениям"""
     global daily_stats
     
-    if not daily_stats["user_messages"]:
+    if not daily_stats.get("user_messages"):
         return []
     
     # Сортируем по количеству сообщений
@@ -6027,20 +6035,33 @@ async def get_top_rated_users() -> list:
     return rated_users[:10]
 
 
-async def send_daily_summary():
-    """Отправка ежедневной сводки в чат + сохранение данных"""
+async def send_daily_summary(force: bool = False):
+    """Отправка ежедневной сводки в чат + сохранение данных
+    
+    Args:
+        force: Если True - отправляет сводку даже если уже была отправлена сегодня
+    """
     global daily_summary_sent
     
     if application is None:
         logger.error("Application не инициализирован")
         return
     
-    if daily_summary_sent:
-        logger.info("Сводка уже отправлена сегодня")
+    if daily_summary_sent and not force:
+        logger.info("Сводка уже отправлена сегодня (используй force=True или /summary)")
         return
     
     try:
         today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+        
+        # ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ - что у нас в daily_stats
+        msg_count = daily_stats.get("total_messages", 0)
+        photo_count = len(daily_stats.get("photos", []))
+        user_count = len(daily_stats.get("user_messages", {}))
+        logger.info(f"[SUMMARY] Формирование сводки за {today}")
+        logger.info(f"[SUMMARY] daily_stats: {msg_count} сообщений, {photo_count} фото, {user_count} пользователей")
+        logger.info(f"[SUMMARY] user_messages: {daily_stats.get('user_messages', {})}")
+        logger.info(f"[SUMMARY] photos: {daily_stats.get('photos', [])[:3]}")  # первые 3 фото
         
         # === ДВОЙНЫЕ БАЛЛЫ ===
         # Находим победителей для двойных баллов
@@ -6480,9 +6501,7 @@ async def send_monthly_summary():
         
         logger.info("Ежемесячная сводка отправлена в чат + данные сохранены")
         
-        # Сбрасываем локальную статистику (данные уже сохранены в канал)
-        user_rating_stats = {}
-        logger.info("Локальная статистика рейтинга сброшена для нового месяца")
+        # НЕ сбрасываем статистику здесь - это делает планировщик в нужное время
         
     except Exception as e:
         logger.error(f"Ошибка отправки ежемесячной сводки: {e}")
@@ -6556,7 +6575,15 @@ async def daily_summary_scheduler_task():
             except Exception as e:
                 logger.error(f"Ошибка при отправке ежемесячной сводки по бегу: {e}")
 
-            # Сбрасываем всю статистику бега для нового месяца
+            # Сбрасываем статистику для нового месяца ПОСЛЕ отправки
+            try:
+                global user_rating_stats
+                user_rating_stats = {}
+                logger.info("[SUMMARY] Статистика рейтинга сброшена для нового месяца")
+            except Exception as e:
+                logger.error(f"Ошибка при сбросе статистики: {e}")
+
+            # Сбрасываем статистику бега для нового месяца
             try:
                 reset_monthly_running_stats()
             except Exception as e:
@@ -8144,7 +8171,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Увеличиваем счётчик
         daily_stats["total_messages"] += 1
         current_count = daily_stats["total_messages"]
-        logger.info(f"[MSG] Сообщение #{current_count}")
+        logger.info(f"[MSG] Сообщение #{current_count} от {user_name}")
         
         if user_id not in daily_stats["user_messages"]:
             daily_stats["user_messages"][user_id] = {"name": user_name, "count": 0}
@@ -8480,13 +8507,13 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • /motivation — мотивация на тренировку
 
 **📊 Статистика и рейтинг:**
-• /summary — сводка за сегодня
+• /summary — сводка за сегодня (можно вызывать много раз!)
 • /rating — топ-10 участников по рейтингу
 • /likes — рейтинг по лайкам
 • /levels — участники по уровням
 • /running — рейтинг бегунов за месяц
-• /weekly — еженедельная сводка
-• /monthly — итоги месяца
+• /weekly — еженедельная сводка (можно вызывать много раз!)
+• /monthly — итоги месяца (можно вызывать много раз!)
 
 **🏆 Челленджи:**
 • /challenge — статус текущего челленджа
@@ -8749,23 +8776,16 @@ async def advice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправка сводки по команде"""
-    # Сбрасываем флаг для принудительной отправки
-    global daily_summary_sent
-    was_sent = daily_summary_sent
-    daily_summary_sent = False
-    
+    """Отправка сводки по команде /summary - можно вызывать много раз"""
     try:
-        await send_daily_summary()
+        # Отправляем с force=True чтобы можно было перевыгружать
+        await send_daily_summary(force=True)
     except Exception as e:
         logger.error(f"Ошибка сводки: {e}")
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="❌ Ошибка при формировании сводки",
         )
-    
-    # Восстанавливаем предыдущее состояние
-    daily_summary_sent = was_sent
     
     try:
         await update.message.delete()
@@ -9549,7 +9569,7 @@ if __name__ == "__main__":
                 # Проверяем, если загруженная статистика не за сегодня - сбрасываем
                 if loaded_daily.get("date") == today:
                     daily_stats = loaded_daily
-                    logger.info(f"[PERSIST] Восстановлена дневная статистика за сегодня")
+                    logger.info(f"[PERSIST] Восстановлена дневная статистика за сегодня: {daily_stats.get('total_messages', 0)} сообщений")
                 else:
                     # Новый день - начинаем с нуля
                     daily_stats = {
@@ -9557,6 +9577,8 @@ if __name__ == "__main__":
                         "total_messages": 0,
                         "user_messages": {},
                         "photos": [],
+                        "first_photo_user_id": None,
+                        "first_photo_user_name": None,
                     }
                     logger.info(f"[PERSIST] Загружена старая статистика ({loaded_daily.get('date')}), сброшено на сегодня")
             
