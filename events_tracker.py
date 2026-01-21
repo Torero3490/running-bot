@@ -922,7 +922,7 @@ async def parse_ahotu_running_events() -> List[Dict]:
     """Парсинг забегов с Ahotu.com (международный календарь)"""
     events = []
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(
                 "https://ahotu.com/calendar/running/russia",
                 headers={
@@ -987,7 +987,7 @@ async def parse_ahotu_trail_events() -> List[Dict]:
     """Парсинг трейлов с Ahotu.com"""
     events = []
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(
                 "https://ahotu.com/calendar/trail-running/russia",
                 headers={

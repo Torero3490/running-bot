@@ -6258,7 +6258,13 @@ async def send_daily_summary(force: bool = False):
         
     except Exception as e:
         logger.error(f"Ошибка ежедневной сводки: {e}", exc_info=True)
-        
+
+        # Отладочная информация о состоянии данных
+        logger.error(f"[SUMMARY DEBUG] daily_stats date: {daily_stats.get('date', 'EMPTY')}")
+        logger.error(f"[SUMMARY DEBUG] daily_stats total_messages: {daily_stats.get('total_messages', 0)}")
+        logger.error(f"[SUMMARY DEBUG] daily_stats user_messages: {daily_stats.get('user_messages', {})}")
+        logger.error(f"[SUMMARY DEBUG] daily_stats photos: {daily_stats.get('photos', [])}")
+
         # Попытка отправить упрощённую версию сводки без Markdown
         try:
             simple_text = f"📊 Сводка за {today}\n"
@@ -9388,7 +9394,79 @@ async def topicid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     logger.info(f"[TOPICID] Topic ID: {topic_id}, Chat ID: {chat.id}")
-    
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+
+async def topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /topics — показать ID всех топиков в чате"""
+    chat = update.effective_chat
+
+    try:
+        # Получаем список всех топиков форума
+        topics_list = await context.bot.get_forum_topics(chat_id=chat.id)
+
+        if not topics_list:
+            text = "📋 **Все топики чата:**\n\n"
+            text += "ℹ️ В чате нет активных топиков."
+        else:
+            text = f"📋 **Все топики чата ({len(topics_list)}):**\n\n"
+
+            for topic in topics_list:
+                # Определяем тип топика
+                if topic.message_thread_id == chat.id:
+                    topic_type = "💬 Основной чат"
+                else:
+                    topic_type = "📁 Топик"
+
+                # Получаем количество сообщений (если доступно)
+                msg_count = getattr(topic, 'message_thread_id', None) or "—"
+
+                text += f"{topic_type}\n"
+                text += f"   🆔 **ID:** `{topic.message_thread_id}`\n"
+                text += f"   📛 **Название:** {topic.name}\n"
+
+                # Дата создания топика (если доступна)
+                if hasattr(topic, 'date') and topic.date:
+                    text += f"   📅 **Создан:** {topic.date.strftime('%Y-%m-%d %H:%M')}\n"
+
+                text += "\n"
+
+            text += "💡 **Использование в коде:**\n"
+            text += "```\n"
+            text += f"events_topic_id=ID_ТОПИКА\n"
+            text += f"news_topic_id=ID_ТОПИКА\n"
+            text += "```"
+
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=text,
+            parse_mode="Markdown",
+        )
+
+        logger.info(f"[TOPICS] Показаны все топики: {len(topics_list)} топиков в чате {chat.id}")
+
+    except Exception as e:
+        logger.error(f"[TOPICS] Ошибка получения списка топиков: {e}")
+
+        # Если get_forum_topics не поддерживается, предлагаем альтернативу
+        text = "📋 **Все топики чата:**\n\n"
+        text += "⚠️ Не удалось получить список топиков автоматически.\n\n"
+        text += "ℹ️ **Альтернативный способ узнать ID топика:**\n"
+        text += "1. Открой нужный топик\n"
+        text += "2. Напиши команду /topicid\n"
+        text += "3. Бот покажет ID этого топика\n\n"
+        text += "💡 Затем сообщи мне ID — я настрою публикацию."
+
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=text,
+            parse_mode="Markdown",
+        )
+
     try:
         await update.message.delete()
     except Exception:
@@ -9755,6 +9833,7 @@ if __name__ == "__main__":
     
     application.add_handler(CommandHandler("getid", get_chat_id))
     application.add_handler(CommandHandler("topicid", topicid))
+    application.add_handler(CommandHandler("topics", topics))
     application.add_handler(CommandHandler("anon", anon))
     application.add_handler(CommandHandler("anonphoto", anonphoto))
     
