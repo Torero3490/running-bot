@@ -6388,7 +6388,8 @@ async def send_monthly_summary():
             
             for i, user in enumerate(top_rated):
                 level_emoji = LEVEL_EMOJIS.get(user["level"], "")
-                monthly_text += f"{medals_rating[i]} {level_emoji} **{user['name']}**\n"
+                escaped_name = escape_markdown(user['name'])
+                monthly_text += f"{medals_rating[i]} {level_emoji} **{escaped_name}**\n"
                 monthly_text += f"   └─ 🏅 {user['points']} очков | 📝{user['messages']} | 📷{user['photos']} | ❤️{user['likes']} | 💬{user['replies']}\n"
             monthly_text += "\n"
         else:
@@ -6399,12 +6400,14 @@ async def send_monthly_summary():
         
         # Самое активное сообщество
         if top_rated:
-            monthly_text += f"🥇 **{top_rated[0]['name']}** — Абсолютный лидер месяца!\n"
+            escaped_name = escape_markdown(top_rated[0]['name'])
+            monthly_text += f"🥇 **{escaped_name}** — Абсолютный лидер месяца!\n"
         
         # Максимум сообщений
         if user_rating_stats:
             max_messages_user = max(user_rating_stats.items(), key=lambda x: x[1]["messages"])
-            monthly_text += f"💬 **{max_messages_user[1]['name']}** — Больше всего сообщений ({max_messages_user[1]['messages']})\n"
+            escaped_name = escape_markdown(max_messages_user[1]["name"])
+            monthly_text += f"💬 **{escaped_name}** — Больше всего сообщений \\({max_messages_user[1]['messages']}\\)\n"
         
         # Максимум фото
         if user_rating_stats:
@@ -6463,7 +6466,7 @@ async def send_monthly_summary():
             for i, runner in enumerate(top_monthly_runners[:3]):
                 escaped_name = escape_markdown(runner["name"])
                 distance_km = runner["distance"] / 1000
-                monthly_text += f"{medals[i]} {escaped_name} — {distance_km:.1f} км ({runner['activities']} тренировок)\n"
+                monthly_text += f"{medals[i]} {escaped_name} — {distance_km:.1f} км \\({runner['activities']} тренировок\\)\n"
             monthly_text += "\n"
         elif user_running_stats:
             # Fallback на накопленную статистику если monthly_running_stats пуст
@@ -7216,14 +7219,15 @@ async def challenge_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"🏆 *Текущий челлендж*\n\n"
         text += f"🎯 *{goal['name']}*\n"
         text += f"📅 До конца: {current_challenge['end_date']}\n\n"
-        text += f"📊 *Участники ({len(participants)}):*\n"
+        text += f"📊 *Участники \\({len(participants)}\\):*\n"
         
         # Сортируем по прогрессу
         sorted_parts = sorted(participants.items(), key=lambda x: x[1]["progress"], reverse=True)
         
         for uid, data in sorted_parts:
             emoji = "✅" if data["completed"] else "🔄"
-            text += f"   {emoji} {data['name']}: {data['progress']} / {goal['value']} {goal['unit']}\n"
+            escaped_name = escape_markdown(data['name'])
+            text += f"   {emoji} {escaped_name}: {data['progress']} / {goal['value']} {goal['unit']}\n"
         
         text += "\n📝 Пиши `/challenge join` чтобы участвовать!"
         
@@ -8905,7 +8909,8 @@ async def rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
             medals_rating = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
             for i, user in enumerate(top_rated):
                 level_emoji = LEVEL_EMOJIS.get(user["level"], "")
-                rating_text += f"{medals_rating[i]} {level_emoji} **{user['name']}** — **{user['points']}** очков\n"
+                escaped_name = escape_markdown(user['name'])
+                rating_text += f"{medals_rating[i]} {level_emoji} **{escaped_name}** — **{user['points']}** очков\n"
                 
                 # Добавляем детализацию
                 details_parts = []
@@ -8990,11 +8995,13 @@ async def levels(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users = levels_summary[level]
             if users:
                 level_emoji = LEVEL_EMOJIS.get(level, "")
-                levels_text += f"{level_emoji} **{level}** ({len(users)} чел.):\n"
+                escaped_level = escape_markdown(level)
+                levels_text += f"{level_emoji} **{escaped_level}** \\({len(users)} чел.\\):\n"
                 
                 # Показываем всех участников уровня
                 for user in users:
-                    levels_text += f"   🏅 {user['name']} — {user['points']} очков\n"
+                    escaped_name = escape_markdown(user['name'])
+                    levels_text += f"   🏅 {escaped_name} — {user['points']} очков\n"
                 
                 levels_text += "\n"
         
@@ -9291,10 +9298,11 @@ async def garmin_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
     
-    text = f"📊 **Garmin пользователи** ({len(garmin_users)} чел.):\n\n"
+    text = f"📊 **Garmin пользователи** \\({len(garmin_users)} чел.\\):\n\n"
     
     for user_id, data in garmin_users.items():
-        text += f"• {data['name']} — {data['email']}\n"
+        escaped_name = escape_markdown(data['name'])
+        text += f"• {escaped_name} — {data['email']}\n"
         text += f"   📍 {data.get('monthly_distance', 0):.1f} км за месяц\n"
     
     await context.bot.send_message(
@@ -9408,20 +9416,20 @@ async def likes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if i >= len(medals):
                     break
                     
-                name = stats["name"]
+                escaped_name = escape_markdown(stats["name"])
                 likes_count = stats["likes"]
                 
                 # Получаем уровень пользователя
                 level = get_user_level(user_id)
                 level_emoji = LEVEL_EMOJIS.get(level, "")
                 
-                likes_text += f"{medals[i]} {level_emoji} **{name}** — **{likes_count}** лайков\n"
+                likes_text += f"{medals[i]} {level_emoji} **{escaped_name}** — **{likes_count}** лайков\n"
                 
                 # Добавляем информацию о фото
                 photos_count = stats["photos"]
                 if photos_count > 0:
                     avg_likes = likes_count / photos_count
-                    likes_text += f"   📷 {photos_count} фото (среднее: {avg_likes:.1f} лайков/фото)\n"
+                    likes_text += f"   📷 {photos_count} фото \\(среднее: {avg_likes:.1f} лайков/фото\\)\n"
                 
                 likes_text += "\n"
             
@@ -9751,9 +9759,10 @@ if __name__ == "__main__":
     )
     
     # Обработка гифок и стикеров (должен быть ДО handle_all_messages)
+    # Используем фильтр REPLY, тип медиа проверяем внутри функции для совместимости
     application.add_handler(
         MessageHandler(
-            (filters.Sticker.ALL | filters.Document.ALL) & filters.REPLY,
+            filters.REPLY & ~filters.COMMAND,
             handle_gifs_and_stickers
         )
     )
