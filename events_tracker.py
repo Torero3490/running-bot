@@ -1775,20 +1775,26 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
         # Проверяем дубликаты
         event_hash = get_event_hash(title, date)
         if event_hash in published_events_db:
-            logger.info(f"[EVENTS] Мероприятие уже опубликовано: {title}")
+            logger.info(f"[EVENTS] ПРОПУСК (дубликат): {title} ({date})")
             return False
+        else:
+            logger.info(f"[EVENTS] НОВОЕ мероприятие: {title} ({date}) - хеш={event_hash[:16]}...")
 
         # Проверяем статус регистрации
         registration_status = ""
         registration_info = ""
+        registration_checked = False
         if url:
             try:
                 async with httpx.AsyncClient(timeout=15.0) as client:
                     page_response = await client.get(url, follow_redirects=True)
                     page_text = page_response.text.lower()
-                    
+
                     # Проверяем статус
-                    if is_registration_open(page_text, url):
+                    is_open = is_registration_open(page_text, url)
+                    registration_checked = True
+
+                    if is_open:
                         registration_status = "🔓 **РЕГИСТРАЦИЯ ОТКРЫТА**"
                         # Ищем дедлайн
                         deadline = extract_registration_deadline(page_response.text)
@@ -1796,11 +1802,16 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
                             registration_info = f"\n📅 Дедлайн регистрации: {deadline}"
                         else:
                             registration_info = "\n📅 Успей зарегистрироваться!"
+                        logger.info(f"[EVENTS] Регистрация ОТКРЫТА: {title}")
                     else:
                         registration_status = "🔒 **РЕГИСТРАЦИЯ ЗАКРЫТА**"
+                        logger.info(f"[EVENTS] Регистрация ЗАКРЫТА: {title} - публикуем с предупреждением")
             except Exception as e:
                 logger.warning(f"[EVENTS] Не удалось проверить регистрацию: {e}")
                 registration_status = "ℹ️ **Статус регистрации уточняйте на сайте**"
+                registration_checked = True  # Считаем что проверили, просто не удалось
+        else:
+            logger.warning(f"[EVENTS] URL пустой, не можем проверить регистрацию: {title}")
 
         # Формируем сообщение
         text = f"🏃 **{title}**\n\n"
@@ -2000,8 +2011,13 @@ async def check_and_publish_events(context: ContextTypes.DEFAULT_TYPE, message_t
     logger.info(f"[EVENTS] После фильтрации: {len(filtered_events)} мероприятий (пропущено: {skipped_by_year} по году, {skipped_by_city} по региону)")
 
     # Показываем отфильтрованные мероприятия в логах
-    for i, event in enumerate(filtered_events):
-        logger.info(f"[EVENTS] [{i+1}] {event.get('title', 'Без названия')} - {event.get('city', '')} ({event.get('source', '')})")
+    if filtered_events:
+        logger.info(f"[EVENTS] ОТФИЛЬТРОВАННЫЕ мероприятия для публикации:")
+        for i, event in enumerate(filtered_events):
+            logger.info(f"[EVENTS] [{i+1}] {event.get('title', 'Без названия')} - {event.get('city', '')} ({event.get('source', '')})")
+    else:
+        logger.warning("[EVENTS] ВНИМАНИЕ: Нет отфильтрованных мероприятий для публикации!")
+        logger.info("[EVENTS] Проверьте фильтры: год >= 2026, город: Москва/СПб/области")
 
     # Публикуем отфильтрованные мероприятия в том же топике где была вызвана команда
     published_count = 0
@@ -2020,11 +2036,23 @@ async def events_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /slots — проверить мероприятия вручную"""
     chat_id = update.effective_chat.id
     # Получаем ID топика из сообщения (если есть) - отвечаем в том же топике где вызвали
-    message_thread_id = update.message.message_thread_id if hasattr(update.message, 'message_thread_id') else None
+    raw_thread_id = getattr(update.message, 'message_thread_id', None)
+    logger.info(f"[EVENTS] DEBUG: raw message_thread_id={raw_thread_id}, hasattr={hasattr(update.message, 'message_thread_id')}")
+
+    # Если message_thread_id None или 0, используем EVENTS_TOPIC_ID
+    message_thread_id = raw_thread_id if raw_thread_id else EVENTS_TOPIC_ID
+
+    logger.info(f"[EVENTS] DEBUG: final message_thread_id={message_thread_id}, EVENTS_TOPIC_ID={EVENTS_TOPIC_ID}")
+
+    # Проверяем что топик определён
+    if message_thread_id is None:
+        logger.warning("[EVENTS] ВНИМАНИЕ: EVENTS_TOPIC_ID не установлен! Слоты будут опубликованы в основном чате.")
+        # Пытаемся опубликовать в основном чате без топика
+        message_thread_id = None
 
     await context.bot.send_chat_action(chat_id=chat_id, message_thread_id=message_thread_id, action="typing")
 
-    # Передаем message_thread_id чтобы публикация была в том же топике
+    # Передаем message_thread_id чтобы публикация была в правильном топике
     await check_and_publish_events(context, message_thread_id)
 
     await context.bot.send_message(
