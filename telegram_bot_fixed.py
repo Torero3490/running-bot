@@ -6222,6 +6222,21 @@ async def send_daily_summary(force: bool = False):
         else:
             summary_text += "🏃‍♂️ *Сегодня бегом не занимались 🤷*\n\n"
 
+        # === ОТЛАДКА: Проверяем текст перед отправкой ===
+        logger.info(f"[SUMMARY] Проверка текста сводки перед отправкой (длина: {len(summary_text)})")
+
+        # Проверяем на неэкранированные скобки
+        unescaped_parens = []
+        for i, char in enumerate(summary_text):
+            if char == '(' or char == ')':
+                # Проверяем, экранирована ли скобка
+                if i > 0 and summary_text[i-1] == '\\':
+                    continue  # Экранирована
+                unescaped_parens.append((i, char, summary_text[max(0,i-10):i+10]))
+
+        if unescaped_parens:
+            logger.error(f"[SUMMARY] Найдены неэкранированные скобки: {unescaped_parens[:3]}")
+
         # Отправляем в чат (в топик "Новости")
         await application.bot.send_message(
             chat_id=CHAT_ID,
@@ -9725,9 +9740,9 @@ if __name__ == "__main__":
     logger.info(f"[INIT] application.bot: {application.bot}")
     
     # Инициализация Events Tracker с topic ID
-    # Topic ID для "Мероприятия": 42025
-    set_config(GENERAL_CHAT_ID, application, loop, events_topic_id=42025, news_topic_id=42025)
-    logger.info(f"[EVENTS] Events Tracker инициализирован с topic ID: 42025, NEWS_TOPIC_ID: 42025")
+    # Topic ID для "Мероприятия": 42025, для "Новости": 42016
+    set_config(GENERAL_CHAT_ID, application, loop, events_topic_id=42025, news_topic_id=42016)
+    logger.info(f"[EVENTS] Events Tracker инициализирован с topic ID: 42025, NEWS_TOPIC_ID: 42016")
     
     # Загружаем данные из Telegram Channel если настроено
     async def init_persistence():
