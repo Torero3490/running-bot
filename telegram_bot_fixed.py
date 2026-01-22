@@ -6236,7 +6236,11 @@ async def send_daily_summary(force: bool = False):
 
         # === ОТЛАДКА: Проверяем текст перед отправкой ===
         logger.info(f"[SUMMARY] Проверка текста сводки перед отправкой (длина: {len(summary_text)})")
-
+        
+        # DEBUG: Показываем первые 500 символов summary_text
+        logger.info(f"[SUMMARY DEBUG] summary_text (first 500 chars): {summary_text[:500]}")
+        logger.info(f"[SUMMARY DEBUG] daily_stats['total_messages'] = {daily_stats.get('total_messages', 'NOT_FOUND')}")
+        
         # Проверяем на неэкранированные скобки
         unescaped_parens = []
         for i, char in enumerate(summary_text):
@@ -7771,6 +7775,10 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_name = f"@{user.username}" if user.username else user.full_name
         message_text = update.message.text or ""
         message_caption = update.message.caption or ""
+        
+        # DEBUG: Логируем что реально пришло
+        logger.info(f"[HANDLER DEBUG] user_name='{user_name}', message_text='{message_text}', message_caption='{message_caption}', has_photo={bool(update.message.photo)}")
+        
         # Объединяем текст и подпись для проверки ключевых слов
         check_text = (message_text + " " + message_caption).strip().lower()
         is_photo = bool(update.message.photo)
@@ -7876,8 +7884,20 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             '?доброе утро', 'утро?', 'доброе утро?',
         ]
         
+        # DEBUG: Логируем check_text полностью
+        logger.info(f"[MORNING DEBUG] check_text='{check_text}'")
+        
+        # Проверяем逐слово
+        words_in_message = check_text.split()
+        logger.info(f"[MORNING DEBUG] words_in_message={words_in_message[:20]}")
+        
+        # Проверяем каждое ключевое слово
+        for kw in good_morning_keywords:
+            if kw in check_text:
+                logger.info(f"[MORNING DEBUG] Найдено ключевое слово: '{kw}'")
+        
         is_good_morning = any(greeting in check_text for greeting in good_morning_keywords)
-        logger.info(f"[MORNING] Проверка: '{check_text[:50]}...' | is_good_morning={is_good_morning}")
+        logger.info(f"[MORNING] Проверка: '{check_text[:100]}...' | is_good_morning={is_good_morning}")
 
         if is_good_morning:
             # Дополнительное логирование для отладки
