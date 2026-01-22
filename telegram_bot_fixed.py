@@ -5039,16 +5039,16 @@ def update_daily_stats(user_id: int, user_name: str, message_type: str, photo_in
     
     today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
     
-    # Безопасная инициализация
-    if not isinstance(daily_stats, dict) or daily_stats.get("date") != today:
-        daily_stats = {
-            "date": today,
-            "total_messages": 0,
-            "user_messages": {},
-            "photos": [],
-            "first_photo_user_id": None,  # Кто первым выложил фото
-            "first_photo_user_name": None,
-        }
+    # НЕ сбрасываем daily_stats - данные восстановлены из канала
+    # if not isinstance(daily_stats, dict) or daily_stats.get("date") != today:
+    #     daily_stats = {
+    #         "date": today,
+    #         "total_messages": 0,
+    #         "user_messages": {},
+    #         "photos": [],
+    #         "first_photo_user_id": None,
+    #         "first_photo_user_name": None,
+    #     }
     
     daily_stats["total_messages"] += 1
     
@@ -6058,20 +6058,21 @@ async def send_daily_summary(force: bool = False):
     try:
         today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
 
-        # Проверяем и исправляем daily_stats если дата пустая или не сегодня
-        global daily_stats
-        saved_date = daily_stats.get("date", "") if isinstance(daily_stats, dict) else ""
-        if saved_date != today:
-            logger.warning(f"[SUMMARY] Дата в daily_stats ({saved_date}) не совпадает с сегодня ({today}) - сбрасываем статистику")
-            daily_stats = {
-                "date": today,
-                "total_messages": 0,
-                "user_messages": {},
-                "photos": [],
-                "first_photo_user_id": None,
-                "first_photo_user_name": None,
-            }
 
+        # НЕ сбрасываем daily_stats даже если дата не совпадает - данные восстановлены из канала
+        # saved_date = daily_stats.get("date", "") if isinstance(daily_stats, dict) else ""
+        # if saved_date != today:
+        #     logger.warning(f"[SUMMARY] Дата в daily_stats ({saved_date}) не совпадает с сегодня ({today}) - сбрасываем статистику")
+        #     daily_stats = {
+        #         "date": today,
+        #         "total_messages": 0,
+        #         "user_messages": {},
+        #         "photos": [],
+        #         "first_photo_user_id": None,
+        #         "first_photo_user_name": None,
+        #     }
+
+        # ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ - что у нас в daily_stats
         # ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ - что у нас в daily_stats
         msg_count = daily_stats.get("total_messages", 0)
         photo_count = len(daily_stats.get("photos", []))
@@ -8232,16 +8233,16 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         logger.info(f"[MSG] today={today}, daily_stats_date={daily_stats.get('date', 'EMPTY')}")
         
-        # Сбрасываем только если новый день
-        if daily_stats.get("date", "") != today:
-            daily_stats["date"] = today
-            daily_stats["total_messages"] = 0
-            daily_stats["user_messages"] = {}
-            daily_stats["photos"] = []
-            daily_stats["first_photo_user_id"] = None
-            daily_stats["first_photo_user_name"] = None
-            logger.info("[MSG] Новый день - статистика сброшена")
-            logger.info(f"[MSG] Новый день! Сброшена статистика")
+        # НЕ сбрасываем daily_stats - данные восстановлены из канала
+        # if daily_stats.get("date", "") != today:
+        #     daily_stats["date"] = today
+        #     daily_stats["total_messages"] = 0
+        #     daily_stats["user_messages"] = {}
+        #     daily_stats["photos"] = []
+        #     daily_stats["first_photo_user_id"] = None
+        #     daily_stats["first_photo_user_name"] = None
+        #     logger.info("[MSG] Новый день - статистика сброшена")
+        #     logger.info(f"[MSG] Новый день! Сброшена статистика")
         
         # Увеличиваем счётчик
         daily_stats["total_messages"] += 1
