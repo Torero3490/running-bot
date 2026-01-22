@@ -5126,8 +5126,8 @@ def get_rating_details(user_id: int) -> dict:
 
 
 # ============== СТАТИСТИКА БЕГА ==============
-def update_running_stats(user_id: int, user_name: str, distance: float, duration: int, calories: int):
-    """Обновление статистики бега для участника (накоптельная)"""
+async def update_running_stats(user_id: int, user_name: str, distance: float, duration: int, calories: int):
+    """Обновление статистики бега для участника (накопльная)"""
     global user_running_stats
 
     if user_id not in user_running_stats:
