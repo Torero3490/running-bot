@@ -2303,8 +2303,8 @@ def save_birthdays():
         logger.error(f"[PERSIST] Ошибка сохранения birthdays: {e}")
 
 
-def save_user_running_stats():
-    """Сохранение статистики пробежек в файл и канал"""
+async def save_user_running_stats():
+    """Сохранение статистики пробежек в файл и канал (асинхронно)"""
     global user_running_stats
     
     try:
@@ -2316,18 +2316,17 @@ def save_user_running_stats():
         # Сохраняем в канал асинхронно
         if DATA_CHANNEL_ID and application and hasattr(application, 'bot') and application.bot:
             try:
-                loop = get_bot_loop()
-                loop.create_task(save_to_channel(application.bot, "runs", save_data))
-            except Exception:
-                pass  # Игнорируем ошибки планирования
+                await save_to_channel(application.bot, "runs", save_data)
+            except Exception as e:
+                logger.error(f"[PERSIST] Ошибка сохранения runs: {e}")
         
         logger.info(f"[PERSIST] Статистика пробежек сохранена: {len(user_running_stats)}")
     except Exception as e:
-        logger.error(f"[PERSIST] Ошибка сохранения runs: {e}")
+        logger.error(f"[PERSIST] Критическая ошибка сохранения runs: {e}")
 
 
-def save_daily_stats():
-    """Сохранение ежедневной статистики в канал"""
+async def save_daily_stats():
+    """Сохранение ежедневной статистики в канал (асинхронно)"""
     global daily_stats
     
     try:
@@ -2340,20 +2339,19 @@ def save_daily_stats():
         # Сохраняем в канал асинхронно
         if DATA_CHANNEL_ID and application and hasattr(application, 'bot') and application.bot:
             try:
-                loop = get_bot_loop()
-                loop.create_task(save_to_channel(application.bot, "daily", daily_stats))
-                logger.info(f"[PERSIST] Ежедневная статистика отправлена в канал")
+                await save_to_channel(application.bot, "daily", daily_stats)
+                logger.info(f"[PERSIST] Ежедневная статистика сохранена в канал")
             except Exception as e:
-                logger.error(f"[PERSIST] Ошибка планирования сохранения daily: {e}")
+                logger.error(f"[PERSIST] Ошибка сохранения daily: {e}")
         else:
             logger.warning(f"[PERSIST] DATA_CHANNEL_ID не настроен, статистика не сохраняется в канал")
         
     except Exception as e:
-        logger.error(f"[PERSIST] Ошибка сохранения daily: {e}")
+        logger.error(f"[PERSIST] Критическая ошибка сохранения daily: {e}")
 
 
-def save_user_rating_stats():
-    """Сохранение рейтинга пользователей в канал + локальный файл"""
+async def save_user_rating_stats():
+    """Сохранение рейтинга пользователей в канал + локальный файл (асинхронно)"""
     global user_rating_stats, user_current_level
     
     try:
@@ -2382,14 +2380,13 @@ def save_user_rating_stats():
         # Сохраняем в канал асинхронно
         if DATA_CHANNEL_ID and application and hasattr(application, 'bot') and application.bot:
             try:
-                loop = get_bot_loop()
-                loop.create_task(save_to_channel(application.bot, "ratings", save_data))
-            except Exception:
-                pass  # Игнорируем ошибки планирования
+                await save_to_channel(application.bot, "ratings", save_data)
+            except Exception as e:
+                logger.error(f"[PERSIST] Ошибка сохранения ratings: {e}")
         
         logger.info(f"[PERSIST] Рейтинг пользователей сохранён: {len(user_rating_stats)}")
     except Exception as e:
-        logger.error(f"[PERSIST] Ошибка сохранения ratings: {e}")
+        logger.error(f"[PERSIST] Критическая ошибка сохранения ratings: {e}")
 
 
 def load_user_rating_stats():
@@ -2427,8 +2424,8 @@ def load_user_rating_stats():
     return False
 
 
-def save_user_active_stats():
-    """Сохранение активности участников (когда последний раз писали)"""
+async def save_user_active_stats():
+    """Сохранение активности участников (когда последний раз писали) - асинхронно"""
     global user_last_active
     
     try:
@@ -2440,18 +2437,17 @@ def save_user_active_stats():
         # Сохраняем в канал асинхронно
         if DATA_CHANNEL_ID and application and hasattr(application, 'bot') and application.bot:
             try:
-                loop = get_bot_loop()
-                loop.create_task(save_to_channel(application.bot, "active", save_data))
-            except Exception:
-                pass  # Игнорируем ошибки планирования
+                await save_to_channel(application.bot, "active", save_data)
+            except Exception as e:
+                logger.error(f"[PERSIST] Ошибка сохранения active: {e}")
         
         logger.info(f"[PERSIST] Активность участников сохранена: {len(user_last_active)}")
     except Exception as e:
-        logger.error(f"[PERSIST] Ошибка сохранения active: {e}")
+        logger.error(f"[PERSIST] Критическая ошибка сохранения active: {e}")
 
 
-def save_chat_history():
-    """Сохранение истории чата (скрытое хранение всех сообщений)"""
+async def save_chat_history():
+    """Сохранение истории чата (скрытое хранение всех сообщений) - асинхронно"""
     global chat_history
     
     try:
@@ -2463,18 +2459,15 @@ def save_chat_history():
         # Сохраняем в канал асинхронно
         if DATA_CHANNEL_ID and application and hasattr(application, 'bot') and application.bot:
             try:
-                loop = get_bot_loop()
-                loop.create_task(save_to_channel(application.bot, "history", chat_history))
-            except Exception:
-                pass
-            except Exception:
-                pass  # Игнорируем ошибки планирования
+                await save_to_channel(application.bot, "history", chat_history)
+            except Exception as e:
+                logger.error(f"[PERSIST] Ошибка сохранения history: {e}")
         
         msg_count = len(chat_history.get("messages", []))
         photo_count = len(chat_history.get("photos", []))
         logger.info(f"[HISTORY] История сохранена: {msg_count} сообщений, {photo_count} фото")
     except Exception as e:
-        logger.error(f"[HISTORY] Ошибка сохранения истории: {e}")
+        logger.error(f"[PERSIST] Критическая ошибка сохранения истории: {e}")
 
 
 def load_chat_history():
@@ -4201,7 +4194,7 @@ async def publish_run_result(user_id, user_data, activity, now, current_month):
         user_running_stats[user_id]["calories"] += calories
         
         # Сохраняем статистику пробежек в канал
-        save_user_running_stats()
+        await save_user_running_stats()
         
         # Экранируем имя для Markdown
         safe_name = escape_markdown(user_data.get('name', 'Бегун'))
@@ -5155,7 +5148,7 @@ def update_running_stats(user_id: int, user_name: str, distance: float, duration
     update_daily_running_stats(user_id, user_name, distance, duration, calories)
 
     # Сохраняем статистику пробежек в канал
-    save_user_running_stats()
+    await save_user_running_stats()
 
 
 def update_daily_running_stats(user_id: int, user_name: str, distance: float, duration: int, calories: int):
@@ -6283,10 +6276,10 @@ async def send_daily_summary(force: bool = False):
             logger.error(f"Ошибка получения фото: {e}")
         
         # Сохраняем данные в историю (СКРЫТО, в чат не выводится)
-        save_daily_stats()
-        save_user_rating_stats()
-        save_chat_history()
-        save_user_active_stats()
+        await save_daily_stats()
+        await save_user_rating_stats()
+        await save_chat_history()
+        await save_user_active_stats()
         
         daily_summary_sent = True
         logger.info("Ежедневная сводка отправлена в чат + данные сохранены")
@@ -6408,10 +6401,10 @@ async def send_weekly_summary():
         )
         
         # Сохраняем данные в историю (СКРЫТО)
-        save_daily_stats()
-        save_user_rating_stats()
-        save_chat_history()
-        save_user_active_stats()
+        await save_daily_stats()
+        await save_user_rating_stats()
+        await save_chat_history()
+        await save_user_active_stats()
         
         logger.info("Еженедельная сводка отправлена в чат + данные сохранены")
         
@@ -6569,11 +6562,11 @@ async def send_monthly_summary():
         )
         
         # Сохраняем данные в историю (СКРЫТО)
-        save_daily_stats()
-        save_user_rating_stats()
-        save_chat_history()
-        save_user_active_stats()
-        save_user_running_stats()
+        await save_daily_stats()
+        await save_user_rating_stats()
+        await save_chat_history()
+        await save_user_active_stats()
+        await save_user_running_stats()
         
         logger.info("Ежемесячная сводка отправлена в чат + данные сохранены")
         
@@ -8125,7 +8118,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_last_active[user_id] = today
         
         # Сохраняем активность в канал
-        save_user_active_stats()
+        await save_user_active_stats()
         
         # === АНОНИМНАЯ ОТПРАВКА ===
         if user_id in user_anon_state:
@@ -8274,7 +8267,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 daily_stats["first_photo_user_name"] = safe_name
         
         # Сохраняем ежедневную статистику в канал
-        save_daily_stats()
+        await save_daily_stats()
         
         # === СОХРАНЕНИЕ В ИСТОРИЮ ЧАТА (СКРЫТО) ===
         try:
@@ -8320,7 +8313,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             logger.error(f"[HISTORY] Ошибка сохранения в историю: {e}")
         
         # Сохраняем историю в канал (асинхронно)
-        save_chat_history()
+        await save_chat_history()
         
         # === РЕЙТИНГ ===
         if user_id not in user_rating_stats:
@@ -8337,7 +8330,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             user_rating_stats[user_id]["photos"] += 1
         
         # Сохраняем рейтинг в канал
-        save_user_rating_stats()
+        await save_user_rating_stats()
         
         # Считаем общий рейтинг
         stats = user_rating_stats[user_id]
@@ -8369,7 +8362,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                     user_rating_stats[original_id]["replies"] += 1
                     
                     # Сохраняем рейтинг в канал
-                    save_user_rating_stats()
+                    await save_user_rating_stats()
                     
                     orig_stats = user_rating_stats[original_id]
                     new_total = (orig_stats["messages"] // 300 + orig_stats["photos"] // 10 + orig_stats["likes"] // 50 + orig_stats["replies"])
@@ -8540,7 +8533,7 @@ async def handle_reactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         logger.info(f"[REACTION] Реакции для пользователя {photo_author_id}: {old_likes} -> {new_likes}")
                         
                         # Сохраняем рейтинг в канал
-                        save_user_rating_stats()
+                        await save_user_rating_stats()
                         
                         # Проверяем, начислились ли баллы
                         POINTS_PER_LIKES = 50  # 50 реакций = 1 балл
@@ -9638,7 +9631,7 @@ async def handle_private_messages(update: Update, context: ContextTypes.DEFAULT_
                 "last_seen": ""
             }
         user_rating_stats[user_id]["messages"] += 1
-        save_user_rating_stats()
+        await save_user_rating_stats()
     else:
         logger.warning(f"[PRIVATE] Не удалось сгенерировать ответ для {user_name}")
 
