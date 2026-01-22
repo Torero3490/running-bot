@@ -6132,7 +6132,7 @@ async def send_daily_summary(force: bool = False):
         summary_text += f"💬 *Всего сообщений:* {daily_stats['total_messages']}\n\n"
 
         # === ПОБЕДИТЕЛИ ДНЯ ===
-        summary_text += "🏆 *Победители дня (двойные баллы):*\n"
+        summary_text += "🏆 *Победители дня \\(двойные баллы\\):*\n"
 
         if most_active_user_name:
             escaped_name = escape_markdown(most_active_user_name)
@@ -9815,21 +9815,9 @@ if __name__ == "__main__":
             if "daily" in loaded:
                 global daily_stats
                 loaded_daily = loaded["daily"]
-                # Проверяем, если загруженная статистика не за сегодня - сбрасываем
-                if loaded_daily.get("date") == today:
-                    daily_stats = loaded_daily
-                    logger.info(f"[PERSIST] Восстановлена дневная статистика за сегодня: {daily_stats.get('total_messages', 0)} сообщений")
-                else:
-                    # Новый день - начинаем с нуля
-                    daily_stats = {
-                        "date": today,
-                        "total_messages": 0,
-                        "user_messages": {},
-                        "photos": [],
-                        "first_photo_user_id": None,
-                        "first_photo_user_name": None,
-                    }
-                    logger.info(f"[PERSIST] Загружена старая статистика ({loaded_daily.get('date')}), сброшено на сегодня")
+                # Всегда восстанавливаем статистику, независимо от даты
+                daily_stats = loaded_daily
+                logger.info(f"[PERSIST] Восстановлена дневная статистика: {daily_stats.get('total_messages', 0)} сообщений")
             
             if "active" in loaded:
                 global user_last_active
