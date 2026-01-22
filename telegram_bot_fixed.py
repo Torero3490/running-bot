@@ -9687,8 +9687,9 @@ if __name__ == "__main__":
     
     # Загружаем данные из Telegram Channel если настроено
     async def init_persistence():
+        logger.info(f"[PERSIST] init_persistence() started, DATA_CHANNEL_ID = '{DATA_CHANNEL_ID}'")
         if DATA_CHANNEL_ID:
-            logger.info(f"[PERSIST] Загружаем данные из канала {DATA_CHANNEL_ID}...")
+            logger.info(f"[PERSIST] DATA_CHANNEL_ID настроен, загружаем данные из канала {DATA_CHANNEL_ID}...")
             loaded = await load_all_from_channel(application.bot)
             
             # Проверяем, нужно ли сбросить дневную статистику
@@ -9742,7 +9743,10 @@ if __name__ == "__main__":
                 logger.info(f"[PERSIST] Загружена история чата: {msg_count} сообщений, {photo_count} фото")
     
     # Запускаем загрузку данных
+    logger.info(f"[INIT] DATA_CHANNEL_ID = '{DATA_CHANNEL_ID}' (type: {type(DATA_CHANNEL_ID)})")
+    logger.info(f"[INIT] Вызов loop.create_task(init_persistence())...")
     loop.create_task(init_persistence())
+    logger.info(f"[INIT] init_persistence() должен запуститься...")
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_cmd))
