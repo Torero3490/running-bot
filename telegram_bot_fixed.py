@@ -1644,11 +1644,21 @@ except ValueError:
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 UTC_OFFSET = 3  # Москва = UTC+3
 
-# Topic IDs
-EVENTS_TOPIC_ID_CONST = 42025
-NEWS_TOPIC_ID_CONST = 42016
-LEGENDS_TOPIC_ID = 126263
-RED_ROOM_TOPIC_ID = 87706
+# Topic IDs (с поддержкой ENV)
+def _get_topic_id_env(env_name: str, default_value: int) -> int:
+    raw = os.environ.get(env_name, "").strip()
+    if not raw:
+        return default_value
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(f"[TOPICS] {env_name}='{raw}' невалидный, использую {default_value}")
+        return default_value
+
+EVENTS_TOPIC_ID_CONST = _get_topic_id_env("EVENTS_TOPIC_ID", 42025)
+NEWS_TOPIC_ID_CONST = _get_topic_id_env("NEWS_TOPIC_ID", 42016)
+LEGENDS_TOPIC_ID = _get_topic_id_env("LEGENDS_TOPIC_ID", 126263)
+RED_ROOM_TOPIC_ID = _get_topic_id_env("RED_ROOM_TOPIC_ID", 87706)
 
 # ============== TELEGRAM CHANNEL PERSISTENCE ==============
 # ID канала для сохранения данных (работает на Render Free)
@@ -3183,6 +3193,31 @@ MOTIVATION_RESPONSES = [
     "{user_name}, осталось немного — ты справишься!",
     "{user_name}, я верю в тебя! Давай ещё чуть-чуть!",
     "{user_name}, чем труднее, тем слаще победа! 🏅",
+    "{user_name}, маленький шаг сегодня — большой результат завтра!",
+    "Сделай это, {user_name}! Ты умеешь больше, чем кажется.",
+    "{user_name}, твой характер сильнее любой усталости!",
+    "Держи ритм, {user_name}! Ты уже в игре!",
+    "{user_name}, не сравнивай себя с другими — сравнивай с собой вчера!",
+    "Ты ближе к цели, чем думаешь, {user_name}!",
+    "{user_name}, просто начни — дальше будет легче!",
+    "Сегодняшняя тренировка — завтрашняя уверенность, {user_name}!",
+    "{user_name}, один шаг — и ты снова в движении!",
+    "Твоя дисциплина — твой суперсила, {user_name}!",
+    "{user_name}, беги своим темпом — это твой путь!",
+    "Устал? Это значит, {user_name}, что ты растёшь!",
+    "{user_name}, ты уже сделал самое сложное — решил начать!",
+    "Соберись, {user_name}! Ты умеешь побеждать!",
+    "{user_name}, сегодня ты сильнее, чем был вчера!",
+    "Каждая тренировка делает тебя крепче, {user_name}!",
+    "{user_name}, дыши, шагай, двигайся — и всё получится!",
+    "Если трудно, {user_name}, значит ты на верном пути!",
+    "{user_name}, делай по чуть-чуть — стабильность важнее рывков!",
+    "Сила — в регулярности, {user_name}!",
+    "{user_name}, не идеальный день, но идеальный шанс!",
+    "Ты справишься, {user_name}! Верь в процесс!",
+    "{user_name}, ты уже победил, раз вышел на старт!",
+    "Ты создан для движения, {user_name}!",
+    "{user_name}, гордись собой — ты встал и пошёл!",
 ]
 
 # Шутки
@@ -9647,9 +9682,9 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Пытаемся импортировать функцию из events_tracker
         from events_tracker import get_all_events
         
-        target_thread_id = EVENTS_TOPIC_ID
+        target_thread_id = EVENTS_TOPIC_ID_CONST
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+            chat_id=CHAT_ID,
             message_thread_id=target_thread_id,
             text="🔍 *Ищу открытые регистрации на забеги...*",
             parse_mode="Markdown"
@@ -9659,7 +9694,7 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not events:
             await context.bot.send_message(
-                chat_id=update.effective_chat.id,
+                chat_id=CHAT_ID,
                 message_thread_id=target_thread_id,
                 text="📭 На данный момент новых регистраций не найдено.",
                 parse_mode="Markdown"
@@ -9685,7 +9720,7 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"🔗 [Зарегистрироваться]({link})\n\n"
             
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+            chat_id=CHAT_ID,
             message_thread_id=target_thread_id,
             text=text,
             parse_mode="Markdown",
@@ -9697,8 +9732,8 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"[SLOTS] Ошибка команды slots: {e}")
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            message_thread_id=EVENTS_TOPIC_ID,
+            chat_id=CHAT_ID,
+            message_thread_id=EVENTS_TOPIC_ID_CONST,
             text="❌ Ошибка при получении списка забегов. Попробуйте позже.",
         )
     

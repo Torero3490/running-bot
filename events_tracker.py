@@ -123,6 +123,55 @@ def is_registration_open(page_text: str, url: str) -> bool:
     return True
 
 
+def check_registration_status_strict(page_text: str, url: str) -> Optional[bool]:
+    """Строгая проверка статуса регистрации: True/False/None (если неясно)."""
+    open_indicators = [
+        'регистрация открыта',
+        'регистрация доступна',
+        'открыта регистрация',
+        'приём заявок открыт',
+        'участие возможно',
+        'зарегистрироваться',
+        'регистрация на забег',
+        'registration is open',
+        'register now',
+        'sign up',
+        'присоединиться',
+        'купить слот',
+        'оплатить участие',
+    ]
+
+    closed_indicators = [
+        'регистрация закрыта',
+        'регистрация завершена',
+        'приём заявок завершён',
+        'регистрация окончена',
+        'мест нет',
+        'слоты проданы',
+        'registration is closed',
+        'registration closed',
+        'sold out',
+        'full',
+        'мест не осталось',
+        'ожидается открытие',
+    ]
+
+    text_lower = page_text.lower()
+
+    for indicator in closed_indicators:
+        if indicator in text_lower:
+            logger.info(f"[EVENTS] Регистрация закрыта (найдено: '{indicator}') URL={url}")
+            return False
+
+    for indicator in open_indicators:
+        if indicator in text_lower:
+            logger.info(f"[EVENTS] Регистрация открыта (найдено: '{indicator}') URL={url}")
+            return True
+
+    logger.info(f"[EVENTS] Не удалось определить статус регистрации (строго): {url}")
+    return None
+
+
 def extract_registration_deadline(page_text: str) -> Optional[str]:
     """Извлекает дедлайн регистрации из текста страницы"""
 
@@ -684,6 +733,121 @@ async def parse_chulkovo_trail_events() -> List[Dict]:
                 })
     except Exception as e:
         logger.error(f"[EVENTS] Ошибка парсинга chulkovo-trail.ru: {e}")
+
+    return events
+
+
+async def parse_openband_events() -> List[Dict]:
+    """Парсинг Open Band Trails (openband.run)"""
+    events = []
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(
+                "https://openband.run/",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
+            )
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            text = soup.get_text("\n")
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+            seen = set()
+            for i, line in enumerate(lines):
+                # Ищем даты вроде "15 ноября"
+                match = re.search(r'(\d{1,2}\s+[А-Яа-яA-Za-z]+)', line)
+                if not match:
+                    continue
+                date_raw = match.group(1)
+                date_str = normalize_russian_date_with_year(date_raw)
+                # Пытаемся взять город из предыдущих/следующих строк
+                city = ""
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1]
+                    if "МО" in next_line or "Москов" in next_line or "Москва" in next_line:
+                        city = next_line
+                if i - 1 >= 0 and not city:
+                    prev_line = lines[i - 1]
+                    if "МО" in prev_line or "Москов" in prev_line or "Москва" in prev_line:
+                        city = prev_line
+                if not city:
+                    continue
+
+                title = "Open Band Trail"
+                key = (title, date_str, city)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                events.append({
+                    'title': title,
+                    'date': date_str,
+                    'city': city,
+                    'distances': 'Уточняйте на сайте',
+                    'url': 'https://openband.run/',
+                    'source': 'Open Band'
+                })
+    except Exception as e:
+        logger.error(f"[EVENTS] Ошибка парсинга openband.run: {e}")
+
+    return events
+
+
+async def parse_city_trail_events() -> List[Dict]:
+    """Парсинг City Trail (city-trail.ru)"""
+    events = []
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(
+                "https://city-trail.ru/",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
+            )
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            text = soup.get_text("\n")
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+            seen = set()
+            for i, line in enumerate(lines):
+                # Ищем блоки типа "24 мая"
+                match = re.search(r'(\d{1,2}\s+[А-Яа-яA-Za-z]+)', line)
+                if not match:
+                    continue
+                date_raw = match.group(1)
+                date_str = normalize_russian_date_with_year(date_raw)
+
+                # Название берём из соседней строки если есть
+                title = "City Trail"
+                if i - 1 >= 0:
+                    prev_line = lines[i - 1]
+                    if len(prev_line) > 2 and prev_line.isalpha():
+                        title = f"City Trail {prev_line.title()}"
+
+                # Город/локация обычно рядом
+                city = "Москва/МО"
+                if i + 1 < len(lines):
+                    loc_line = lines[i + 1].lower()
+                    if "москва" in loc_line or "москов" in loc_line:
+                        city = lines[i + 1]
+
+                key = (title, date_str, city)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                events.append({
+                    'title': title,
+                    'date': date_str,
+                    'city': city,
+                    'distances': '5–30 км',
+                    'url': 'https://city-trail.ru/',
+                    'source': 'City Trail'
+                })
+    except Exception as e:
+        logger.error(f"[EVENTS] Ошибка парсинга city-trail.ru: {e}")
 
     return events
 
@@ -1763,6 +1927,15 @@ def parse_russian_date(date_str: str) -> str:
     return date_str
 
 
+def normalize_russian_date_with_year(date_str: str, default_year: int = 2026) -> str:
+    """Добавляет год к русской дате, если он отсутствует, и нормализует формат."""
+    if not date_str:
+        return ""
+    if re.search(r'20[2-9]\d', date_str):
+        return parse_russian_date(date_str)
+    return parse_russian_date(f"{date_str} {default_year}")
+
+
 def filter_event_by_year_and_city(event: Dict) -> bool:
     """Фильтрует мероприятие по году (2026+) и региону (Москва, СПб, область)"""
 
@@ -2004,12 +2177,19 @@ async def check_and_publish_events(context: ContextTypes.DEFAULT_TYPE, message_t
 
     logger.info("[EVENTS] Парсинг ЗаБег.РФ...")
     events_zabeg = await parse_zabeg_rf_events()
-    events_chulkovo = await parse_chulkovo_trail_events()
     logger.info(f"[EVENTS] ЗаБег.РФ: {len(events_zabeg)} мероприятий")
 
     logger.info("[EVENTS] Парсинг Trail de Чулково...")
     events_chulkovo = await parse_chulkovo_trail_events()
     logger.info(f"[EVENTS] Trail de Чулково: {len(events_chulkovo)} мероприятий")
+
+    logger.info("[EVENTS] Парсинг Open Band...")
+    events_openband = await parse_openband_events()
+    logger.info(f"[EVENTS] Open Band: {len(events_openband)} мероприятий")
+
+    logger.info("[EVENTS] Парсинг City Trail...")
+    events_city_trail = await parse_city_trail_events()
+    logger.info(f"[EVENTS] City Trail: {len(events_city_trail)} мероприятий")
 
     # Парсим трейловые забеги
     logger.info("[EVENTS] Парсинг Трейлы (ПроБЕГ)...")
@@ -2083,6 +2263,8 @@ async def check_and_publish_events(context: ContextTypes.DEFAULT_TYPE, message_t
     all_events.extend(events_pushkin)
     all_events.extend(events_golden)
     all_events.extend(events_chulkovo)
+    all_events.extend(events_openband)
+    all_events.extend(events_city_trail)
     all_events.extend(events_chulkovo)
     all_events.extend(events_s10)
     all_events.extend(events_ahotu_run)
@@ -2155,6 +2337,9 @@ async def get_all_events() -> List[Dict]:
     events_runc = await parse_runc_run_events()
     events_hero = await parse_heroleague_events()
     events_zabeg = await parse_zabeg_rf_events()
+    events_chulkovo = await parse_chulkovo_trail_events()
+    events_openband = await parse_openband_events()
+    events_city_trail = await parse_city_trail_events()
     events_probeg_trails = await parse_probeg_trails_events()
     events_pushkin = await parse_pushkin_run_events()
     events_golden = await parse_golden_ring_trail_events()
@@ -2177,6 +2362,9 @@ async def get_all_events() -> List[Dict]:
     all_events.extend(events_runc)
     all_events.extend(events_hero)
     all_events.extend(events_zabeg)
+    all_events.extend(events_chulkovo)
+    all_events.extend(events_openband)
+    all_events.extend(events_city_trail)
     all_events.extend(events_probeg_trails)
     all_events.extend(events_pushkin)
     all_events.extend(events_golden)
@@ -2203,10 +2391,32 @@ async def get_all_events() -> List[Dict]:
 
     logger.info(f"[EVENTS] После фильтрации: {len(filtered_events)} мероприятий")
 
+    # Строгая проверка открытых регистраций
+    open_events = []
+    for event in filtered_events:
+        url = event.get("url") or ""
+        if not url:
+            continue
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                page_response = await client.get(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                )
+                page_text = page_response.text
+                is_open = check_registration_status_strict(page_text, url)
+                if is_open is not False:
+                    event["registration_open"] = (is_open is True)
+                    open_events.append(event)
+        except Exception as e:
+            logger.warning(f"[EVENTS] Не удалось проверить регистрацию: {e}")
+
+    logger.info(f"[EVENTS] Открытых регистраций: {len(open_events)}")
+
     # Добавляем цены (чтобы /slots показывал стоимость)
     max_price_checks = 20  # ограничение, чтобы не перегружать источники
     checked = 0
-    for event in filtered_events:
+    for event in open_events:
         if checked >= max_price_checks:
             break
         url = event.get("url") or ""
@@ -2227,7 +2437,7 @@ async def get_all_events() -> List[Dict]:
             event["price"] = "Цена не указана"
             checked += 1
 
-    return filtered_events
+    return open_events
 
 
 async def events_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
