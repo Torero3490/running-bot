@@ -8022,685 +8022,686 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # ОТЛАДКА - логируем ЧТО ПРИШЛО
     try:
-        logger.info(f"[HANDLER] Получен update: type={type(update)}, message={update.message is not None}")
-        if update.message:
-            logger.info(f"[HANDLER] message_id={update.message.message_id}, text='{update.message.text or ''[:50]}'")
-    except Exception as e:
-        logger.error(f"[HANDLER] Ошибка логирования: {e}")
-    
-    # Ночной режим
-    hour = now.hour
-    if hour >= 22 or hour < 6:
-        night_msgs = daily_stats.get("night_messages", 0) + 1
-        daily_stats["night_messages"] = night_msgs
-        if night_msgs % 10 == 0:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="🤖 **Ночной режим!**\n\nУже поздно, пора восстанавливаться. Бегунам нужен сон! 🛌💤",
-                parse_mode="Markdown"
-            )
-
-    # При получении баллов — уведомление
-    # (логика начисления баллов должна вызывать это)
-    # По умолчанию - обычное сообщение
-    message_type = "default"
-
-    # Определяем тип сообщения для истории
-    check_text_lower = check_text.lower()
-
-    # Приветствия
-    greetings = ["привет", "здравствуй", "здорово", "добрый день", "добрый вечер", "доброе утро", "hello", "hi", "hey", "приветик", "приветствую", "йо"]
-    if any(word in check_text_lower for word in greetings):
-        message_type = "greeting"
-
-    # Утро
-    morning_words = ["утро", "доброе утро", "утра", "проснулся", "проснулась", "встал", "встала", "утречка", "доброутро", "с утра"]
-    if any(word in check_text_lower for word in morning_words):
-        message_type = "morning"
-
-    # Благодарности
-    thanks = ["спасибо", "благодарю", "мерси", "thx", "thanks", "благодарность", "пасиб", "сяп", "сэнк ю"]
-    if any(word in check_text_lower for word in thanks):
-        message_type = "thanks"
-
-    # Согласие
-    agreement = ["да", "согласен", "точно", "именно", "верно", "прав", "поддерживаю", "yes", "agreed", "угу", "ага"]
-    if any(word in check_text_lower for word in agreement):
-        message_type = "agreement"
-
-    # Вопросы
-    questions = ["?", "как", "что", "почему", "зачем", "когда", "где", "кто", "сколько", "подскажи", "скажи", "объясни", "а это"]
-    if any(word in check_text_lower for word in questions) or "?" in message_text:
-        message_type = "question"
-
-    # Активность / спорт
-    running_words = ["активность", "активный", "спорт", "тренировка", "тренироваться", "тренируюсь", "заниматься", "занимаюсь", "фитнес", "йога", "кардио", "силовая", "упражнения", "пробежка", "бег", "бегать", "бегаю"]
-    if any(word in check_text_lower for word in running_words):
-        message_type = "running"
-
-    # Мотивация
-    motivation_words = ["сложно", "тяжело", "устал", "не могу", "лениво", "мотивация", "лень", "не хочу", "нет сил"]
-    if any(word in check_text_lower for word in motivation_words):
-        message_type = "motivation"
-
-    # Шутки
-    joke_words = ["хаха", "lol", "смешно", "прикол", "кринж", "ахах", "хех", "😂", "🤣", "хдх", "рофл", "шутка"]
-    if any(word in check_text_lower for word in joke_words):
-        message_type = "joke"
-
-    # Усталость
-    tired_words = ["устал", "устала", "уставать", "устаю", "измотан", "выжат", "нет сил", "разбит", "разбита"]
-    if any(word in check_text_lower for word in tired_words):
-        message_type = "tired"
-
-    # Боль / травмы
-    pain_words = ["болит", "боль", "травма", "растяжение", "болят", "тянет", "ноющая", "резкая", "опухло", "синяк"]
-    if any(word in check_text_lower for word in pain_words):
-        message_type = "pain"
-
-    # Погода
-    weather_words = ["погода", "дождь", "снег", "холод", "жара", "ветер", "мороз", "гроза", "солнце", "туман", "сыро", "мокро"]
-    if any(word in check_text_lower for word in weather_words):
-        message_type = "weather"
-
-    # Как дела
-    how_are_you_words = ["как дела", "как ты", "как жизнь", "как настроение", "как себя", "как у тебя"]
-    if any(word in check_text_lower for word in how_are_you_words):
-        message_type = "how_are_you"
-
-    # Кто ты
-    who_are_you_words = ["кто ты", "что ты", "ты бот", "ты робот", "ты живой", "кто такой"]
-    if any(word in check_text_lower for word in who_are_you_words):
-        message_type = "who_are_you"
-
-    logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
-    logger.info(f"[MSG] message_text='{message_text}', check_text='{check_text}'")
-
-    # Проверяем, не команда ли это
-    if message_text and message_text.startswith('/'):
-        logger.info(f"[MSG] Это команда, пропускаем")
-        return
-
-    # === ПРОВЕРКА: ДОБРОЕ УТРО (РАНДОМНЫЙ ОТВЕТ) ===
-    # Ключевые слова для определения "доброго утра"
-    good_morning_keywords = [
-        # Русские варианты (полные фразы)
-        'доброе утро', 'доброе утро!', 'доброе утро всем', 'всем доброе утро',
-        'доброе утро!', 'доброе утро.', 'доброе утро,', 'утро доброе', 'утро!',
-        'всем утро', 'утро доброе', 'доброутро', 'доброго утра',
-        'всем доброго утра', 'доброго утра!', 'доброго утра всем',
-        # Смайлики с утром
-        '☀️ утро', '☀️доброе', 'утро ☀️',
-        # Короткие и разговорные
-        'утра', 'всем утра', 'утречка', 'утречко', 'с утра', 'с утра!',
-        'всем с утра', 'и тебе доброе утро', 'и тебе утро',
-        # Английские
-        'good morning', 'good morning!', 'morning!', 'morning',
-        # С вопросом или в предложении
-        '?доброе утро', 'утро?', 'доброе утро?',
-    ]
-    
-    # DEBUG: Логируем check_text полностью
-    logger.info(f"[MORNING DEBUG] check_text='{check_text}'")
-    
-    # Проверяем逐слово
-    words_in_message = check_text.split()
-    logger.info(f"[MORNING DEBUG] words_in_message={words_in_message[:20]}")
-    
-    # Проверяем каждое ключевое слово
-    for kw in good_morning_keywords:
-        if kw in check_text:
-            logger.info(f"[MORNING DEBUG] Найдено ключевое слово: '{kw}'")
-    
-    is_good_morning = any(greeting in check_text for greeting in good_morning_keywords)
-    logger.info(f"[MORNING] Проверка: '{check_text[:100]}...' | is_good_morning={is_good_morning}")
-
-    if is_good_morning:
-        # Дополнительное логирование для отладки
-        logger.info(f"[MORNING] DEBUG: user_id={user_id}, user_name='{user_name}', message='{check_text[:50]}'")
-        if update.message.reply_to_message:
-            logger.info(f"[MORNING] DEBUG: reply_to_message from_user='{update.message.reply_to_message.from_user.username or update.message.reply_to_message.from_user.full_name}'")
-        
-        logger.info(f"[MORNING] detected от {user_name}")
-        
-        # Проверяем пол через ИИ с таймаутом 3 секунды
         try:
-            is_female = await asyncio.wait_for(
-                check_is_female_by_ai(user_name),
-                timeout=3.0
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"[MORNING] Таймаут определения пола для {user_name}, используем нейтральный ответ")
-            is_female = False
+            logger.info(f"[HANDLER] Получен update: type={type(update)}, message={update.message is not None}")
+            if update.message:
+                logger.info(f"[HANDLER] message_id={update.message.message_id}, text='{update.message.text or ''[:50]}'")
         except Exception as e:
-            logger.error(f"[MORNING] Ошибка определения пола: {e}")
-            is_female = False
+            logger.error(f"[HANDLER] Ошибка логирования: {e}")
         
-        logger.info(f"[MORNING] Пол определён: {user_name} -> is_female={is_female}")
-
-        # Рандомный выбор ответа:
-        # - 40% флирт (если девушка)
-        # - 30% цитата из фильма (для всех)
-        # - 30% нейтральный ответ (для всех)
-        rand = random.random()
-
-        if is_female and rand < 0.4:
-            # Это девушка и выпал флирт
-            morning_text = get_random_good_morning_flirt()
-            logger.info(f"[MORNING] Рандом: ФЛИРТ для {user_name}")
-        elif rand < 0.7:
-            # Цитата из фильма (для всех)
-            morning_text = random.choice(MOVIE_QUOTES)
-            logger.info(f"[MORNING] Рандом: ЦИТАТА для {user_name}")
-        else:
-            # Нейтральный ответ
-            morning_text = get_random_good_morning()
-            logger.info(f"[MORNING] Рандом: НЕЙТРАЛЬНО для {user_name}")
-
-        # Формируем упоминание пользователя
-        user_mention = f"@{user_name}" if user_name else ""
+        # Ночной режим
+        hour = now.hour
+        if hour >= 22 or hour < 6:
+            night_msgs = daily_stats.get("night_messages", 0) + 1
+            daily_stats["night_messages"] = night_msgs
+            if night_msgs % 10 == 0:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="🤖 **Ночной режим!**\n\nУже поздно, пора восстанавливаться. Бегунам нужен сон! 🛌💤",
+                    parse_mode="Markdown"
+                )
+    
+        # При получении баллов — уведомление
+        # (логика начисления баллов должна вызывать это)
+        # По умолчанию - обычное сообщение
+        message_type = "default"
+    
+        # Определяем тип сообщения для истории
+        check_text_lower = check_text.lower()
+    
+        # Приветствия
+        greetings = ["привет", "здравствуй", "здорово", "добрый день", "добрый вечер", "доброе утро", "hello", "hi", "hey", "приветик", "приветствую", "йо"]
+        if any(word in check_text_lower for word in greetings):
+            message_type = "greeting"
+    
+        # Утро
+        morning_words = ["утро", "доброе утро", "утра", "проснулся", "проснулась", "встал", "встала", "утречка", "доброутро", "с утра"]
+        if any(word in check_text_lower for word in morning_words):
+            message_type = "morning"
+    
+        # Благодарности
+        thanks = ["спасибо", "благодарю", "мерси", "thx", "thanks", "благодарность", "пасиб", "сяп", "сэнк ю"]
+        if any(word in check_text_lower for word in thanks):
+            message_type = "thanks"
+    
+        # Согласие
+        agreement = ["да", "согласен", "точно", "именно", "верно", "прав", "поддерживаю", "yes", "agreed", "угу", "ага"]
+        if any(word in check_text_lower for word in agreement):
+            message_type = "agreement"
+    
+        # Вопросы
+        questions = ["?", "как", "что", "почему", "зачем", "когда", "где", "кто", "сколько", "подскажи", "скажи", "объясни", "а это"]
+        if any(word in check_text_lower for word in questions) or "?" in message_text:
+            message_type = "question"
+    
+        # Активность / спорт
+        running_words = ["активность", "активный", "спорт", "тренировка", "тренироваться", "тренируюсь", "заниматься", "занимаюсь", "фитнес", "йога", "кардио", "силовая", "упражнения", "пробежка", "бег", "бегать", "бегаю"]
+        if any(word in check_text_lower for word in running_words):
+            message_type = "running"
+    
+        # Мотивация
+        motivation_words = ["сложно", "тяжело", "устал", "не могу", "лениво", "мотивация", "лень", "не хочу", "нет сил"]
+        if any(word in check_text_lower for word in motivation_words):
+            message_type = "motivation"
+    
+        # Шутки
+        joke_words = ["хаха", "lol", "смешно", "прикол", "кринж", "ахах", "хех", "😂", "🤣", "хдх", "рофл", "шутка"]
+        if any(word in check_text_lower for word in joke_words):
+            message_type = "joke"
+    
+        # Усталость
+        tired_words = ["устал", "устала", "уставать", "устаю", "измотан", "выжат", "нет сил", "разбит", "разбита"]
+        if any(word in check_text_lower for word in tired_words):
+            message_type = "tired"
+    
+        # Боль / травмы
+        pain_words = ["болит", "боль", "травма", "растяжение", "болят", "тянет", "ноющая", "резкая", "опухло", "синяк"]
+        if any(word in check_text_lower for word in pain_words):
+            message_type = "pain"
+    
+        # Погода
+        weather_words = ["погода", "дождь", "снег", "холод", "жара", "ветер", "мороз", "гроза", "солнце", "туман", "сыро", "мокро"]
+        if any(word in check_text_lower for word in weather_words):
+            message_type = "weather"
+    
+        # Как дела
+        how_are_you_words = ["как дела", "как ты", "как жизнь", "как настроение", "как себя", "как у тебя"]
+        if any(word in check_text_lower for word in how_are_you_words):
+            message_type = "how_are_you"
+    
+        # Кто ты
+        who_are_you_words = ["кто ты", "что ты", "ты бот", "ты робот", "ты живой", "кто такой"]
+        if any(word in check_text_lower for word in who_are_you_words):
+            message_type = "who_are_you"
+    
+        logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
+        logger.info(f"[MSG] message_text='{message_text}', check_text='{check_text}'")
+    
+        # Проверяем, не команда ли это
+        if message_text and message_text.startswith('/'):
+            logger.info(f"[MSG] Это команда, пропускаем")
+            return
+    
+        # === ПРОВЕРКА: ДОБРОЕ УТРО (РАНДОМНЫЙ ОТВЕТ) ===
+        # Ключевые слова для определения "доброго утра"
+        good_morning_keywords = [
+            # Русские варианты (полные фразы)
+            'доброе утро', 'доброе утро!', 'доброе утро всем', 'всем доброе утро',
+            'доброе утро!', 'доброе утро.', 'доброе утро,', 'утро доброе', 'утро!',
+            'всем утро', 'утро доброе', 'доброутро', 'доброго утра',
+            'всем доброго утра', 'доброго утра!', 'доброго утра всем',
+            # Смайлики с утром
+            '☀️ утро', '☀️доброе', 'утро ☀️',
+            # Короткие и разговорные
+            'утра', 'всем утра', 'утречка', 'утречко', 'с утра', 'с утра!',
+            'всем с утра', 'и тебе доброе утро', 'и тебе утро',
+            # Английские
+            'good morning', 'good morning!', 'morning!', 'morning',
+            # С вопросом или в предложении
+            '?доброе утро', 'утро?', 'доброе утро?',
+        ]
         
-        # Отправляем ответ на доброе утро с упоминанием
-        try:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f"{user_mention} 💫 **{morning_text}**",
-                parse_mode="Markdown",
-            )
-            logger.info(f"[MORNING] Ответ на доброе утро отправлен для {user_name}")
-            return  # Выходим после отправки ответа на утро
-        except Exception as e:
-            logger.error(f"[MORNING] Ошибка отправки: {e}")
-
-        # === АВТОМАТИЧЕСКИЙ ФЛИРТ С ДЕВУШКАМИ (НА ОБЫЧНЫЕ СООБЩЕНИЯ) ===
-        # Проверяем, является ли пользователь девушкой через ИИ
-        now = datetime.now(MOSCOW_TZ)
-        current_time = now.timestamp()
-
-        # Проверяем кулдаун для этого пользователя
-        last_flirt_time = girl_flirt_cache.get(user_id, 0)
-        time_since_last = current_time - last_flirt_time
-        logger.info(f"[FLIRT] Проверка для {user_name}, кулдаун: {time_since_last:.0f}/{FLIRT_COOLDOWN} сек")
-
-        if time_since_last >= FLIRT_COOLDOWN:
-            logger.info(f"[FLIRT] Кулдаун прошёл, проверяем пол через ИИ: {user_name}")
+        # DEBUG: Логируем check_text полностью
+        logger.info(f"[MORNING DEBUG] check_text='{check_text}'")
+        
+        # Проверяем逐слово
+        words_in_message = check_text.split()
+        logger.info(f"[MORNING DEBUG] words_in_message={words_in_message[:20]}")
+        
+        # Проверяем каждое ключевое слово
+        for kw in good_morning_keywords:
+            if kw in check_text:
+                logger.info(f"[MORNING DEBUG] Найдено ключевое слово: '{kw}'")
+        
+        is_good_morning = any(greeting in check_text for greeting in good_morning_keywords)
+        logger.info(f"[MORNING] Проверка: '{check_text[:100]}...' | is_good_morning={is_good_morning}")
+    
+        if is_good_morning:
+            # Дополнительное логирование для отладки
+            logger.info(f"[MORNING] DEBUG: user_id={user_id}, user_name='{user_name}', message='{check_text[:50]}'")
+            if update.message.reply_to_message:
+                logger.info(f"[MORNING] DEBUG: reply_to_message from_user='{update.message.reply_to_message.from_user.username or update.message.reply_to_message.from_user.full_name}'")
             
-            # Проверяем через ИИ, девушка ли это (с таймаутом)
+            logger.info(f"[MORNING] detected от {user_name}")
+            
+            # Проверяем пол через ИИ с таймаутом 3 секунды
             try:
                 is_female = await asyncio.wait_for(
                     check_is_female_by_ai(user_name),
                     timeout=3.0
                 )
             except asyncio.TimeoutError:
-                logger.warning(f"[FLIRT] Таймаут определения пола для {user_name}")
+                logger.warning(f"[MORNING] Таймаут определения пола для {user_name}, используем нейтральный ответ")
                 is_female = False
             except Exception as e:
-                logger.error(f"[FLIRT] Ошибка определения пола: {e}")
+                logger.error(f"[MORNING] Ошибка определения пола: {e}")
                 is_female = False
             
-            logger.info(f"[FLIRT] Результат для {user_name}: is_female={is_female}")
-
-            if is_female:
-                # Это девушка! Отправляем комплимент на обычное сообщение
-                girl_flirt_cache[user_id] = current_time
-
-                # Отвечаем на обычное сообщение
-                flirt_text = get_random_chat_flirt()
-                logger.info(f"[FLIRT] {user_name} написала сообщение (определено ИИ), отвечаем флиртом")
-
-                # Отправляем флирт
-                try:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=f"💫 **{flirt_text}**",
-                        parse_mode="Markdown",
-                    )
-                    logger.info(f"[FLIRT] Флирт отправлен для {user_name}")
-                except Exception as e:
-                    logger.error(f"[FLIRT] Ошибка отправки флирта: {e}")
+            logger.info(f"[MORNING] Пол определён: {user_name} -> is_female={is_female}")
+    
+            # Рандомный выбор ответа:
+            # - 40% флирт (если девушка)
+            # - 30% цитата из фильма (для всех)
+            # - 30% нейтральный ответ (для всех)
+            rand = random.random()
+    
+            if is_female and rand < 0.4:
+                # Это девушка и выпал флирт
+                morning_text = get_random_good_morning_flirt()
+                logger.info(f"[MORNING] Рандом: ФЛИРТ для {user_name}")
+            elif rand < 0.7:
+                # Цитата из фильма (для всех)
+                morning_text = random.choice(MOVIE_QUOTES)
+                logger.info(f"[MORNING] Рандом: ЦИТАТА для {user_name}")
             else:
-                logger.info(f"[FLIRT] {user_name} определён как не-девушка, пропускаем")
-        else:
-            logger.info(f"[FLIRT] Кулдаун не прошёл для {user_name}, пропускаем")
-
-        # === ПРОВЕРКА: ОБРАЩЕНИЕ К БОТУ ЧЕРЕЗ @НИК В ЧАТЕ ===
-        # Получаем информацию о боте для упоминания в чате
-        bot_username = context.bot.username.lower() if hasattr(context.bot, 'username') else ""
-        logger.info(f"[DEBUG] Бот username: @{bot_username}")
-        user_mentioned = False
-        
-        # Проверяем, упомянут ли бот через @username
-        if bot_username and message_text:
-            if f"@{bot_username}" in message_text.lower():
-                user_mentioned = True
-                logger.info(f"[AI] 📢 {user_name} обратился к боту в чате: '{message_text[:50]}...'")
-        
-        # === AI ОТВЕТ: ЛОГИКА ДЛЯ ЧАТА ===
-        should_respond = False
-        bot_message_text = ""
-        
-        if user_mentioned:
-            should_respond = True
-            # Если обращение напрямую, убираем @бота из текста
-            bot_message_text = re.sub(f'@{bot_username}', '', message_text, flags=re.IGNORECASE).strip()
-            if not bot_message_text:
-                bot_message_text = "пользователь поздоровался"
-        
-        # Проверяем ответ на сообщение бота
-        elif update.message.reply_to_message:
-            original_message = update.message.reply_to_message
-            if original_message.from_user and original_message.from_user.id == (context.bot.id if hasattr(context.bot, 'id') else None):
-                if original_message.from_user.is_bot:
-                    should_respond = True
-                    logger.info(f"[AI] {user_name} ответил на сообщение бота: '{message_text[:30]}...'")
-                    bot_message_text = original_message.text or original_message.caption or "сообщение бота"
-        
-        # === ПРОВЕРКА: ДЕВУШКА? ДАЁМ РЕДКИЙ КОМПЛИМЕНТ (без закрепления!) ===
-        # Проверяем, является ли пользователь девушкой
-        user_username = user.username or ""
-        user_fullname = user.full_name or ""
-        if is_female_user(user_username, user_fullname):
-            # ОЧЕНЬ низкий шанс (5%) - только на реально крутые сообщения
-            if random.random() < 0.05:
-                compliment = random.choice(FEMALE_COMPLIMENTS).format(user_name=user_name)
-                try:
-                    # Отправляем БЕЗ закрепления!
-                    sent = await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=compliment
-                    )
-                    logger.info(f"[FEMALE] Комплимент отправлен (не закреплён): {user_name}")
-                except Exception as e:
-                    logger.error(f"[FEMALE] Ошибка отправки комплимента: {e}")
-        
-        # === САМОДЕЯТЕЛЬНОСТЬ: БОТ ПРАКТИЧЕСКИ НЕ ОТВЕЧАЕТ САМ ===
-        # Только если @упоминание или ответ на сообщение бота
-        if not should_respond and message_text and len(message_text) > 20:
-            # Только реальные сложные вопросы (не простые "как дела?")
-            complex_keywords = ["подскажи", "объясни", "рекомендуй", "посоветуй", "как правильно", "что делать", "помоги"]
-            is_complex_question = "?" in message_text and any(kw in message_text.lower() for kw in complex_keywords)
+                # Нейтральный ответ
+                morning_text = get_random_good_morning()
+                logger.info(f"[MORNING] Рандом: НЕЙТРАЛЬНО для {user_name}")
+    
+            # Формируем упоминание пользователя
+            user_mention = f"@{user_name}" if user_name else ""
             
-            # Только ОЧЕНЬ сильные эмоции
-            very_strong_emotions = ["пиздец", "вааау", "оооо боже", "шок", "ужас", "невероятно", "вауууу"]
-            has_very_strong = any(kw in message_text.lower() for kw in very_strong_emotions)
-            
-            # КРОШЕЧНЫЙ шанс: 1% для сложных вопросов, 0.3% для эмоций, 0.05% для обычных
-            chance = 0.01 if is_complex_question else (0.003 if has_very_strong else 0.0005)
-            
-            if random.random() < chance:
-                should_respond = True
-                bot_message_text = "интересное сообщение в чате"
-                logger.info(f"[AUTO] Bot decides to respond (chance {chance*100:.2f}%)")
-        
-        # Если есть повод ответить — обрабатываем
-        logger.info(f"[DEBUG] YANDEX_AVAILABLE={YANDEX_AVAILABLE}, should_respond={should_respond}")
-        if YANDEX_AVAILABLE and should_respond and message_text:
-            # Отправляем "печатает" статус
-            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-            
-            # Проверяем пол для комплиментов
-            is_female = await check_is_female_by_ai(user_name)
-            
-            # Определяем тип сообщения для медиа (стикер/гифка)
-            media_type = detect_message_type_for_media(message_text)
-            
-            # Получаем ИИ ответ
-            ai_reply = await generate_ai_response(message_text, user_name, is_female)
-            
-            # Рандомно добавляем медиа (20% шанс)
-            sticker = None
-            gif = None
-            if random.random() < 0.2:
-                if random.random() < 0.5:
-                    sticker = get_sticker_for_context(message_text, media_type, is_female)
-                else:
-                    gif = get_gif_for_context(message_text, media_type, is_female)
-            
-            # Отправляем ответ
-            await send_toxic_response(context, update.effective_chat.id, text=ai_reply, sticker=sticker, gif=gif)
-            return
-        
-        # === ПРОВЕРКА ВОЗВРАЩЕНЦА ===
-        moscow_now = datetime.now(MOSCOW_TZ)
-        today = moscow_now.strftime("%Y-%m-%d")
-        
-        if user_id in user_last_active:
-            last_active_date = user_last_active[user_id]
-            
-            # Проверяем, прошло ли 5+ дней с последнего сообщения
+            # Отправляем ответ на доброе утро с упоминанием
             try:
-                last_date_obj = datetime.strptime(last_active_date, "%Y-%m-%d")
-                days_since = (moscow_now.date() - last_date_obj.date()).days
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"{user_mention} 💫 **{morning_text}**",
+                    parse_mode="Markdown",
+                )
+                logger.info(f"[MORNING] Ответ на доброе утро отправлен для {user_name}")
+                return  # Выходим после отправки ответа на утро
+            except Exception as e:
+                logger.error(f"[MORNING] Ошибка отправки: {e}")
+    
+            # === АВТОМАТИЧЕСКИЙ ФЛИРТ С ДЕВУШКАМИ (НА ОБЫЧНЫЕ СООБЩЕНИЯ) ===
+            # Проверяем, является ли пользователь девушкой через ИИ
+            now = datetime.now(MOSCOW_TZ)
+            current_time = now.timestamp()
+    
+            # Проверяем кулдаун для этого пользователя
+            last_flirt_time = girl_flirt_cache.get(user_id, 0)
+            time_since_last = current_time - last_flirt_time
+            logger.info(f"[FLIRT] Проверка для {user_name}, кулдаун: {time_since_last:.0f}/{FLIRT_COOLDOWN} сек")
+    
+            if time_since_last >= FLIRT_COOLDOWN:
+                logger.info(f"[FLIRT] Кулдаун прошёл, проверяем пол через ИИ: {user_name}")
                 
-                if days_since >= 5:
-                    # Пользователь вернулся после 5+ дней молчания
-                    return_greeting = random.choice(RETURN_GREETINGS)
-                    
-                    # Пытаемся отправить приветствие
+                # Проверяем через ИИ, девушка ли это (с таймаутом)
+                try:
+                    is_female = await asyncio.wait_for(
+                        check_is_female_by_ai(user_name),
+                        timeout=3.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[FLIRT] Таймаут определения пола для {user_name}")
+                    is_female = False
+                except Exception as e:
+                    logger.error(f"[FLIRT] Ошибка определения пола: {e}")
+                    is_female = False
+                
+                logger.info(f"[FLIRT] Результат для {user_name}: is_female={is_female}")
+    
+                if is_female:
+                    # Это девушка! Отправляем комплимент на обычное сообщение
+                    girl_flirt_cache[user_id] = current_time
+    
+                    # Отвечаем на обычное сообщение
+                    flirt_text = get_random_chat_flirt()
+                    logger.info(f"[FLIRT] {user_name} написала сообщение (определено ИИ), отвечаем флиртом")
+    
+                    # Отправляем флирт
                     try:
                         await context.bot.send_message(
-                            chat_id=CHAT_ID,
-                            text=f"{user_name} {return_greeting}",
+                            chat_id=update.effective_chat.id,
+                            text=f"💫 **{flirt_text}**",
+                            parse_mode="Markdown",
                         )
-                        logger.info(f"[RETURN] Приветствие возвращенца отправлено: {user_name}, отсутствовал {days_since} дней")
+                        logger.info(f"[FLIRT] Флирт отправлен для {user_name}")
                     except Exception as e:
-                        logger.error(f"[RETURN] Ошибка отправки приветствия: {e}")
-            except Exception as e:
-                logger.error(f"[RETURN] Ошибка расчёта дней: {e}")
-        
-        # Обновляем дату последней активности
-        user_last_active[user_id] = today
-        
-        # Сохраняем активность в канал
-        await save_user_active_stats()
-        
-        # === АНОНИМНАЯ ОТПРАВКА ===
-        if user_id in user_anon_state:
-            state = user_anon_state[user_id]
-            
-            if state == "waiting_for_text" and message_text:
-                # Анонимный текст
-                import re
-                match = re.match(r'^@(\w+)\s+(.+)', message_text)
-                if match:
-                    anon_text = f"📬 **Анонимное сообщение для @{match.group(1)}:**\n\n{match.group(2)}"
+                        logger.error(f"[FLIRT] Ошибка отправки флирта: {e}")
                 else:
-                    anon_text = f"📬 **Анонимное сообщение:**\n\n{message_text}"
-                
-                try:
-                    await update.message.delete()
-                except:
-                    pass
-                
-                await context.bot.send_message(chat_id=CHAT_ID, text=anon_text, parse_mode="Markdown")
-                del user_anon_state[user_id]
-                logger.info(f"[ANON] Анонимное сообщение от {user_name}")
-                return
-            
-            elif state == "waiting_for_photo" and is_photo:
-                photo = update.message.photo[-1]
-                try:
-                    await update.message.delete()
-                except:
-                    pass
-                
-                await context.bot.send_photo(chat_id=CHAT_ID, photo=photo.file_id, caption="📬 **Анонимное фото**", parse_mode="Markdown")
-                del user_anon_state[user_id]
-                logger.info(f"[ANON] Анонимное фото от {user_name}")
-                return
-            
+                    logger.info(f"[FLIRT] {user_name} определён как не-девушка, пропускаем")
             else:
-                del user_anon_state[user_id]
-                logger.info(f"[ANON] Состояние очищено для {user_name}")
-        
-        # === ПРОВЕРКА ОТВЕТОВ НА /MAM ===
-        if mam_message_id is not None and update.message.reply_to_message:
-            if update.message.reply_to_message.message_id == mam_message_id:
-                # Кто-то ответил на сообщение "/mam" - отправляем фото
-                logger.info(f"[MAM] Обнаружен ответ на сообщение /mam от {user_name}")
-                try:
-                    with open(MAM_PHOTO_PATH, 'rb') as photo_file:
-                        await context.bot.send_photo(
-                            chat_id=CHAT_ID,
-                            photo=photo_file,
-                        )
-                    logger.info(f"[MAM] Фото отправлено")
-                except Exception as e:
-                    logger.error(f"[MAM] Ошибка отправки фото: {e}")
-                # Сбрасываем mam_message_id чтобы не реагировать на повторные ответы
-                mam_message_id = None
-        
-        # === ОТВЕТ НА "СПОКОЙНОЙ НОЧИ" / "ДОБРОЙ НОЧИ" ===
-        good_night_keywords = [
-            # С "й"
-            'спокойной ночи', 'спокойной ночи!', 'спокойной ночи всем', 'всем спокойной ночи',
-            # Без "й" (распространённая ошибка)
-            'спокойно ночи', 'спокойно ночи!', 'спокойно ночи всем', 'всем спокойно ночи',
-            # Добрая ночь
-            'доброй ночи', 'доброй ночи!', 'доброй ночи всем', 'всем доброй ночи',
-            # Английские
-            'good night', 'good night!', 'good night!', 'gn',
-            # Короткие
-            'спок', 'спок!', 'gn!',
-        ]
-        
-        if any(keyword in check_text for keyword in good_night_keywords):
-            good_night_responses = [
-                f"🌙 {user_name}, спокойной ночи! 🌟",
-                f"💤 {user_name}, сладких снов! 💫",
-                f"🌙 {user_name}, пусть тебе приснятся звёзды! ✨",
-                f"💫 {user_name}, доброй ночи! 🌙",
-                f"🌟 {user_name}, спокойной ночи! Пусть ночь подарит тебе отдых! 💤",
-                f"🌙 {user_name}, сладких снов! Завтра будет новый день! ☀️",
-                f"💤 {user_name}, отличной ночи! 🌙",
-                f"✨ {user_name}, спокойной ночи! Пусть сон будет крепким! 💫",
-                f"🌙 {user_name}, доброй ночи! Мечтай о хорошем! 💭",
-                f"💫 {user_name}, спокойной ночи! Утро будет радостным! ☀️",
-                f"🌟 {user_name}, сладких снов! Ты молодец сегодня! 💪",
-                f"💤 {user_name}, спокойной ночи! Завтра всё будет хорошо! 🌈",
-                f"🌙 {user_name}, доброй ночи! Отдыхай! ✨",
-                f"💫 {user_name}, спокойной ночи! Луна присмотрит за тобой! 🌙",
-                f"🌟 {user_name}, сладких снов! До завтра! 💤",
-            ]
-            response = random.choice(good_night_responses)
-            await context.bot.send_message(chat_id=CHAT_ID, text=response)
-            logger.info(f"[GOODNIGHT] Ответил на спокойную ночь от {user_name}")
-            # Не делаем return, чтобы статистика тоже считалась
-
-        # === СТАТИСТИКА ===
-        
-        # Считаем дату по Москве
-        moscow_now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
-        today = moscow_now.strftime("%Y-%m-%d")
-        
-        # Безопасная инициализация daily_stats
-        if not isinstance(daily_stats, dict) or "date" not in daily_stats:
-            daily_stats = {"date": today, "total_messages": 0, "user_messages": {}, "photos": [], "first_photo_user_id": None, "first_photo_user_name": None}
-            logger.info("[MSG] daily_stats переинициализирован")
-        
-        logger.info(f"[MSG] today={today}, daily_stats_date={daily_stats.get('date', 'EMPTY')}")
-        
-        # НЕ сбрасываем daily_stats - данные восстановлены из канала
-        # if daily_stats.get("date", "") != today:
-        #     daily_stats["date"] = today
-        #     daily_stats["total_messages"] = 0
-        #     daily_stats["user_messages"] = {}
-        #     daily_stats["photos"] = []
-        #     daily_stats["first_photo_user_id"] = None
-        #     daily_stats["first_photo_user_name"] = None
-        #     logger.info("[MSG] Новый день - статистика сброшена")
-        #     logger.info(f"[MSG] Новый день! Сброшена статистика")
-        
-        # Увеличиваем счётчик
-        daily_stats["total_messages"] += 1
-        current_count = daily_stats["total_messages"]
-        logger.info(f"[MSG] Сообщение #{current_count} от {user_name}")
-        
-        if user_id not in daily_stats["user_messages"]:
-            # Экранируем спецсимволы Markdown в имени при сохранении
-            safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
-            daily_stats["user_messages"][user_id] = {"name": safe_name, "count": 0}
-        daily_stats["user_messages"][user_id]["count"] += 1
-
-        if is_photo:
-            photo = update.message.photo[-1]
-            # Экранируем имя пользователя для Markdown
-            safe_photo_user_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
-            daily_stats["photos"].append({
-                "file_id": photo.file_id,
-                "user_id": user_id,
-                "message_id": update.message.message_id,
-                "likes": 0,  # Инициализируем лайки
-                "user_name": safe_photo_user_name  # Сохраняем имя автора (экранировано)
-            })
-            # Запоминаем первого автора фото (для двойных баллов)
-            if daily_stats.get("first_photo_user_id") is None:
-                daily_stats["first_photo_user_id"] = user_id
-                # Экранируем имя для Markdown
-                safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
-                daily_stats["first_photo_user_name"] = safe_name
-        
-        # Сохраняем ежедневную статистику в канал
-        await save_daily_stats()
-        
-        # === СОХРАНЕНИЕ В ИСТОРИЮ ЧАТА (СКРЫТО) ===
-        try:
-            # Добавляем сообщение в историю
-            message_entry = {
-                "id": update.message.message_id,
-                "user_id": user_id,
-                "user_name": user_name,
-                "text": message_text[:500] if message_text else "",  # Ограничиваем длину текста
-                "timestamp": moscow_now.isoformat(),
-                "type": message_type,
-                "has_photo": is_photo,
-                "photo_count": len(update.message.photo) if is_photo else 0,
-                "has_video": is_video,
-                "has_voice": is_voice,
-                "has_document": is_document,
-                "reply_to_message_id": update.message.reply_to_message.message_id if update.message.reply_to_message else None,
-                "chat_id": CHAT_ID
-            }
-            chat_history["messages"].append(message_entry)
-            
-            # Если есть фото - сохраняем отдельно
-            if is_photo:
-                for photo in update.message.photo:
-                    photo_entry = {
-                        "file_id": photo.file_id,
-                        "user_id": user_id,
-                        "user_name": user_name,
-                        "timestamp": moscow_now.isoformat(),
-                        "message_id": update.message.message_id,
-                        "file_unique_id": photo.file_unique_id,
-                        "width": photo.width,
-                        "height": photo.height,
-                        "file_size": photo.file_size
-                    }
-                    chat_history["photos"].append(photo_entry)
-            
-            # Обновляем время последнего обновления
-            chat_history["last_updated"] = moscow_now.isoformat()
-            
-            logger.info(f"[HISTORY] Сохранено сообщение от {user_name} (всего в истории: {len(chat_history['messages'])} сообщений)")
-        except Exception as e:
-            logger.error(f"[HISTORY] Ошибка сохранения в историю: {e}")
-        
-        # Сохраняем историю в канал (асинхронно)
-        await save_chat_history()
-        
-        # === РЕЙТИНГ ===
-        if user_id not in user_rating_stats:
-            user_rating_stats[user_id] = {"name": user_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
-            user_current_level[user_id] = "Новичок"
-            logger.info(f"[MSG] Новый пользователь в рейтинге: {user_name}")
-        
-        old_msg_count = user_rating_stats[user_id]["messages"]
-        user_rating_stats[user_id]["messages"] += 1
-        new_msg_count = user_rating_stats[user_id]["messages"]
-        logger.info(f"[MSG] messages: {old_msg_count} -> {new_msg_count}")
-        
-        if is_photo:
-            user_rating_stats[user_id]["photos"] += 1
-        
-        # Сохраняем рейтинг в канал
-        await save_user_rating_stats()
-        
-        # Считаем общий рейтинг
-        stats = user_rating_stats[user_id]
-        total_points = (stats["messages"] // 300 + stats["photos"] // 10 + stats["likes"] // 50 + stats["replies"])
-        
-        logger.info(f"[MSG] Рейтинг {user_name}: {total_points} баллов ({stats['messages']}msg, {stats['photos']}photo)")
-        
-        # === НАЧИСЛЕНИЕ БАЛЛОВ ЗА "+" ===
-        reply_msg = update.message.reply_to_message
-        logger.info(f"[PLUS] Проверка: reply_msg={reply_msg is not None}, text='{message_text}'")
-        
-        if reply_msg is not None:
-            logger.info(f"[PLUS] reply_msg.from_user={reply_msg.from_user}")
-            
-            if reply_msg.from_user is not None:
-                original_id = reply_msg.from_user.id
-                is_not_self = original_id != user_id
-                is_plus = message_text.strip() == "+"
-                
-                logger.info(f"[PLUS] original_id={original_id}, user_id={user_id}, is_not_self={is_not_self}, is_plus={is_plus}")
-                
-                if is_not_self and is_plus:
-                    original_name = f"@{reply_msg.from_user.username}" if reply_msg.from_user.username else reply_msg.from_user.full_name
-                    
-                    if original_id not in user_rating_stats:
-                        user_rating_stats[original_id] = {"name": original_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
-                        user_current_level[original_id] = "Новичок"
-                    
-                    user_rating_stats[original_id]["replies"] += 1
-                    
-                    # Сохраняем рейтинг в канал
-                    await save_user_rating_stats()
-                    
-                    orig_stats = user_rating_stats[original_id]
-                    new_total = (orig_stats["messages"] // 300 + orig_stats["photos"] // 10 + orig_stats["likes"] // 50 + orig_stats["replies"])
-                    
-                    await send_point_notification(original_name, 1, "ответ", new_total)
-                    logger.info(f"[PLUS] ✅ {user_name} дал(+) {original_name}. Всего: {new_total}")
-                else:
-                    if not is_not_self:
-                        logger.info(f"[PLUS] ❌ Это ответ на свое сообщение")
-                    if not is_plus:
-                        logger.info(f"[PLUS] ❌ Текст не равен '+' (текст='{message_text}', stripped='{message_text.strip()}')")
-        
-        # === НОЧНОЙ РЕЖИМ ===
-        utc_now = datetime.utcnow()
-        utc_hour = utc_now.hour
-        moscow_hour = (utc_hour + UTC_OFFSET) % 24
-        
-        logger.info(f"[NIGHT] Проверка: UTC={utc_hour}, Moscow={moscow_hour}, is_night={(moscow_hour >= 22 or moscow_hour < 8)}")
-        
-        if moscow_hour >= 22 or moscow_hour < 8:
-            # Инициализируем если нет
-            if user_id not in user_night_messages:
-                user_night_messages[user_id] = 0
-            if user_id not in user_night_warning_sent:
-                user_night_warning_sent[user_id] = None
-            
-            # Сбрасываем только если сегодня ещё не отправляли
-            if user_night_warning_sent.get(user_id) != today:
-                user_night_messages[user_id] = 0
-                user_night_warning_sent[user_id] = today
-            
-            user_night_messages[user_id] += 1
-            night_count = user_night_messages[user_id]
-            logger.info(f"[NIGHT] 🔥 {user_name}: {night_count}/10 ночных сообщений")
-            
-            if night_count == 10:
-                warning = random.choice(NIGHT_WARNINGS)
-                await context.bot.send_message(chat_id=CHAT_ID, text=warning)
-                user_night_warning_sent[user_id] = today
-                logger.info(f"[NIGHT] ⛔ ПРЕДУПРЕЖДЕНИЕ ОТПРАВЛЕНО {user_name}")
-        else:
-            logger.info(f"[NIGHT] ☀️ День - ночной режим не активен (Москва {moscow_hour}:00)")
-
-        # === AI КОНВЕРСАЦИЯ - бот общается как персонаж ===
-        # Отвечаем на сообщения через ИИ (если есть текст и это не команда)
-        if message_text and len(message_text.strip()) >= 2 and not message_text.startswith('/'):
-            try:
-                # Проверяем, не было ли уже ответа (чтобы не отвечать на свой ответ)
-                # Генерируем ответ через локальный ИИ
-                ai_response = await generate_ai_response(message_text, "", user_name)
-                
-                if ai_response and len(ai_response.strip()) >= 2:
-                    # Отправляем ответ в чат
-                    await context.bot.send_message(
-                        chat_id=CHAT_ID,
-                        text=ai_response,
-                        reply_to_message_id=update.message.message_id
-                    )
-                    logger.info(f"[AI-CHAT] 🤖 Ответ боту-персонажу от {user_name}: '{ai_response[:50]}...'")
-            except Exception as ai_error:
-                logger.error(f"[AI-CHAT] Ошибка ИИ-ответа: {ai_error}")
-
-        logger.info(f"[MSG] === КОНЕЦ обработки {user_name} ===")
+                logger.info(f"[FLIRT] Кулдаун не прошёл для {user_name}, пропускаем")
     
+            # === ПРОВЕРКА: ОБРАЩЕНИЕ К БОТУ ЧЕРЕЗ @НИК В ЧАТЕ ===
+            # Получаем информацию о боте для упоминания в чате
+            bot_username = context.bot.username.lower() if hasattr(context.bot, 'username') else ""
+            logger.info(f"[DEBUG] Бот username: @{bot_username}")
+            user_mentioned = False
+            
+            # Проверяем, упомянут ли бот через @username
+            if bot_username and message_text:
+                if f"@{bot_username}" in message_text.lower():
+                    user_mentioned = True
+                    logger.info(f"[AI] 📢 {user_name} обратился к боту в чате: '{message_text[:50]}...'")
+            
+            # === AI ОТВЕТ: ЛОГИКА ДЛЯ ЧАТА ===
+            should_respond = False
+            bot_message_text = ""
+            
+            if user_mentioned:
+                should_respond = True
+                # Если обращение напрямую, убираем @бота из текста
+                bot_message_text = re.sub(f'@{bot_username}', '', message_text, flags=re.IGNORECASE).strip()
+                if not bot_message_text:
+                    bot_message_text = "пользователь поздоровался"
+            
+            # Проверяем ответ на сообщение бота
+            elif update.message.reply_to_message:
+                original_message = update.message.reply_to_message
+                if original_message.from_user and original_message.from_user.id == (context.bot.id if hasattr(context.bot, 'id') else None):
+                    if original_message.from_user.is_bot:
+                        should_respond = True
+                        logger.info(f"[AI] {user_name} ответил на сообщение бота: '{message_text[:30]}...'")
+                        bot_message_text = original_message.text or original_message.caption or "сообщение бота"
+            
+            # === ПРОВЕРКА: ДЕВУШКА? ДАЁМ РЕДКИЙ КОМПЛИМЕНТ (без закрепления!) ===
+            # Проверяем, является ли пользователь девушкой
+            user_username = user.username or ""
+            user_fullname = user.full_name or ""
+            if is_female_user(user_username, user_fullname):
+                # ОЧЕНЬ низкий шанс (5%) - только на реально крутые сообщения
+                if random.random() < 0.05:
+                    compliment = random.choice(FEMALE_COMPLIMENTS).format(user_name=user_name)
+                    try:
+                        # Отправляем БЕЗ закрепления!
+                        sent = await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=compliment
+                        )
+                        logger.info(f"[FEMALE] Комплимент отправлен (не закреплён): {user_name}")
+                    except Exception as e:
+                        logger.error(f"[FEMALE] Ошибка отправки комплимента: {e}")
+            
+            # === САМОДЕЯТЕЛЬНОСТЬ: БОТ ПРАКТИЧЕСКИ НЕ ОТВЕЧАЕТ САМ ===
+            # Только если @упоминание или ответ на сообщение бота
+            if not should_respond and message_text and len(message_text) > 20:
+                # Только реальные сложные вопросы (не простые "как дела?")
+                complex_keywords = ["подскажи", "объясни", "рекомендуй", "посоветуй", "как правильно", "что делать", "помоги"]
+                is_complex_question = "?" in message_text and any(kw in message_text.lower() for kw in complex_keywords)
+                
+                # Только ОЧЕНЬ сильные эмоции
+                very_strong_emotions = ["пиздец", "вааау", "оооо боже", "шок", "ужас", "невероятно", "вауууу"]
+                has_very_strong = any(kw in message_text.lower() for kw in very_strong_emotions)
+                
+                # КРОШЕЧНЫЙ шанс: 1% для сложных вопросов, 0.3% для эмоций, 0.05% для обычных
+                chance = 0.01 if is_complex_question else (0.003 if has_very_strong else 0.0005)
+                
+                if random.random() < chance:
+                    should_respond = True
+                    bot_message_text = "интересное сообщение в чате"
+                    logger.info(f"[AUTO] Bot decides to respond (chance {chance*100:.2f}%)")
+            
+            # Если есть повод ответить — обрабатываем
+            logger.info(f"[DEBUG] YANDEX_AVAILABLE={YANDEX_AVAILABLE}, should_respond={should_respond}")
+            if YANDEX_AVAILABLE and should_respond and message_text:
+                # Отправляем "печатает" статус
+                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+                
+                # Проверяем пол для комплиментов
+                is_female = await check_is_female_by_ai(user_name)
+                
+                # Определяем тип сообщения для медиа (стикер/гифка)
+                media_type = detect_message_type_for_media(message_text)
+                
+                # Получаем ИИ ответ
+                ai_reply = await generate_ai_response(message_text, user_name, is_female)
+                
+                # Рандомно добавляем медиа (20% шанс)
+                sticker = None
+                gif = None
+                if random.random() < 0.2:
+                    if random.random() < 0.5:
+                        sticker = get_sticker_for_context(message_text, media_type, is_female)
+                    else:
+                        gif = get_gif_for_context(message_text, media_type, is_female)
+                
+                # Отправляем ответ
+                await send_toxic_response(context, update.effective_chat.id, text=ai_reply, sticker=sticker, gif=gif)
+                return
+            
+            # === ПРОВЕРКА ВОЗВРАЩЕНЦА ===
+            moscow_now = datetime.now(MOSCOW_TZ)
+            today = moscow_now.strftime("%Y-%m-%d")
+            
+            if user_id in user_last_active:
+                last_active_date = user_last_active[user_id]
+                
+                # Проверяем, прошло ли 5+ дней с последнего сообщения
+                try:
+                    last_date_obj = datetime.strptime(last_active_date, "%Y-%m-%d")
+                    days_since = (moscow_now.date() - last_date_obj.date()).days
+                    
+                    if days_since >= 5:
+                        # Пользователь вернулся после 5+ дней молчания
+                        return_greeting = random.choice(RETURN_GREETINGS)
+                        
+                        # Пытаемся отправить приветствие
+                        try:
+                            await context.bot.send_message(
+                                chat_id=CHAT_ID,
+                                text=f"{user_name} {return_greeting}",
+                            )
+                            logger.info(f"[RETURN] Приветствие возвращенца отправлено: {user_name}, отсутствовал {days_since} дней")
+                        except Exception as e:
+                            logger.error(f"[RETURN] Ошибка отправки приветствия: {e}")
+                except Exception as e:
+                    logger.error(f"[RETURN] Ошибка расчёта дней: {e}")
+            
+            # Обновляем дату последней активности
+            user_last_active[user_id] = today
+            
+            # Сохраняем активность в канал
+            await save_user_active_stats()
+            
+            # === АНОНИМНАЯ ОТПРАВКА ===
+            if user_id in user_anon_state:
+                state = user_anon_state[user_id]
+                
+                if state == "waiting_for_text" and message_text:
+                    # Анонимный текст
+                    import re
+                    match = re.match(r'^@(\w+)\s+(.+)', message_text)
+                    if match:
+                        anon_text = f"📬 **Анонимное сообщение для @{match.group(1)}:**\n\n{match.group(2)}"
+                    else:
+                        anon_text = f"📬 **Анонимное сообщение:**\n\n{message_text}"
+                    
+                    try:
+                        await update.message.delete()
+                    except:
+                        pass
+                    
+                    await context.bot.send_message(chat_id=CHAT_ID, text=anon_text, parse_mode="Markdown")
+                    del user_anon_state[user_id]
+                    logger.info(f"[ANON] Анонимное сообщение от {user_name}")
+                    return
+                
+                elif state == "waiting_for_photo" and is_photo:
+                    photo = update.message.photo[-1]
+                    try:
+                        await update.message.delete()
+                    except:
+                        pass
+                    
+                    await context.bot.send_photo(chat_id=CHAT_ID, photo=photo.file_id, caption="📬 **Анонимное фото**", parse_mode="Markdown")
+                    del user_anon_state[user_id]
+                    logger.info(f"[ANON] Анонимное фото от {user_name}")
+                    return
+                
+                else:
+                    del user_anon_state[user_id]
+                    logger.info(f"[ANON] Состояние очищено для {user_name}")
+            
+            # === ПРОВЕРКА ОТВЕТОВ НА /MAM ===
+            if mam_message_id is not None and update.message.reply_to_message:
+                if update.message.reply_to_message.message_id == mam_message_id:
+                    # Кто-то ответил на сообщение "/mam" - отправляем фото
+                    logger.info(f"[MAM] Обнаружен ответ на сообщение /mam от {user_name}")
+                    try:
+                        with open(MAM_PHOTO_PATH, 'rb') as photo_file:
+                            await context.bot.send_photo(
+                                chat_id=CHAT_ID,
+                                photo=photo_file,
+                            )
+                        logger.info(f"[MAM] Фото отправлено")
+                    except Exception as e:
+                        logger.error(f"[MAM] Ошибка отправки фото: {e}")
+                    # Сбрасываем mam_message_id чтобы не реагировать на повторные ответы
+                    mam_message_id = None
+            
+            # === ОТВЕТ НА "СПОКОЙНОЙ НОЧИ" / "ДОБРОЙ НОЧИ" ===
+            good_night_keywords = [
+                # С "й"
+                'спокойной ночи', 'спокойной ночи!', 'спокойной ночи всем', 'всем спокойной ночи',
+                # Без "й" (распространённая ошибка)
+                'спокойно ночи', 'спокойно ночи!', 'спокойно ночи всем', 'всем спокойно ночи',
+                # Добрая ночь
+                'доброй ночи', 'доброй ночи!', 'доброй ночи всем', 'всем доброй ночи',
+                # Английские
+                'good night', 'good night!', 'good night!', 'gn',
+                # Короткие
+                'спок', 'спок!', 'gn!',
+            ]
+            
+            if any(keyword in check_text for keyword in good_night_keywords):
+                good_night_responses = [
+                    f"🌙 {user_name}, спокойной ночи! 🌟",
+                    f"💤 {user_name}, сладких снов! 💫",
+                    f"🌙 {user_name}, пусть тебе приснятся звёзды! ✨",
+                    f"💫 {user_name}, доброй ночи! 🌙",
+                    f"🌟 {user_name}, спокойной ночи! Пусть ночь подарит тебе отдых! 💤",
+                    f"🌙 {user_name}, сладких снов! Завтра будет новый день! ☀️",
+                    f"💤 {user_name}, отличной ночи! 🌙",
+                    f"✨ {user_name}, спокойной ночи! Пусть сон будет крепким! 💫",
+                    f"🌙 {user_name}, доброй ночи! Мечтай о хорошем! 💭",
+                    f"💫 {user_name}, спокойной ночи! Утро будет радостным! ☀️",
+                    f"🌟 {user_name}, сладких снов! Ты молодец сегодня! 💪",
+                    f"💤 {user_name}, спокойной ночи! Завтра всё будет хорошо! 🌈",
+                    f"🌙 {user_name}, доброй ночи! Отдыхай! ✨",
+                    f"💫 {user_name}, спокойной ночи! Луна присмотрит за тобой! 🌙",
+                    f"🌟 {user_name}, сладких снов! До завтра! 💤",
+                ]
+                response = random.choice(good_night_responses)
+                await context.bot.send_message(chat_id=CHAT_ID, text=response)
+                logger.info(f"[GOODNIGHT] Ответил на спокойную ночь от {user_name}")
+                # Не делаем return, чтобы статистика тоже считалась
+    
+            # === СТАТИСТИКА ===
+            
+            # Считаем дату по Москве
+            moscow_now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
+            today = moscow_now.strftime("%Y-%m-%d")
+            
+            # Безопасная инициализация daily_stats
+            if not isinstance(daily_stats, dict) or "date" not in daily_stats:
+                daily_stats = {"date": today, "total_messages": 0, "user_messages": {}, "photos": [], "first_photo_user_id": None, "first_photo_user_name": None}
+                logger.info("[MSG] daily_stats переинициализирован")
+            
+            logger.info(f"[MSG] today={today}, daily_stats_date={daily_stats.get('date', 'EMPTY')}")
+            
+            # НЕ сбрасываем daily_stats - данные восстановлены из канала
+            # if daily_stats.get("date", "") != today:
+            #     daily_stats["date"] = today
+            #     daily_stats["total_messages"] = 0
+            #     daily_stats["user_messages"] = {}
+            #     daily_stats["photos"] = []
+            #     daily_stats["first_photo_user_id"] = None
+            #     daily_stats["first_photo_user_name"] = None
+            #     logger.info("[MSG] Новый день - статистика сброшена")
+            #     logger.info(f"[MSG] Новый день! Сброшена статистика")
+            
+            # Увеличиваем счётчик
+            daily_stats["total_messages"] += 1
+            current_count = daily_stats["total_messages"]
+            logger.info(f"[MSG] Сообщение #{current_count} от {user_name}")
+            
+            if user_id not in daily_stats["user_messages"]:
+                # Экранируем спецсимволы Markdown в имени при сохранении
+                safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+                daily_stats["user_messages"][user_id] = {"name": safe_name, "count": 0}
+            daily_stats["user_messages"][user_id]["count"] += 1
+    
+            if is_photo:
+                photo = update.message.photo[-1]
+                # Экранируем имя пользователя для Markdown
+                safe_photo_user_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+                daily_stats["photos"].append({
+                    "file_id": photo.file_id,
+                    "user_id": user_id,
+                    "message_id": update.message.message_id,
+                    "likes": 0,  # Инициализируем лайки
+                    "user_name": safe_photo_user_name  # Сохраняем имя автора (экранировано)
+                })
+                # Запоминаем первого автора фото (для двойных баллов)
+                if daily_stats.get("first_photo_user_id") is None:
+                    daily_stats["first_photo_user_id"] = user_id
+                    # Экранируем имя для Markdown
+                    safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+                    daily_stats["first_photo_user_name"] = safe_name
+            
+            # Сохраняем ежедневную статистику в канал
+            await save_daily_stats()
+            
+            # === СОХРАНЕНИЕ В ИСТОРИЮ ЧАТА (СКРЫТО) ===
+            try:
+                # Добавляем сообщение в историю
+                message_entry = {
+                    "id": update.message.message_id,
+                    "user_id": user_id,
+                    "user_name": user_name,
+                    "text": message_text[:500] if message_text else "",  # Ограничиваем длину текста
+                    "timestamp": moscow_now.isoformat(),
+                    "type": message_type,
+                    "has_photo": is_photo,
+                    "photo_count": len(update.message.photo) if is_photo else 0,
+                    "has_video": is_video,
+                    "has_voice": is_voice,
+                    "has_document": is_document,
+                    "reply_to_message_id": update.message.reply_to_message.message_id if update.message.reply_to_message else None,
+                    "chat_id": CHAT_ID
+                }
+                chat_history["messages"].append(message_entry)
+                
+                # Если есть фото - сохраняем отдельно
+                if is_photo:
+                    for photo in update.message.photo:
+                        photo_entry = {
+                            "file_id": photo.file_id,
+                            "user_id": user_id,
+                            "user_name": user_name,
+                            "timestamp": moscow_now.isoformat(),
+                            "message_id": update.message.message_id,
+                            "file_unique_id": photo.file_unique_id,
+                            "width": photo.width,
+                            "height": photo.height,
+                            "file_size": photo.file_size
+                        }
+                        chat_history["photos"].append(photo_entry)
+                
+                # Обновляем время последнего обновления
+                chat_history["last_updated"] = moscow_now.isoformat()
+                
+                logger.info(f"[HISTORY] Сохранено сообщение от {user_name} (всего в истории: {len(chat_history['messages'])} сообщений)")
+            except Exception as e:
+                logger.error(f"[HISTORY] Ошибка сохранения в историю: {e}")
+            
+            # Сохраняем историю в канал (асинхронно)
+            await save_chat_history()
+            
+            # === РЕЙТИНГ ===
+            if user_id not in user_rating_stats:
+                user_rating_stats[user_id] = {"name": user_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
+                user_current_level[user_id] = "Новичок"
+                logger.info(f"[MSG] Новый пользователь в рейтинге: {user_name}")
+            
+            old_msg_count = user_rating_stats[user_id]["messages"]
+            user_rating_stats[user_id]["messages"] += 1
+            new_msg_count = user_rating_stats[user_id]["messages"]
+            logger.info(f"[MSG] messages: {old_msg_count} -> {new_msg_count}")
+            
+            if is_photo:
+                user_rating_stats[user_id]["photos"] += 1
+            
+            # Сохраняем рейтинг в канал
+            await save_user_rating_stats()
+            
+            # Считаем общий рейтинг
+            stats = user_rating_stats[user_id]
+            total_points = (stats["messages"] // 300 + stats["photos"] // 10 + stats["likes"] // 50 + stats["replies"])
+            
+            logger.info(f"[MSG] Рейтинг {user_name}: {total_points} баллов ({stats['messages']}msg, {stats['photos']}photo)")
+            
+            # === НАЧИСЛЕНИЕ БАЛЛОВ ЗА "+" ===
+            reply_msg = update.message.reply_to_message
+            logger.info(f"[PLUS] Проверка: reply_msg={reply_msg is not None}, text='{message_text}'")
+            
+            if reply_msg is not None:
+                logger.info(f"[PLUS] reply_msg.from_user={reply_msg.from_user}")
+                
+                if reply_msg.from_user is not None:
+                    original_id = reply_msg.from_user.id
+                    is_not_self = original_id != user_id
+                    is_plus = message_text.strip() == "+"
+                    
+                    logger.info(f"[PLUS] original_id={original_id}, user_id={user_id}, is_not_self={is_not_self}, is_plus={is_plus}")
+                    
+                    if is_not_self and is_plus:
+                        original_name = f"@{reply_msg.from_user.username}" if reply_msg.from_user.username else reply_msg.from_user.full_name
+                        
+                        if original_id not in user_rating_stats:
+                            user_rating_stats[original_id] = {"name": original_name, "messages": 0, "photos": 0, "likes": 0, "replies": 0}
+                            user_current_level[original_id] = "Новичок"
+                        
+                        user_rating_stats[original_id]["replies"] += 1
+                        
+                        # Сохраняем рейтинг в канал
+                        await save_user_rating_stats()
+                        
+                        orig_stats = user_rating_stats[original_id]
+                        new_total = (orig_stats["messages"] // 300 + orig_stats["photos"] // 10 + orig_stats["likes"] // 50 + orig_stats["replies"])
+                        
+                        await send_point_notification(original_name, 1, "ответ", new_total)
+                        logger.info(f"[PLUS] ✅ {user_name} дал(+) {original_name}. Всего: {new_total}")
+                    else:
+                        if not is_not_self:
+                            logger.info(f"[PLUS] ❌ Это ответ на свое сообщение")
+                        if not is_plus:
+                            logger.info(f"[PLUS] ❌ Текст не равен '+' (текст='{message_text}', stripped='{message_text.strip()}')")
+            
+            # === НОЧНОЙ РЕЖИМ ===
+            utc_now = datetime.utcnow()
+            utc_hour = utc_now.hour
+            moscow_hour = (utc_hour + UTC_OFFSET) % 24
+            
+            logger.info(f"[NIGHT] Проверка: UTC={utc_hour}, Moscow={moscow_hour}, is_night={(moscow_hour >= 22 or moscow_hour < 8)}")
+            
+            if moscow_hour >= 22 or moscow_hour < 8:
+                # Инициализируем если нет
+                if user_id not in user_night_messages:
+                    user_night_messages[user_id] = 0
+                if user_id not in user_night_warning_sent:
+                    user_night_warning_sent[user_id] = None
+                
+                # Сбрасываем только если сегодня ещё не отправляли
+                if user_night_warning_sent.get(user_id) != today:
+                    user_night_messages[user_id] = 0
+                    user_night_warning_sent[user_id] = today
+                
+                user_night_messages[user_id] += 1
+                night_count = user_night_messages[user_id]
+                logger.info(f"[NIGHT] 🔥 {user_name}: {night_count}/10 ночных сообщений")
+                
+                if night_count == 10:
+                    warning = random.choice(NIGHT_WARNINGS)
+                    await context.bot.send_message(chat_id=CHAT_ID, text=warning)
+                    user_night_warning_sent[user_id] = today
+                    logger.info(f"[NIGHT] ⛔ ПРЕДУПРЕЖДЕНИЕ ОТПРАВЛЕНО {user_name}")
+            else:
+                logger.info(f"[NIGHT] ☀️ День - ночной режим не активен (Москва {moscow_hour}:00)")
+    
+            # === AI КОНВЕРСАЦИЯ - бот общается как персонаж ===
+            # Отвечаем на сообщения через ИИ (если есть текст и это не команда)
+            if message_text and len(message_text.strip()) >= 2 and not message_text.startswith('/'):
+                try:
+                    # Проверяем, не было ли уже ответа (чтобы не отвечать на свой ответ)
+                    # Генерируем ответ через локальный ИИ
+                    ai_response = await generate_ai_response(message_text, "", user_name)
+                    
+                    if ai_response and len(ai_response.strip()) >= 2:
+                        # Отправляем ответ в чат
+                        await context.bot.send_message(
+                            chat_id=CHAT_ID,
+                            text=ai_response,
+                            reply_to_message_id=update.message.message_id
+                        )
+                        logger.info(f"[AI-CHAT] 🤖 Ответ боту-персонажу от {user_name}: '{ai_response[:50]}...'")
+                except Exception as ai_error:
+                    logger.error(f"[AI-CHAT] Ошибка ИИ-ответа: {ai_error}")
+    
+            logger.info(f"[MSG] === КОНЕЦ обработки {user_name} ===")
+        
     except Exception as e:
         logger.error(f"[MSG] 💥 КРИТИЧЕСКАЯ ОШИБКА: {e}", exc_info=True)
 
