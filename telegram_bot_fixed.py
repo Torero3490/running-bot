@@ -8045,172 +8045,172 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     # По умолчанию - обычное сообщение
     message_type = "default"
 
-        # Определяем тип сообщения для истории
-        check_text_lower = check_text.lower()
+    # Определяем тип сообщения для истории
+    check_text_lower = check_text.lower()
 
-        # Приветствия
-        greetings = ["привет", "здравствуй", "здорово", "добрый день", "добрый вечер", "доброе утро", "hello", "hi", "hey", "приветик", "приветствую", "йо"]
-        if any(word in check_text_lower for word in greetings):
-            message_type = "greeting"
+    # Приветствия
+    greetings = ["привет", "здравствуй", "здорово", "добрый день", "добрый вечер", "доброе утро", "hello", "hi", "hey", "приветик", "приветствую", "йо"]
+    if any(word in check_text_lower for word in greetings):
+        message_type = "greeting"
 
-        # Утро
-        morning_words = ["утро", "доброе утро", "утра", "проснулся", "проснулась", "встал", "встала", "утречка", "доброутро", "с утра"]
-        if any(word in check_text_lower for word in morning_words):
-            message_type = "morning"
+    # Утро
+    morning_words = ["утро", "доброе утро", "утра", "проснулся", "проснулась", "встал", "встала", "утречка", "доброутро", "с утра"]
+    if any(word in check_text_lower for word in morning_words):
+        message_type = "morning"
 
-        # Благодарности
-        thanks = ["спасибо", "благодарю", "мерси", "thx", "thanks", "благодарность", "пасиб", "сяп", "сэнк ю"]
-        if any(word in check_text_lower for word in thanks):
-            message_type = "thanks"
+    # Благодарности
+    thanks = ["спасибо", "благодарю", "мерси", "thx", "thanks", "благодарность", "пасиб", "сяп", "сэнк ю"]
+    if any(word in check_text_lower for word in thanks):
+        message_type = "thanks"
 
-        # Согласие
-        agreement = ["да", "согласен", "точно", "именно", "верно", "прав", "поддерживаю", "yes", "agreed", "угу", "ага"]
-        if any(word in check_text_lower for word in agreement):
-            message_type = "agreement"
+    # Согласие
+    agreement = ["да", "согласен", "точно", "именно", "верно", "прав", "поддерживаю", "yes", "agreed", "угу", "ага"]
+    if any(word in check_text_lower for word in agreement):
+        message_type = "agreement"
 
-        # Вопросы
-        questions = ["?", "как", "что", "почему", "зачем", "когда", "где", "кто", "сколько", "подскажи", "скажи", "объясни", "а это"]
-        if any(word in check_text_lower for word in questions) or "?" in message_text:
-            message_type = "question"
+    # Вопросы
+    questions = ["?", "как", "что", "почему", "зачем", "когда", "где", "кто", "сколько", "подскажи", "скажи", "объясни", "а это"]
+    if any(word in check_text_lower for word in questions) or "?" in message_text:
+        message_type = "question"
 
-        # Активность / спорт
-        running_words = ["активность", "активный", "спорт", "тренировка", "тренироваться", "тренируюсь", "заниматься", "занимаюсь", "фитнес", "йога", "кардио", "силовая", "упражнения", "пробежка", "бег", "бегать", "бегаю"]
-        if any(word in check_text_lower for word in running_words):
-            message_type = "running"
+    # Активность / спорт
+    running_words = ["активность", "активный", "спорт", "тренировка", "тренироваться", "тренируюсь", "заниматься", "занимаюсь", "фитнес", "йога", "кардио", "силовая", "упражнения", "пробежка", "бег", "бегать", "бегаю"]
+    if any(word in check_text_lower for word in running_words):
+        message_type = "running"
 
-        # Мотивация
-        motivation_words = ["сложно", "тяжело", "устал", "не могу", "лениво", "мотивация", "лень", "не хочу", "нет сил"]
-        if any(word in check_text_lower for word in motivation_words):
-            message_type = "motivation"
+    # Мотивация
+    motivation_words = ["сложно", "тяжело", "устал", "не могу", "лениво", "мотивация", "лень", "не хочу", "нет сил"]
+    if any(word in check_text_lower for word in motivation_words):
+        message_type = "motivation"
 
-        # Шутки
-        joke_words = ["хаха", "lol", "смешно", "прикол", "кринж", "ахах", "хех", "😂", "🤣", "хдх", "рофл", "шутка"]
-        if any(word in check_text_lower for word in joke_words):
-            message_type = "joke"
+    # Шутки
+    joke_words = ["хаха", "lol", "смешно", "прикол", "кринж", "ахах", "хех", "😂", "🤣", "хдх", "рофл", "шутка"]
+    if any(word in check_text_lower for word in joke_words):
+        message_type = "joke"
 
-        # Усталость
-        tired_words = ["устал", "устала", "уставать", "устаю", "измотан", "выжат", "нет сил", "разбит", "разбита"]
-        if any(word in check_text_lower for word in tired_words):
-            message_type = "tired"
+    # Усталость
+    tired_words = ["устал", "устала", "уставать", "устаю", "измотан", "выжат", "нет сил", "разбит", "разбита"]
+    if any(word in check_text_lower for word in tired_words):
+        message_type = "tired"
 
-        # Боль / травмы
-        pain_words = ["болит", "боль", "травма", "растяжение", "болят", "тянет", "ноющая", "резкая", "опухло", "синяк"]
-        if any(word in check_text_lower for word in pain_words):
-            message_type = "pain"
+    # Боль / травмы
+    pain_words = ["болит", "боль", "травма", "растяжение", "болят", "тянет", "ноющая", "резкая", "опухло", "синяк"]
+    if any(word in check_text_lower for word in pain_words):
+        message_type = "pain"
 
-        # Погода
-        weather_words = ["погода", "дождь", "снег", "холод", "жара", "ветер", "мороз", "гроза", "солнце", "туман", "сыро", "мокро"]
-        if any(word in check_text_lower for word in weather_words):
-            message_type = "weather"
+    # Погода
+    weather_words = ["погода", "дождь", "снег", "холод", "жара", "ветер", "мороз", "гроза", "солнце", "туман", "сыро", "мокро"]
+    if any(word in check_text_lower for word in weather_words):
+        message_type = "weather"
 
-        # Как дела
-        how_are_you_words = ["как дела", "как ты", "как жизнь", "как настроение", "как себя", "как у тебя"]
-        if any(word in check_text_lower for word in how_are_you_words):
-            message_type = "how_are_you"
+    # Как дела
+    how_are_you_words = ["как дела", "как ты", "как жизнь", "как настроение", "как себя", "как у тебя"]
+    if any(word in check_text_lower for word in how_are_you_words):
+        message_type = "how_are_you"
 
-        # Кто ты
-        who_are_you_words = ["кто ты", "что ты", "ты бот", "ты робот", "ты живой", "кто такой"]
-        if any(word in check_text_lower for word in who_are_you_words):
-            message_type = "who_are_you"
+    # Кто ты
+    who_are_you_words = ["кто ты", "что ты", "ты бот", "ты робот", "ты живой", "кто такой"]
+    if any(word in check_text_lower for word in who_are_you_words):
+        message_type = "who_are_you"
 
-        logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
-        logger.info(f"[MSG] message_text='{message_text}', check_text='{check_text}'")
+    logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
+    logger.info(f"[MSG] message_text='{message_text}', check_text='{check_text}'")
 
-        # Проверяем, не команда ли это
-        if message_text and message_text.startswith('/'):
-            logger.info(f"[MSG] Это команда, пропускаем")
-            return
+    # Проверяем, не команда ли это
+    if message_text and message_text.startswith('/'):
+        logger.info(f"[MSG] Это команда, пропускаем")
+        return
 
-        # === ПРОВЕРКА: ДОБРОЕ УТРО (РАНДОМНЫЙ ОТВЕТ) ===
-        # Ключевые слова для определения "доброго утра"
-        good_morning_keywords = [
-            # Русские варианты (полные фразы)
-            'доброе утро', 'доброе утро!', 'доброе утро всем', 'всем доброе утро',
-            'доброе утро!', 'доброе утро.', 'доброе утро,', 'утро доброе', 'утро!',
-            'всем утро', 'утро доброе', 'доброутро', 'доброго утра',
-            'всем доброго утра', 'доброго утра!', 'доброго утра всем',
-            # Смайлики с утром
-            '☀️ утро', '☀️доброе', 'утро ☀️',
-            # Короткие и разговорные
-            'утра', 'всем утра', 'утречка', 'утречко', 'с утра', 'с утра!',
-            'всем с утра', 'и тебе доброе утро', 'и тебе утро',
-            # Английские
-            'good morning', 'good morning!', 'morning!', 'morning',
-            # С вопросом или в предложении
-            '?доброе утро', 'утро?', 'доброе утро?',
-        ]
+    # === ПРОВЕРКА: ДОБРОЕ УТРО (РАНДОМНЫЙ ОТВЕТ) ===
+    # Ключевые слова для определения "доброго утра"
+    good_morning_keywords = [
+        # Русские варианты (полные фразы)
+        'доброе утро', 'доброе утро!', 'доброе утро всем', 'всем доброе утро',
+        'доброе утро!', 'доброе утро.', 'доброе утро,', 'утро доброе', 'утро!',
+        'всем утро', 'утро доброе', 'доброутро', 'доброго утра',
+        'всем доброго утра', 'доброго утра!', 'доброго утра всем',
+        # Смайлики с утром
+        '☀️ утро', '☀️доброе', 'утро ☀️',
+        # Короткие и разговорные
+        'утра', 'всем утра', 'утречка', 'утречко', 'с утра', 'с утра!',
+        'всем с утра', 'и тебе доброе утро', 'и тебе утро',
+        # Английские
+        'good morning', 'good morning!', 'morning!', 'morning',
+        # С вопросом или в предложении
+        '?доброе утро', 'утро?', 'доброе утро?',
+    ]
+    
+    # DEBUG: Логируем check_text полностью
+    logger.info(f"[MORNING DEBUG] check_text='{check_text}'")
+    
+    # Проверяем逐слово
+    words_in_message = check_text.split()
+    logger.info(f"[MORNING DEBUG] words_in_message={words_in_message[:20]}")
+    
+    # Проверяем каждое ключевое слово
+    for kw in good_morning_keywords:
+        if kw in check_text:
+            logger.info(f"[MORNING DEBUG] Найдено ключевое слово: '{kw}'")
+    
+    is_good_morning = any(greeting in check_text for greeting in good_morning_keywords)
+    logger.info(f"[MORNING] Проверка: '{check_text[:100]}...' | is_good_morning={is_good_morning}")
+
+    if is_good_morning:
+        # Дополнительное логирование для отладки
+        logger.info(f"[MORNING] DEBUG: user_id={user_id}, user_name='{user_name}', message='{check_text[:50]}'")
+        if update.message.reply_to_message:
+            logger.info(f"[MORNING] DEBUG: reply_to_message from_user='{update.message.reply_to_message.from_user.username or update.message.reply_to_message.from_user.full_name}'")
         
-        # DEBUG: Логируем check_text полностью
-        logger.info(f"[MORNING DEBUG] check_text='{check_text}'")
+        logger.info(f"[MORNING] detected от {user_name}")
         
-        # Проверяем逐слово
-        words_in_message = check_text.split()
-        logger.info(f"[MORNING DEBUG] words_in_message={words_in_message[:20]}")
+        # Проверяем пол через ИИ с таймаутом 3 секунды
+        try:
+            is_female = await asyncio.wait_for(
+                check_is_female_by_ai(user_name),
+                timeout=3.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"[MORNING] Таймаут определения пола для {user_name}, используем нейтральный ответ")
+            is_female = False
+        except Exception as e:
+            logger.error(f"[MORNING] Ошибка определения пола: {e}")
+            is_female = False
         
-        # Проверяем каждое ключевое слово
-        for kw in good_morning_keywords:
-            if kw in check_text:
-                logger.info(f"[MORNING DEBUG] Найдено ключевое слово: '{kw}'")
+        logger.info(f"[MORNING] Пол определён: {user_name} -> is_female={is_female}")
+
+        # Рандомный выбор ответа:
+        # - 40% флирт (если девушка)
+        # - 30% цитата из фильма (для всех)
+        # - 30% нейтральный ответ (для всех)
+        rand = random.random()
+
+        if is_female and rand < 0.4:
+            # Это девушка и выпал флирт
+            morning_text = get_random_good_morning_flirt()
+            logger.info(f"[MORNING] Рандом: ФЛИРТ для {user_name}")
+        elif rand < 0.7:
+            # Цитата из фильма (для всех)
+            morning_text = random.choice(MOVIE_QUOTES)
+            logger.info(f"[MORNING] Рандом: ЦИТАТА для {user_name}")
+        else:
+            # Нейтральный ответ
+            morning_text = get_random_good_morning()
+            logger.info(f"[MORNING] Рандом: НЕЙТРАЛЬНО для {user_name}")
+
+        # Формируем упоминание пользователя
+        user_mention = f"@{user_name}" if user_name else ""
         
-        is_good_morning = any(greeting in check_text for greeting in good_morning_keywords)
-        logger.info(f"[MORNING] Проверка: '{check_text[:100]}...' | is_good_morning={is_good_morning}")
-
-        if is_good_morning:
-            # Дополнительное логирование для отладки
-            logger.info(f"[MORNING] DEBUG: user_id={user_id}, user_name='{user_name}', message='{check_text[:50]}'")
-            if update.message.reply_to_message:
-                logger.info(f"[MORNING] DEBUG: reply_to_message from_user='{update.message.reply_to_message.from_user.username or update.message.reply_to_message.from_user.full_name}'")
-            
-            logger.info(f"[MORNING] detected от {user_name}")
-            
-            # Проверяем пол через ИИ с таймаутом 3 секунды
-            try:
-                is_female = await asyncio.wait_for(
-                    check_is_female_by_ai(user_name),
-                    timeout=3.0
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"[MORNING] Таймаут определения пола для {user_name}, используем нейтральный ответ")
-                is_female = False
-            except Exception as e:
-                logger.error(f"[MORNING] Ошибка определения пола: {e}")
-                is_female = False
-            
-            logger.info(f"[MORNING] Пол определён: {user_name} -> is_female={is_female}")
-
-            # Рандомный выбор ответа:
-            # - 40% флирт (если девушка)
-            # - 30% цитата из фильма (для всех)
-            # - 30% нейтральный ответ (для всех)
-            rand = random.random()
-
-            if is_female and rand < 0.4:
-                # Это девушка и выпал флирт
-                morning_text = get_random_good_morning_flirt()
-                logger.info(f"[MORNING] Рандом: ФЛИРТ для {user_name}")
-            elif rand < 0.7:
-                # Цитата из фильма (для всех)
-                morning_text = random.choice(MOVIE_QUOTES)
-                logger.info(f"[MORNING] Рандом: ЦИТАТА для {user_name}")
-            else:
-                # Нейтральный ответ
-                morning_text = get_random_good_morning()
-                logger.info(f"[MORNING] Рандом: НЕЙТРАЛЬНО для {user_name}")
-
-            # Формируем упоминание пользователя
-            user_mention = f"@{user_name}" if user_name else ""
-            
-            # Отправляем ответ на доброе утро с упоминанием
-            try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"{user_mention} 💫 **{morning_text}**",
-                    parse_mode="Markdown",
-                )
-                logger.info(f"[MORNING] Ответ на доброе утро отправлен для {user_name}")
-                return  # Выходим после отправки ответа на утро
-            except Exception as e:
-                logger.error(f"[MORNING] Ошибка отправки: {e}")
+        # Отправляем ответ на доброе утро с упоминанием
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"{user_mention} 💫 **{morning_text}**",
+                parse_mode="Markdown",
+            )
+            logger.info(f"[MORNING] Ответ на доброе утро отправлен для {user_name}")
+            return  # Выходим после отправки ответа на утро
+        except Exception as e:
+            logger.error(f"[MORNING] Ошибка отправки: {e}")
 
         # === АВТОМАТИЧЕСКИЙ ФЛИРТ С ДЕВУШКАМИ (НА ОБЫЧНЫЕ СООБЩЕНИЯ) ===
         # Проверяем, является ли пользователь девушкой через ИИ
@@ -8359,28 +8359,8 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Отправляем ответ
             await send_toxic_response(context, update.effective_chat.id, text=ai_reply, sticker=sticker, gif=gif)
             return
-            # Получаем ответ с медиа
-            clean_message = message_text
-            if user_mentioned:
-                clean_message = re.sub(f'@{bot_username}', '', message_text, flags=re.IGNORECASE).strip()
-            
-            response_data = await generate_toxic_response_with_media(clean_message, user_name, is_female, include_media=True)
-            
-            if response_data['text']:
-                # Отправляем ответ с медиа
-                await send_toxic_response(
-                    context=context,
-                    chat_id=update.effective_chat.id,
-                    text=response_data['text'],
-                    sticker=response_data['sticker'],
-                    gif=response_data['gif']
-                )
-                logger.info(f"[AI] Ответ с медиа отправлен {user_name}")
-            else:
-                logger.warning(f"[AI] Не удалось сгенерировать ответ для {user_name}")
-            # Продолжаем выполнение для сбора статистики
         
-        # === ПРОВЕРКА ВОЗВРАЩЕНЦА ===# === ПРОВЕРКА ВОЗВРАЩЕНЦА ===
+        # === ПРОВЕРКА ВОЗВРАЩЕНЦА ===
         moscow_now = datetime.now(MOSCOW_TZ)
         today = moscow_now.strftime("%Y-%m-%d")
         
@@ -8918,8 +8898,8 @@ START_MESSAGE = """🏃 **Бот для бегового чата**
 • 21:00 — Мотивация
 • 22:00+ — Ночной режим (после 10 сообщений напоминает спать)
 • 23:59 — Ежедневная сводка
-• Воскресенье 23:00 — Еженедельная сводка по уровням
-• Последний день месяца 23:00 — Итоги месяца
+• Воскресенье 23:59 — Еженедельная сводка по уровням
+• Последний день месяца 23:59 — Итоги месяца
 • При возвращении после 5+ дней — приветствие от бота
 • При получении баллов — публичное уведомление в чате
 
