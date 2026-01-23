@@ -1708,7 +1708,7 @@ def parse_russian_date(date_str: str) -> str:
 def filter_event_by_year_and_city(event: Dict) -> bool:
     """Фильтрует мероприятие по году (2026+) и региону (Москва, СПб, область)"""
 
-    # Проверка года - только 2026 и дальше
+    # Проверка года - только 2025 и дальше
     date_str = event.get('date', '')
     year = 0
 
@@ -1717,13 +1717,13 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     if year_match:
         year = int(year_match.group())
 
-    # Если год не найден (0) - пропускаем
+    # Если год не найден (0) - не отбрасываем сразу (дальше фильтр по региону)
     if year == 0:
-        logger.info(f"[EVENTS] Год не определён, пропускаем: {event.get('title', 'Без названия')}")
-        return False
+        logger.info(f"[EVENTS] Год не определён, продолжаем фильтрацию по региону: {event.get('title', 'Без названия')}")
+        year = 9999
 
-    # Если год меньше 2026 - пропускаем
-    if year < 2026:
+    # Если год меньше 2025 - пропускаем
+    if year < 2025:
         logger.info(f"[EVENTS] Пропуск мероприятия (год {year}): {event.get('title', 'Без названия')}")
         return False
 
