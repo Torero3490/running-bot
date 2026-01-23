@@ -1644,6 +1644,12 @@ except ValueError:
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 UTC_OFFSET = 3  # Москва = UTC+3
 
+# Topic IDs
+EVENTS_TOPIC_ID_CONST = 42025
+NEWS_TOPIC_ID_CONST = 42016
+LEGENDS_TOPIC_ID = 126263
+RED_ROOM_TOPIC_ID = 87706
+
 # ============== TELEGRAM CHANNEL PERSISTENCE ==============
 # ID канала для сохранения данных (работает на Render Free)
 DATA_CHANNEL_ID = os.environ.get("DATA_CHANNEL_ID", "")
@@ -2053,18 +2059,39 @@ async def load_all_from_channel(bot) -> Dict[str, Any]:
     return loaded_data
 
 
+async def fetch_forum_topics(bot, chat_id: int):
+    """Получает топики форума через прямой вызов Bot API."""
+    try:
+        bot_token = bot.token
+        api_url = f"https://api.telegram.org/bot{bot_token}"
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{api_url}/getForumTopics",
+                json={"chat_id": chat_id},
+                timeout=20.0,
+            )
+        if response.status_code != 200:
+            logger.warning(f"[TOPICS] API статус: {response.status_code}")
+            return []
+        data = response.json()
+        if not data.get("ok"):
+            logger.warning(f"[TOPICS] API ошибка: {data.get('description')}")
+            return []
+        return data.get("result", {}).get("topics", [])
+    except Exception as e:
+        logger.warning(f"[TOPICS] Не удалось получить топики через API: {e}")
+        return []
+
+
 async def log_forum_topics(bot):
     """Логирует все топики форума с их ID."""
-    try:
-        topics_list = await bot.get_forum_topics(chat_id=CHAT_ID)
-        if not topics_list:
-            logger.info("[TOPICS] В чате нет активных топиков.")
-            return
-        logger.info(f"[TOPICS] Найдено топиков: {len(topics_list)}")
-        for topic in topics_list:
-            logger.info(f"[TOPICS] ID={topic.message_thread_id} | name='{topic.name}'")
-    except Exception as e:
-        logger.warning(f"[TOPICS] Не удалось получить топики: {e}")
+    topics_list = await fetch_forum_topics(bot, CHAT_ID)
+    if not topics_list:
+        logger.info("[TOPICS] В чате нет активных топиков или API не вернул данные.")
+        return
+    logger.info(f"[TOPICS] Найдено топиков: {len(topics_list)}")
+    for topic in topics_list:
+        logger.info(f"[TOPICS] ID={topic.get('message_thread_id')} | name='{topic.get('name')}'")
 
 
 # ============== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==============
@@ -9749,8 +9776,8 @@ async def topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
 
     try:
-        # Получаем список всех топиков форума
-        topics_list = await context.bot.get_forum_topics(chat_id=chat.id)
+        # Получаем список всех топиков форума через Bot API
+        topics_list = await fetch_forum_topics(context.bot, chat.id)
 
         if not topics_list:
             text = "📋 **Все топики чата:**\n\n"
@@ -9759,22 +9786,25 @@ async def topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = f"📋 **Все топики чата ({len(topics_list)}):**\n\n"
 
             for topic in topics_list:
+                topic_id = topic.get("message_thread_id")
+                topic_name = topic.get("name")
                 # Определяем тип топика
-                if topic.message_thread_id == chat.id:
+                if topic_id == chat.id:
                     topic_type = "💬 Основной чат"
                 else:
                     topic_type = "📁 Топик"
 
                 # Получаем количество сообщений (если доступно)
-                msg_count = getattr(topic, 'message_thread_id', None) or "—"
+                msg_count = topic_id or "—"
 
                 text += f"{topic_type}\n"
-                text += f"   🆔 **ID:** `{topic.message_thread_id}`\n"
-                text += f"   📛 **Название:** {topic.name}\n"
+                text += f"   🆔 **ID:** `{topic_id}`\n"
+                text += f"   📛 **Название:** {topic_name}\n"
 
                 # Дата создания топика (если доступна)
-                if hasattr(topic, 'date') and topic.date:
-                    text += f"   📅 **Создан:** {topic.date.strftime('%Y-%m-%d %H:%M')}\n"
+                topic_date = topic.get("date")
+                if topic_date:
+                    text += f"   📅 **Создан:** {topic_date}\n"
 
                 text += "\n"
 
@@ -10071,9 +10101,9 @@ if __name__ == "__main__":
     loop.create_task(log_forum_topics(application.bot))
     
     # Инициализация Events Tracker с topic ID
-    # Topic ID для "Мероприятия": 42025, для "Новости": 42016
-    set_config(GENERAL_CHAT_ID, application, loop, events_topic_id=42025, news_topic_id=42016)
-    logger.info(f"[EVENTS] Events Tracker инициализирован с topic ID: 42025, NEWS_TOPIC_ID: 42016")
+    set_config(GENERAL_CHAT_ID, application, loop, events_topic_id=EVENTS_TOPIC_ID_CONST, news_topic_id=NEWS_TOPIC_ID_CONST)
+    logger.info(f"[EVENTS] Events Tracker инициализирован с topic ID: {EVENTS_TOPIC_ID_CONST}, NEWS_TOPIC_ID: {NEWS_TOPIC_ID_CONST}")
+    logger.info(f"[TOPICS] Legends ID: {LEGENDS_TOPIC_ID}, Red Room ID: {RED_ROOM_TOPIC_ID}")
     
     # Загружаем данные из Telegram Channel если настроено
     async def init_persistence():

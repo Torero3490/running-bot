@@ -591,7 +591,7 @@ async def parse_zabeg_rf_events() -> List[Dict]:
                         continue
 
                     # Пропускаем служебные элементы
-                    if any(x in title.lower() for x in ['регистрац', 'оплата', 'вопросы', 'контакты']):
+                    if any(x in title.lower() for x in ['оплата', 'вопросы', 'контакты']):
                         continue
 
                     # Дата
@@ -623,6 +623,18 @@ async def parse_zabeg_rf_events() -> List[Dict]:
                 except Exception as e:
                     logger.warning(f"[EVENTS] Ошибка парсинга zabeg.rf: {e}")
                     continue
+
+        # Если ничего не нашли, добавляем базовый слот ЗаБег.РФ
+        if not events:
+            events.append({
+                'title': 'ЗаБег.РФ',
+                'date': '',
+                'city': 'Москва',
+                'distances': '5 км, 10 км, 21.0975 км',
+                'url': 'https://забег.рф',
+                'source': 'ЗаБег.РФ'
+            })
+            logger.info("[EVENTS] Добавлен базовый слот ЗаБег.РФ (fallback)")
 
     except Exception as e:
         logger.error(f"[EVENTS] Ошибка парсинга забег.рф: {e}")
