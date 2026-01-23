@@ -2058,6 +2058,69 @@ async def check_and_publish_events(context: ContextTypes.DEFAULT_TYPE, message_t
         logger.info("[EVENTS] Новых мероприятий не найдено (или уже были опубликованы)")
 
 
+async def get_all_events() -> List[Dict]:
+    """Собирает и возвращает отфильтрованные мероприятия без публикации."""
+    logger.info("[EVENTS] Сбор мероприятий (без публикации)...")
+
+    all_events = []
+
+    # Парсим все источники
+    events_russia = await parse_russia_running_events()
+    events_marathonec = await parse_marathonec_events()
+    events_probeg = await parse_probeg_events()
+    events_runc = await parse_runc_run_events()
+    events_hero = await parse_heroleague_events()
+    events_zabeg = await parse_zabeg_rf_events()
+    events_probeg_trails = await parse_probeg_trails_events()
+    events_pushkin = await parse_pushkin_run_events()
+    events_golden = await parse_golden_ring_trail_events()
+    events_s10 = await parse_s10_run_events()
+    events_ahotu_run = await parse_ahotu_running_events()
+    events_ahotu_trail = await parse_ahotu_trail_events()
+    events_get = await parse_get_run_events()
+    events_itra = await parse_itra_events()
+    events_1jan = await parse_1jan_run_events()
+    events_goldenring = await parse_goldenringrun_events()
+    events_academy = await parse_academymarathon_events()
+    events_krasmarafon = await parse_krasmarafon_events()
+    events_toplist = await parse_toplist_run_events()
+    events_orgeo = await parse_orgeo_events()
+    events_finishers = await parse_finishers_events()
+
+    all_events.extend(events_russia)
+    all_events.extend(events_marathonec)
+    all_events.extend(events_probeg)
+    all_events.extend(events_runc)
+    all_events.extend(events_hero)
+    all_events.extend(events_zabeg)
+    all_events.extend(events_probeg_trails)
+    all_events.extend(events_pushkin)
+    all_events.extend(events_golden)
+    all_events.extend(events_s10)
+    all_events.extend(events_ahotu_run)
+    all_events.extend(events_ahotu_trail)
+    all_events.extend(events_get)
+    all_events.extend(events_itra)
+    all_events.extend(events_1jan)
+    all_events.extend(events_goldenring)
+    all_events.extend(events_academy)
+    all_events.extend(events_krasmarafon)
+    all_events.extend(events_toplist)
+    all_events.extend(events_orgeo)
+    all_events.extend(events_finishers)
+
+    logger.info(f"[EVENTS] Всего найдено мероприятий: {len(all_events)}")
+
+    # Фильтруем мероприятия - только 2026+ год и Москва/СПб/области
+    filtered_events = []
+    for event in all_events:
+        if filter_event_by_year_and_city(event):
+            filtered_events.append(event)
+
+    logger.info(f"[EVENTS] После фильтрации: {len(filtered_events)} мероприятий")
+    return filtered_events
+
+
 async def events_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /slots — проверить мероприятия вручную"""
     chat_id = update.effective_chat.id

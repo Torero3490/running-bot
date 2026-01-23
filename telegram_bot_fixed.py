@@ -1682,6 +1682,22 @@ DATA_MARKERS = {
 # Хранилище message_id для каждого типа данных
 channel_message_ids = {}
 
+# ============== PINNED STORAGE (AGGREGATES) ==============
+# Храним агрегированные данные в одном закреплённом сообщении.
+# Telegram не даёт доступ к истории канала через API, поэтому
+# при деплоях безопаснее читать только pinned_message.
+USE_PINNED_STORAGE = True
+PINNED_STORAGE_MARKER = "#BOT_STORAGE"
+# Какие типы данных можно сохранять в pinned (ограничение 4096 символов)
+PINNED_STORAGE_TYPES = {
+    "ratings",
+    "runs",
+    "birthdays",
+    "daily",
+    "garmin_users",
+    "active",
+}
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -1722,6 +1738,9 @@ async def save_to_channel(bot, data_type: str, data: Any) -> bool:
 
     if not DATA_CHANNEL_ID:
         return False
+
+    if USE_PINNED_STORAGE and data_type in PINNED_STORAGE_TYPES:
+        return await save_to_pinned_storage(bot, data_type, data)
 
     try:
         marker = DATA_MARKERS.get(data_type, f"#BOT_{data_type.upper()}")
@@ -1799,6 +1818,10 @@ async def load_from_channel(bot, data_type: str) -> Optional[Any]:
     if not DATA_CHANNEL_ID:
         logger.warning(f"[PERSIST] DATA_CHANNEL_ID не настроен для {data_type}")
         return None
+
+    if USE_PINNED_STORAGE and data_type in PINNED_STORAGE_TYPES:
+        storage, _ = await load_pinned_storage(bot)
+        return storage.get(data_type)
     
     try:
         marker = DATA_MARKERS.get(data_type, f"#BOT_{data_type.upper()}")
@@ -1942,6 +1965,68 @@ async def load_from_channel(bot, data_type: str) -> Optional[Any]:
         return None
 
 
+async def load_pinned_storage(bot) -> tuple[Dict[str, Any], Optional[int]]:
+    """
+    Загружает агрегированные данные из закреплённого сообщения канала.
+    Возвращает (storage_dict, pinned_message_id).
+    """
+    if not DATA_CHANNEL_ID:
+        return {}, None
+    try:
+        chat = await bot.get_chat(DATA_CHANNEL_ID)
+        pinned = chat.pinned_message
+        if not pinned or not pinned.text:
+            return {}, None
+        if not pinned.text.startswith(PINNED_STORAGE_MARKER):
+            return {}, pinned.message_id
+        json_str = pinned.text[len(PINNED_STORAGE_MARKER):].strip()
+        if not json_str:
+            return {}, pinned.message_id
+        loaded = json.loads(json_str)
+        if isinstance(loaded, dict):
+            return loaded, pinned.message_id
+        return {}, pinned.message_id
+    except Exception as e:
+        logger.warning(f"[PERSIST] Не удалось загрузить pinned storage: {e}")
+        return {}, None
+
+
+async def save_to_pinned_storage(bot, data_type: str, data: Any) -> bool:
+    """
+    Сохраняет агрегированные данные в закреплённое сообщение канала.
+    """
+    storage, pinned_id = await load_pinned_storage(bot)
+    storage[data_type] = data
+    json_data = json.dumps(storage, ensure_ascii=False, separators=(",", ":"))
+    text = f"{PINNED_STORAGE_MARKER}\n{json_data}"
+    if len(text) > 4000:
+        logger.warning(f"[PERSIST] pinned storage переполнен ({len(text)} символов), {data_type} не сохранён")
+        return False
+    try:
+        if pinned_id:
+            await bot.edit_message_text(
+                chat_id=DATA_CHANNEL_ID,
+                message_id=pinned_id,
+                text=text
+            )
+            logger.info(f"[PERSIST] Обновлён pinned storage ({data_type})")
+            return True
+        message = await bot.send_message(chat_id=DATA_CHANNEL_ID, text=text)
+        try:
+            await bot.pin_chat_message(
+                chat_id=DATA_CHANNEL_ID,
+                message_id=message.message_id,
+                disable_notification=True
+            )
+        except Exception:
+            pass
+        logger.info(f"[PERSIST] Создан pinned storage ({data_type})")
+        return True
+    except Exception as e:
+        logger.error(f"[PERSIST] Ошибка сохранения pinned storage: {e}")
+        return False
+
+
 async def load_all_from_channel(bot) -> Dict[str, Any]:
     """
     Загружает все типы данных из канала при старте бота.
@@ -1955,7 +2040,8 @@ async def load_all_from_channel(bot) -> Dict[str, Any]:
     logger.info(f"[PERSIST] Загружаем данные из канала {DATA_CHANNEL_ID}...")
     
     # Загружаем каждый тип данных
-    for data_type in DATA_MARKERS.keys():
+    data_types = PINNED_STORAGE_TYPES if USE_PINNED_STORAGE else DATA_MARKERS.keys()
+    for data_type in data_types:
         data = await load_from_channel(bot, data_type)
         if data is not None:
             loaded_data[data_type] = data
@@ -2001,14 +2087,11 @@ daily_summary_sent = False
 
 async def recalculate_daily_stats_from_chat(bot) -> dict:
     """
-    Пересчитывает дневную статистику из истории чата.
-    Бот получает историю из основной группы, фильтрует сообщения за сегодня
-    и пересчитывает всю статистику заново.
-    
-    Использует прямые HTTP запросы к Telegram API для гарантированной работы
-    независимо от версии python-telegram-bot.
+    Пересчитывает дневную статистику из локальной истории чата.
+    Используется накопленная chat_history, так как Telegram API
+    не дает доступ к истории чата напрямую.
     """
-    global daily_stats
+    global daily_stats, chat_history
     
     today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
     today_start = MOSCOW_TZ.localize(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0))
@@ -2027,159 +2110,69 @@ async def recalculate_daily_stats_from_chat(bot) -> dict:
         "first_photo_user_name": None,
     }
     
-    # Получаем токен бота для прямых запросов
-    bot_token = bot.token
-    if not bot_token:
-        logger.error(f"[HISTORY] ❌ Не удалось получить токен бота")
+    history_messages = chat_history.get("messages", [])
+    history_photos = chat_history.get("photos", [])
+    
+    if not history_messages and not history_photos:
+        logger.warning("[HISTORY] История пуста. Пересчёт невозможен без накопленной истории.")
         return recalculated_stats
     
-    # Используем httpx для прямых запросов к Telegram API
-    api_url = f"https://api.telegram.org/bot{bot_token}"
-    
-    messages = []
-    photos_found = 0
-    messages_today = 0
-    
-    try:
-        # Запрашиваем историю через Telegram API (метод getChatHistory)
-        logger.info(f"[HISTORY] Запрашиваем историю чата {CHAT_ID} через Telegram API...")
-        
-        async with httpx.AsyncClient() as client:
-            # Получаем последние 200 сообщений
-            response = await client.post(
-                f"{api_url}/getChatHistory",
-                json={
-                    "chat_id": CHAT_ID,
-                    "limit": 200
-                },
-                timeout=30.0
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"[HISTORY] ❌ API вернул статус {response.status_code}")
-                logger.error(f"[HISTORY] Ответ: {response.text}")
-                raise Exception(f"API error: {response.status_code}")
-            
-            data = response.json()
-            
-            if not data.get("ok"):
-                logger.error(f"[HISTORY] ❌ API вернул ошибку: {data.get('description')}")
-                raise Exception(f"API error: {data.get('description')}")
-            
-            # Преобразуем результат в объекты Message
-            from telegram import Message
-            
-            if data.get("result") and isinstance(data["result"], list):
-                for msg_data in data["result"]:
-                    msg = Message.de_json(msg_data, bot)
-                    if msg:
-                        messages.append(msg)
-            
-            logger.info(f"[HISTORY] ✅ Получено {len(messages)} сообщений через Telegram API")
-            
-    except Exception as e:
-        logger.warning(f"[HISTORY] ⚠️ Telegram API getChatHistory не работает: {e}")
-        logger.info(f"[HISTORY] 🔄 Пробуем альтернативный метод через getUpdates...")
-        
-        # Альтернатива: используем getUpdates (менее надёжно)
+    def parse_history_timestamp(raw_ts: str):
+        if not raw_ts:
+            return None
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{api_url}/getUpdates",
-                    json={"limit": 100},
-                    timeout=30.0
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("ok") and data.get("result"):
-                        from telegram import Message, Update
-                        
-                        for update_data in data["result"]:
-                            update = Update.de_json(update_data, bot)
-                            if update and update.message:
-                                messages.append(update.message)
-                        
-                        logger.info(f"[HISTORY] ⚠️ Получено {len(messages)} сообщений через getUpdates (могут быть не все)")
-                else:
-                    logger.error(f"[HISTORY] ❌ getUpdates также не работает")
-        except Exception as e2:
-            logger.error(f"[HISTORY] ❌ Все методы получения истории чата не работают: {e2}")
+            parsed = datetime.fromisoformat(raw_ts)
+            if parsed.tzinfo is None:
+                return MOSCOW_TZ.localize(parsed)
+            return parsed.astimezone(MOSCOW_TZ)
+        except Exception:
+            return None
     
-    # Если не удалось получить историю, пробуем жить с тем что есть
-    if not messages:
-        logger.warning(f"[HISTORY] ⚠️ Не удалось получить историю чата, начинаем с нуля")
-        logger.info(f"[HISTORY] Бот будет считать сообщения с текущего момента")
-        return recalculated_stats
-    
-    logger.info(f"[HISTORY] ✅ Обрабатываем {len(messages)} сообщений из истории чата")
-    
-    # Обрабатываем полученные сообщения
-    for msg in messages:
-        # Проверяем, что это текстовое сообщение или фото
-        if not msg.date:
-            continue
-        
-        # Проверяем, что сообщение за сегодня
-        msg_date = msg.date.astimezone(MOSCOW_TZ)
-        if msg_date < today_start or msg_date > now:
+    # Пересчёт сообщений за сегодня
+    messages_today = 0
+    for entry in history_messages:
+        ts = parse_history_timestamp(entry.get("timestamp", ""))
+        if not ts or ts < today_start or ts > now:
             continue
         
         messages_today += 1
-        
-        # Пропускаем команды и служебные сообщения
-        if msg.text and msg.text.startswith('/'):
-            continue
-        
-        # Получаем информацию о пользователе
-        user_id = None
-        user_name = None
-        
-        if msg.from_user:
-            user_id = msg.from_user.id
-            # Формируем имя пользователя
-            first_name = msg.from_user.first_name or ""
-            last_name = msg.from_user.last_name or ""
-            user_name = f"{first_name} {last_name}".strip()
-        
-        if user_id is None:
-            continue
-        
-        # Экранируем спецсимволы Markdown в имени
-        safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
-        
-        # Увеличиваем счётчик сообщений
         recalculated_stats["total_messages"] += 1
         
-        # Обновляем счётчик для пользователя
-        if user_id not in recalculated_stats["user_messages"]:
-            recalculated_stats["user_messages"][user_id] = {"name": safe_name, "count": 0}
-        recalculated_stats["user_messages"][user_id]["count"] += 1
+        user_id = entry.get("user_id")
+        user_name = entry.get("user_name") or "Unknown"
+        if user_id is not None:
+            user_info = recalculated_stats["user_messages"].setdefault(
+                user_id, {"name": user_name, "count": 0}
+            )
+            user_info["count"] += 1
+    
+    # Пересчёт фото за сегодня
+    photos_today = []
+    for photo in history_photos:
+        ts = parse_history_timestamp(photo.get("timestamp", ""))
+        if not ts or ts < today_start or ts > now:
+            continue
         
-        # Обрабатываем фото
-        if msg.photo:
-            photos_found += 1
-            photo = msg.photo[-1]  # Берем самое большое фото
-            
-            photo_info = {
-                "file_id": photo.file_id,
-                "user_id": user_id,
-                "message_id": msg.message_id,
-                "likes": 0,
-                "user_name": safe_name
-            }
-            
-            recalculated_stats["photos"].append(photo_info)
-            
-            # Запоминаем первого автора фото (для двойных баллов)
-            if recalculated_stats["first_photo_user_id"] is None:
-                recalculated_stats["first_photo_user_id"] = user_id
-                recalculated_stats["first_photo_user_name"] = safe_name
+        photos_today.append(photo)
+        recalculated_stats["photos"].append({
+            "file_id": photo.get("file_id"),
+            "user_id": photo.get("user_id"),
+            "likes": photo.get("likes", 0),
+            "message_id": photo.get("message_id"),
+            "user_name": photo.get("user_name")
+        })
+    
+    # Определяем первого автора фото
+    if photos_today:
+        photos_today.sort(key=lambda p: parse_history_timestamp(p.get("timestamp", "")) or now)
+        first_photo = photos_today[0]
+        recalculated_stats["first_photo_user_id"] = first_photo.get("user_id")
+        recalculated_stats["first_photo_user_name"] = first_photo.get("user_name")
     
     logger.info(f"[HISTORY] ✅ Пересчёт завершён:")
     logger.info(f"[HISTORY] - Сообщений за сегодня: {messages_today}")
     logger.info(f"[HISTORY] - Обработано сообщений: {recalculated_stats['total_messages']}")
-    logger.info(f"[HISTORY] - Фото за сегодня: {photos_found}")
+    logger.info(f"[HISTORY] - Фото за сегодня: {len(recalculated_stats['photos'])}")
     logger.info(f"[HISTORY] - Пользователей: {len(recalculated_stats['user_messages'])}")
     
     return recalculated_stats
@@ -2283,6 +2276,9 @@ chat_history = {
     "deletions": [],
     "last_updated": ""
 }
+
+# Ограничение на размер истории (чтобы не разрасталась бесконечно)
+HISTORY_MAX_MESSAGES = 1000
 
 # ============== GARMIN INTEGRATION ==============
 # {user_id: {"name": str, "email": str, "last_activity_id": str, "monthly_distance": float, "monthly_activities": int}}
@@ -8554,6 +8550,8 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                     "chat_id": CHAT_ID
                 }
                 chat_history["messages"].append(message_entry)
+                if len(chat_history["messages"]) > HISTORY_MAX_MESSAGES:
+                    chat_history["messages"] = chat_history["messages"][-HISTORY_MAX_MESSAGES:]
                 
                 # Если есть фото - сохраняем отдельно
                 if is_photo:
@@ -9593,10 +9591,7 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /slots — показать открытые регистрации на беговые мероприятия"""
     try:
         # Пытаемся импортировать функцию из events_tracker
-        import sys
-        import os
-        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from attached_assets.events_tracker_1769098056270 import get_all_events
+        from events_tracker import get_all_events
         
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -9621,9 +9616,13 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
             date = event.get('date', 'Дата не указана')
             city = event.get('city', 'Город не указан')
             link = event.get('link', '#')
+            distances = event.get('distances', 'Уточняйте на сайте')
+            source = event.get('source', 'Источник не указан')
             
             text += f"📅 *{date}* — {title}\n"
             text += f"📍 {city}\n"
+            text += f"🏃 Дистанции: {distances}\n"
+            text += f"🏷 Источник: {source}\n"
             text += f"🔗 [Зарегистрироваться]({link})\n\n"
             
         await context.bot.send_message(
