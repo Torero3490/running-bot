@@ -642,6 +642,52 @@ async def parse_zabeg_rf_events() -> List[Dict]:
     return events
 
 
+async def parse_chulkovo_trail_events() -> List[Dict]:
+    """Парсинг трейлов Trail de Чулково (chulkovo-trail.ru)"""
+    events = []
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(
+                "https://chulkovo-trail.ru/",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
+            )
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            text = soup.get_text("\n")
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+            seen = set()
+            for i, line in enumerate(lines):
+                match = re.search(r'(\d{1,2}\.\d{2}\.\d{4})\s*(.*)', line)
+                if not match:
+                    continue
+                date_str = match.group(1)
+                title = match.group(2).strip()
+                if not title and i + 1 < len(lines):
+                    title = lines[i + 1].strip()
+                if not title or len(title) < 3:
+                    continue
+                key = (title, date_str)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                events.append({
+                    'title': title,
+                    'date': date_str,
+                    'city': 'Чулково (МО)',
+                    'distances': 'Уточняйте на сайте',
+                    'url': 'https://chulkovo-trail.ru/',
+                    'source': 'Trail de Чулково'
+                })
+    except Exception as e:
+        logger.error(f"[EVENTS] Ошибка парсинга chulkovo-trail.ru: {e}")
+
+    return events
+
+
 async def parse_probeg_trails_events() -> List[Dict]:
     """Парсинг трейловых забегов с ПроБЕГ (probeg.org/calendar/trails/)"""
     events = []
@@ -1746,7 +1792,8 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
         'москва', 'moscow', 'московск', 'подмосков', 'подмосковье',
         'московской', 'химки', 'мытищи', 'королев', 'балашиха',
         'красногорск', 'одинцово', 'люберцы', 'электросталь',
-        'коломна', 'серпухов', 'подольск', 'домодедово'
+        'коломна', 'серпухов', 'подольск', 'домодедово',
+        'чулково'
     ]
 
     spb_region_keywords = [
@@ -1957,7 +2004,12 @@ async def check_and_publish_events(context: ContextTypes.DEFAULT_TYPE, message_t
 
     logger.info("[EVENTS] Парсинг ЗаБег.РФ...")
     events_zabeg = await parse_zabeg_rf_events()
+    events_chulkovo = await parse_chulkovo_trail_events()
     logger.info(f"[EVENTS] ЗаБег.РФ: {len(events_zabeg)} мероприятий")
+
+    logger.info("[EVENTS] Парсинг Trail de Чулково...")
+    events_chulkovo = await parse_chulkovo_trail_events()
+    logger.info(f"[EVENTS] Trail de Чулково: {len(events_chulkovo)} мероприятий")
 
     # Парсим трейловые забеги
     logger.info("[EVENTS] Парсинг Трейлы (ПроБЕГ)...")
@@ -2030,6 +2082,8 @@ async def check_and_publish_events(context: ContextTypes.DEFAULT_TYPE, message_t
     all_events.extend(events_probeg_trails)
     all_events.extend(events_pushkin)
     all_events.extend(events_golden)
+    all_events.extend(events_chulkovo)
+    all_events.extend(events_chulkovo)
     all_events.extend(events_s10)
     all_events.extend(events_ahotu_run)
     all_events.extend(events_ahotu_trail)
@@ -2177,7 +2231,7 @@ async def get_all_events() -> List[Dict]:
 
 
 async def events_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /slots — проверить мероприятия вручную"""
+    """Команда /events — проверить мероприятия вручную"""
     chat_id = update.effective_chat.id
     # Получаем ID топика из сообщения (если есть) - отвечаем в том же топике где вызвали
     raw_thread_id = getattr(update.message, 'message_thread_id', None)
@@ -2248,7 +2302,8 @@ async def events_help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • ITRA (itra.run)
 
 **Команды:**
-• /slots — проверить вручную
+• /slots — показать список регистраций
+• /events — проверить мероприятия вручную
 • Нажать 🔔 — напомнить за 3 дня"""
 
     await context.bot.send_message(
@@ -2296,7 +2351,7 @@ def events_scheduler_task():
 def get_handlers() -> list:
     """Возвращает список обработчиков для регистрации в боте"""
     return [
-        CommandHandler("slots", events_cmd),
+        CommandHandler("events", events_cmd),
         CommandHandler("slots_help", events_help_cmd),
         CallbackQueryHandler(handle_event_reminder_callback, pattern=r"^event_reminder_"),
     ]
