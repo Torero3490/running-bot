@@ -2053,6 +2053,20 @@ async def load_all_from_channel(bot) -> Dict[str, Any]:
     return loaded_data
 
 
+async def log_forum_topics(bot):
+    """Логирует все топики форума с их ID."""
+    try:
+        topics_list = await bot.get_forum_topics(chat_id=CHAT_ID)
+        if not topics_list:
+            logger.info("[TOPICS] В чате нет активных топиков.")
+            return
+        logger.info(f"[TOPICS] Найдено топиков: {len(topics_list)}")
+        for topic in topics_list:
+            logger.info(f"[TOPICS] ID={topic.message_thread_id} | name='{topic.name}'")
+    except Exception as e:
+        logger.warning(f"[TOPICS] Не удалось получить топики: {e}")
+
+
 # ============== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==============
 application = None
 morning_message_id = None
@@ -5245,19 +5259,32 @@ async def get_weather() -> str:
                 },
                 timeout=10.0,
             )
+            izhevsk_response = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": 56.8498,
+                    "longitude": 53.2045,
+                    "current_weather": "true",
+                },
+                timeout=10.0,
+            )
 
             moscow_data = moscow_response.json()
             spb_data = spb_response.json()
+            izhevsk_data = izhevsk_response.json()
 
             moscow_temp = moscow_data["current_weather"]["temperature"]
             moscow_wind = moscow_data["current_weather"]["windspeed"]
             spb_temp = spb_data["current_weather"]["temperature"]
             spb_wind = spb_data["current_weather"]["windspeed"]
+            izhevsk_temp = izhevsk_data["current_weather"]["temperature"]
+            izhevsk_wind = izhevsk_data["current_weather"]["windspeed"]
 
             weather_text = (
                 f"🌤 **Погода утром:**\n"
                 f"🏙 Москва: **{moscow_temp}°C**, ветер {moscow_wind} км/ч\n"
-                f"🌆 СПб: **{spb_temp}°C**, ветер {spb_wind} км/ч"
+                f"🌆 СПб: **{spb_temp}°C**, ветер {spb_wind} км/ч\n"
+                f"🏞 Ижевск: **{izhevsk_temp}°C**, ветер {izhevsk_wind} км/ч"
             )
             return weather_text
     except Exception as e:
@@ -9593,8 +9620,10 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Пытаемся импортировать функцию из events_tracker
         from events_tracker import get_all_events
         
+        target_thread_id = EVENTS_TOPIC_ID
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
+            message_thread_id=target_thread_id,
             text="🔍 *Ищу открытые регистрации на забеги...*",
             parse_mode="Markdown"
         )
@@ -9604,6 +9633,7 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not events:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
+                message_thread_id=target_thread_id,
                 text="📭 На данный момент новых регистраций не найдено.",
                 parse_mode="Markdown"
             )
@@ -9615,18 +9645,21 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
             title = event.get('title', 'Без названия')
             date = event.get('date', 'Дата не указана')
             city = event.get('city', 'Город не указан')
-            link = event.get('link', '#')
+            link = event.get('url', '#')
             distances = event.get('distances', 'Уточняйте на сайте')
             source = event.get('source', 'Источник не указан')
+            price = event.get('price', 'Цена не указана')
             
             text += f"📅 *{date}* — {title}\n"
             text += f"📍 {city}\n"
             text += f"🏃 Дистанции: {distances}\n"
+            text += f"💰 Цена: {price}\n"
             text += f"🏷 Источник: {source}\n"
             text += f"🔗 [Зарегистрироваться]({link})\n\n"
             
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
+            message_thread_id=target_thread_id,
             text=text,
             parse_mode="Markdown",
             disable_web_page_preview=True
@@ -9638,6 +9671,7 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"[SLOTS] Ошибка команды slots: {e}")
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
+            message_thread_id=EVENTS_TOPIC_ID,
             text="❌ Ошибка при получении списка забегов. Попробуйте позже.",
         )
     
@@ -10032,6 +10066,9 @@ if __name__ == "__main__":
     
     logger.info(f"[INIT] application создан: {application}")
     logger.info(f"[INIT] application.bot: {application.bot}")
+
+    # Логируем доступные топики в чате (ID и названия)
+    loop.create_task(log_forum_topics(application.bot))
     
     # Инициализация Events Tracker с topic ID
     # Topic ID для "Мероприятия": 42025, для "Новости": 42016

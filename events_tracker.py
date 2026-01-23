@@ -1731,16 +1731,21 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
         'гатчина', 'выборг', 'всеволожск', 'тосно'
     ]
 
+    izhevsk_region_keywords = [
+        'ижевск', 'udmurt', 'удмурт', 'удмуртск', 'ижевская', 'ижевской'
+    ]
+
     # Проверяем, относится ли мероприятие к целевому региону
     is_moscow = any(x in city for x in moscow_region_keywords)
     is_spb = any(x in city for x in spb_region_keywords)
+    is_izhevsk = any(x in city for x in izhevsk_region_keywords)
 
-    # Если город не определён (пустой или "Россия") - пропускаем как Москву
+    # Если город не определён (пустой или "Россия") - пропускаем
     if not city or city.lower() in ['', 'россия', 'russia']:
         logger.info(f"[EVENTS] Город не определён, пропускаем: {event.get('title', 'Без названия')}")
-        return True  # Пропускаем как Московское мероприятие
+        return False
 
-    if not (is_moscow or is_spb):
+    if not (is_moscow or is_spb or is_izhevsk):
         logger.info(f"[EVENTS] Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - {event.get('city', '')}")
         return False
 
@@ -2118,6 +2123,31 @@ async def get_all_events() -> List[Dict]:
             filtered_events.append(event)
 
     logger.info(f"[EVENTS] После фильтрации: {len(filtered_events)} мероприятий")
+
+    # Добавляем цены (чтобы /slots показывал стоимость)
+    max_price_checks = 20  # ограничение, чтобы не перегружать источники
+    checked = 0
+    for event in filtered_events:
+        if checked >= max_price_checks:
+            break
+        url = event.get("url") or ""
+        if not url or event.get("price"):
+            continue
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                page_response = await client.get(url)
+                page_text = page_response.text
+                price = extract_price(page_text)
+                if price:
+                    event["price"] = price
+                else:
+                    event["price"] = "Цена не указана"
+            checked += 1
+        except Exception as e:
+            logger.warning(f"[EVENTS] Не удалось получить цену: {e}")
+            event["price"] = "Цена не указана"
+            checked += 1
+
     return filtered_events
 
 
