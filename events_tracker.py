@@ -149,22 +149,35 @@ def extract_registration_deadline(page_text: str) -> Optional[str]:
 def extract_price(page_text: str) -> Optional[str]:
     """Извлекает стоимость участия из текста страницы"""
 
-    # Паттерны для поиска цены
+    # Паттерны для поиска цены (минимальные пороги для защиты от мусора)
     price_patterns = [
-        r'(\d{3,5})\s*руб',
-        r'(\d+)\s*₽',
-        r'от\s*(\d{3,5})\s*руб',
-        r'стоимость.*?(\d{3,5})',
-        r'(\d+)\s*rub',
-        r'price.*?(\d+)',
+        (r'от\s*(\d{1,5})\s*руб', 'руб', 300),
+        (r'(\d{1,5})\s*руб', 'руб', 300),
+        (r'(\d{1,5})\s*₽', 'руб', 300),
+        (r'(\d{1,5})\s*rub', 'руб', 300),
+        (r'от\s*(\d{1,5})\s*€', '€', 5),
+        (r'(\d{1,5})\s*€', '€', 5),
+        (r'от\s*(\d{1,5})\s*eur', '€', 5),
+        (r'(\d{1,5})\s*eur', '€', 5),
+        (r'от\s*(\d{1,5})\s*\$', '$', 5),
+        (r'(\d{1,5})\s*\$', '$', 5),
+        (r'от\s*(\d{1,5})\s*usd', '$', 5),
+        (r'(\d{1,5})\s*usd', '$', 5),
+        (r'стоимость.*?(\d{1,5})', 'руб', 300),
+        (r'price.*?(\d{1,5})', '€', 5),
     ]
 
-    for pattern in price_patterns:
+    for pattern, currency, min_value in price_patterns:
         match = re.search(pattern, page_text, re.IGNORECASE)
         if match:
-            price = match.group(1)
-            logger.info(f"[EVENTS] Найдена цена: {price} руб")
-            return f"{price} руб"
+            try:
+                price_val = int(match.group(1))
+            except Exception:
+                continue
+            if price_val < min_value:
+                continue
+            logger.info(f"[EVENTS] Найдена цена: {price_val} {currency}")
+            return f"{price_val} {currency}"
 
     return None
 
@@ -1707,7 +1720,7 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     # Если год не найден (0) - пропускаем
     if year == 0:
         logger.info(f"[EVENTS] Год не определён, пропускаем: {event.get('title', 'Без названия')}")
-        return True  # Пропускаем
+        return False
 
     # Если год меньше 2026 - пропускаем
     if year < 2026:
