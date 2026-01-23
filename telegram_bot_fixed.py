@@ -10242,8 +10242,7 @@ if __name__ == "__main__":
     # logger.info("Планировщик мероприятий запущен (10:00)")
     
     logger.info("Планировщики запущены")
-    
-    # application.run_polling(drop_pending_updates=True)
+    application.run_polling(drop_pending_updates=True)
 
 
 # === Функция для обработки ЛИЧНЫХ сообщений ===
