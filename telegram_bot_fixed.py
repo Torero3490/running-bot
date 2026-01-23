@@ -10246,13 +10246,13 @@ if __name__ == "__main__":
     logger.info("Планировщик фактов о беге запущен (16:00)")
     
     # Запускаем планировщик мероприятий (10:00 каждый день)
-    events_thread = threading.Thread(target=events_scheduler_task, daemon=True)
-    events_thread.start()
-    logger.info("Планировщик мероприятий запущен (10:00)")
+    # events_thread = threading.Thread(target=events_scheduler_task, daemon=True)
+    # events_thread.start()
+    # logger.info("Планировщик мероприятий запущен (10:00)")
     
     logger.info("Планировщики запущены")
     
-    application.run_polling(drop_pending_updates=True)
+    # application.run_polling(drop_pending_updates=True)
 
 
 # === Функция для обработки ЛИЧНЫХ сообщений ===
