@@ -8098,29 +8098,42 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # ОТЛАДКА - логируем ЧТО ПРИШЛО
     try:
-        if not update.message or not update.message.from_user or update.message.from_user.is_bot:
+        logger.info(f"[HANDLER] === НАЧАЛО ОБРАБОТКИ ===")
+        logger.info(f"[HANDLER] update.message={update.message is not None}")
+        
+        if not update.message:
+            logger.info("[HANDLER] Нет update.message, выходим")
+            return
+            
+        logger.info(f"[HANDLER] message_id={update.message.message_id}, chat_id={update.message.chat.id if update.message.chat else None}")
+        
+        if not update.message.from_user:
+            logger.warning("[HANDLER] Нет from_user, выходим")
+            return
+            
+        if update.message.from_user.is_bot:
+            logger.info("[HANDLER] Сообщение от бота, пропускаем")
             return
 
         now = datetime.now(MOSCOW_TZ)
         user = update.message.from_user
         user_id = user.id
         user_name = user.full_name or user.username or "Пользователь"
+        
+        logger.info(f"[HANDLER] Обработка сообщения от {user_name} (ID: {user_id})")
 
         message_text = update.message.text or update.message.caption or ""
         check_text = message_text.strip()
+        
+        logger.info(f"[HANDLER] Текст сообщения: '{check_text[:100]}'")
 
         # Типы медиа в сообщении
         is_photo = bool(update.message.photo)
         is_video = bool(update.message.video)
         is_voice = bool(update.message.voice)
         is_document = bool(update.message.document)
-
-        try:
-            logger.info(f"[HANDLER] Получен update: type={type(update)}, message={update.message is not None}")
-            if update.message:
-                logger.info(f"[HANDLER] message_id={update.message.message_id}, text='{update.message.text or ''[:50]}'")
-        except Exception as e:
-            logger.error(f"[HANDLER] Ошибка логирования: {e}")
+        
+        logger.info(f"[HANDLER] Медиа: photo={is_photo}, video={is_video}, voice={is_voice}, document={is_document}")
         
         # Ночной режим
         hour = now.hour
@@ -8209,8 +8222,10 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # === РАННИЙ УЧЁТ СТАТИСТИКИ (чтобы не терять сообщения из-за ранних return) ===
         try:
-            moscow_now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
+            logger.info("[MSG] Начинаем ранний учёт статистики")
+            moscow_now = datetime.now(MOSCOW_TZ)
             today = moscow_now.strftime("%Y-%m-%d")
+            logger.info(f"[MSG] Дата: {today}, время: {moscow_now}")
 
             if not isinstance(daily_stats, dict) or "date" not in daily_stats:
                 daily_stats = {

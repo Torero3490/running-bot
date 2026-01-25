@@ -266,6 +266,9 @@ async def parse_russia_running_events() -> List[Dict]:
                          soup.find_all('div', class_='event-item') or \
                          soup.find_all('article', class_='event')
             
+            # Также ищем все ссылки на reg.russiarunning.com
+            reg_links = soup.find_all('a', href=re.compile(r'reg\.russiarunning\.com|/event/'))
+            
             for card in event_cards:
                 try:
                     # Название
@@ -285,7 +288,13 @@ async def parse_russia_running_events() -> List[Dict]:
                     
                     # Ссылка
                     link_elem = card.find('a', href=True)
-                    url = f"https://russiarunning.com{link_elem['href']}" if link_elem else ""
+                    url = ""
+                    if link_elem:
+                        href = link_elem.get('href', '')
+                        if 'reg.russiarunning.com' in href:
+                            url = href if href.startswith('http') else f"https://{href}"
+                        else:
+                            url = f"https://russiarunning.com{href}" if not href.startswith('http') else href
                     
                     # Дистанции
                     dist_elem = card.find(class_='distances') or card.find(class_='distance')
@@ -305,6 +314,33 @@ async def parse_russia_running_events() -> List[Dict]:
                         'url': url,
                         'source': 'RussiaRunning'
                     })
+            
+            # Обрабатываем прямые ссылки на reg.russiarunning.com
+            for link in reg_links:
+                try:
+                    href = link.get('href', '')
+                    if 'reg.russiarunning.com' in href or '/event/' in href:
+                        url = href if href.startswith('http') else f"https://reg.russiarunning.com{href}"
+                        title = link.get_text(strip=True) or "Событие RussiaRunning"
+                        # Пытаемся найти дату в родительском элементе
+                        parent = link.find_parent()
+                        date_str = ""
+                        if parent:
+                            date_elem = parent.find('time') or parent.find(class_='date')
+                            if date_elem:
+                                date_str = date_elem.get('datetime', '')[:10] if date_elem.get('datetime') else date_elem.get_text(strip=True)
+                        
+                        events.append({
+                            'title': title,
+                            'date': date_str,
+                            'city': "Санкт-Петербург",  # SCARLETSAILS обычно в СПб
+                            'distances': 'Уточняйте на сайте',
+                            'url': url,
+                            'source': 'RussiaRunning'
+                        })
+                except Exception as e:
+                    logger.warning(f"[EVENTS] Ошибка парсинга ссылки RussiaRunning: {e}")
+                    continue
                     
                 except Exception as e:
                     logger.warning(f"[EVENTS] Ошибка парсинга карточки RussiaRunning: {e}")
@@ -320,7 +356,7 @@ async def parse_marathonec_events() -> List[Dict]:
     """Парсинг мероприятий с marathonec.ru"""
     events = []
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(
                 "https://marathonec.ru/calendar-beg/",
                 headers={
@@ -330,8 +366,9 @@ async def parse_marathonec_events() -> List[Dict]:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Ищем таблицу или блоки с забегами
-            table = soup.find('table', class_='calendar') or soup.find('div', class_='calendar')
+            # Ищем таблицу с забегами (может быть table или div с таблицей)
+            table = soup.find('table') or soup.find('div', class_='calendar') or soup.find('div', class_='table')
+            
             if table:
                 rows = table.find_all('tr')
                 for row in rows:
@@ -340,25 +377,73 @@ async def parse_marathonec_events() -> List[Dict]:
                         if len(cols) < 3:
                             continue
                         
-                        # Дата
-                        date_str = cols[0].get_text(strip=True)
-                        
-                        # Название
-                        title_elem = cols[1].find('a') or cols[1]
-                        title = title_elem.get_text(strip=True) if title_elem else None
-                        
-                        if not title or not date_str:
+                        # Пропускаем заголовки
+                        if row.find('th'):
                             continue
                         
-                        # Местоположение
-                        city = cols[2].get_text(strip=True) if len(cols) > 2 else ""
-
-                        # Фильтрация по регионам делается ниже, на общем уровне
+                        # Дата (первая колонка) - формат может быть "03/07/2026" или "03.07.2026"
+                        date_raw = cols[0].get_text(strip=True)
+                        date_str = parse_russian_date(date_raw) if date_raw else ""
+                        
+                        # Название (вторая колонка) - ищем ссылку
+                        title_elem = cols[1].find('a')
+                        if not title_elem:
+                            title_elem = cols[1]
+                        title = title_elem.get_text(strip=True) if title_elem else None
+                        
+                        if not title or len(title) < 3:
+                            continue
+                        
+                        # Дистанции (третья колонка)
+                        distances = cols[2].get_text(strip=True) if len(cols) > 2 else "Уточняйте на сайте"
+                        
+                        # Город (четвертая колонка)
+                        city = cols[3].get_text(strip=True) if len(cols) > 3 else ""
                         
                         # Ссылка
                         url = ""
                         if title_elem and title_elem.get('href'):
-                            url = title_elem['href']
+                            href = title_elem['href']
+                            url = href if href.startswith('http') else f"https://marathonec.ru{href}"
+                        
+                        # Фильтрация по регионам делается ниже, на общем уровне
+                        
+                        events.append({
+                            'title': title,
+                            'date': date_str,
+                            'city': city,
+                            'distances': distances,
+                            'url': url,
+                            'source': 'Марафонец'
+                        })
+                        
+                    except Exception as e:
+                        logger.warning(f"[EVENTS] Ошибка парсинга строки marathonec: {e}")
+                        continue
+            else:
+                # Альтернативный поиск: ищем все ссылки на забеги
+                event_links = soup.find_all('a', href=re.compile(r'/calendar-beg|/event|/[a-z-]+-marathon|/[a-z-]+-trail'))
+                for link in event_links:
+                    try:
+                        title = link.get_text(strip=True)
+                        if not title or len(title) < 5:
+                            continue
+                        
+                        href = link.get('href', '')
+                        url = href if href.startswith('http') else f"https://marathonec.ru{href}"
+                        
+                        # Пытаемся найти дату и город в родительском элементе
+                        parent = link.find_parent(['tr', 'div', 'li'])
+                        date_str = ""
+                        city = ""
+                        if parent:
+                            date_elem = parent.find('time') or parent.find(class_='date')
+                            if date_elem:
+                                date_str = parse_russian_date(date_elem.get_text(strip=True))
+                            
+                            city_elem = parent.find(class_='city') or parent.find(string=re.compile(r'Москва|Санкт-Петербург|СПб|Питер'))
+                            if city_elem:
+                                city = city_elem.get_text(strip=True) if hasattr(city_elem, 'get_text') else str(city_elem)
                         
                         events.append({
                             'title': title,
@@ -368,9 +453,8 @@ async def parse_marathonec_events() -> List[Dict]:
                             'url': url,
                             'source': 'Марафонец'
                         })
-                        
                     except Exception as e:
-                        logger.warning(f"[EVENTS] Ошибка парсинга строки marathonec: {e}")
+                        logger.warning(f"[EVENTS] Ошибка парсинга ссылки marathonec: {e}")
                         continue
                     
     except Exception as e:
@@ -939,10 +1023,11 @@ async def parse_pushkin_run_events() -> List[Dict]:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # Ищем блоки с забегами
-            event_cards = soup.find_all('a', href=re.compile(r'/whitenights|/event|/race')) or \
+            # Ищем блоки с забегами (расширенный поиск)
+            event_cards = soup.find_all('a', href=re.compile(r'/whitenights|/event|/race|/pulkovo|/pulkovopushkin')) or \
                          soup.find_all('div', class_='event') or \
-                         soup.find_all('article', class_='race')
+                         soup.find_all('article', class_='race') or \
+                         soup.find_all('a', href=re.compile(r'/\w+202\d'))  # Ссылки типа /pulkovopushkin2026
 
             for card in event_cards:
                 try:
@@ -1966,7 +2051,9 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
         'санкт-петербург', 'saint petersburg', 'st. petersburg',
         'петербург', 'питер', 'спб', 'spb',
         'ленинградск', 'ленинградской', 'ленинградская',
-        'гатчина', 'выборг', 'всеволожск', 'тосно'
+        'гатчина', 'выборг', 'всеволожск', 'тосно', 'пушкин',
+        'pulkovo', 'пулково', 'царское село',
+        'scarlet', 'алые паруса', 'алые', 'паруса'
     ]
 
     izhevsk_region_keywords = [
