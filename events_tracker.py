@@ -2553,7 +2553,7 @@ async def events_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     # Получаем ID топика из сообщения (если есть) - отвечаем в том же топике где вызвали
     raw_thread_id = getattr(update.message, 'message_thread_id', None)
-image.png    logger.info(f"[EVENTS] DEBUG: raw message_thread_id={raw_thread_id}, hasattr={hasattr(update.message, 'message_thread_id')}")
+    logger.info(f"[EVENTS] DEBUG: raw message_thread_id={raw_thread_id}, hasattr={hasattr(update.message, 'message_thread_id')}")
 
     # Если message_thread_id None или 0, используем EVENTS_TOPIC_ID
     message_thread_id = raw_thread_id if raw_thread_id else EVENTS_TOPIC_ID

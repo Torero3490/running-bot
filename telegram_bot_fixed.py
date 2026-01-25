@@ -7697,8 +7697,8 @@ async def handle_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"[MENTION] is_mention={is_mention}, паттерны={mention_patterns}")
         
         if not is_mention:
-            logger.info("[MENTION] Нет @mention, пропускаем")
-            return
+            logger.info("[MENTION] Нет @mention, пропускаем (handle_all_messages должен обработать)")
+            return  # Возвращаем None, чтобы другие обработчики могли обработать
         
         # Убираем @mention из сообщения для обработки
         clean_text = message_text
@@ -7762,13 +7762,13 @@ async def handle_replies_to_bot(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         logger.info(f"[REPLY] Проверка сообщения (message={update.message is not None})")
         if not update.message or not update.message.text:
-            logger.info("[REPLY] Нет сообщения или текста, пропускаем")
-            return
+            logger.info("[REPLY] Нет сообщения или текста, пропускаем (handle_all_messages должен обработать)")
+            return  # Возвращаем None, чтобы другие обработчики могли обработать
         
         # Проверяем, что это reply (ответ на сообщение)
         if not update.message.reply_to_message:
-            logger.info("[REPLY] Не reply, пропускаем")
-            return
+            logger.info("[REPLY] Не reply, пропускаем (handle_all_messages должен обработать)")
+            return  # Возвращаем None, чтобы другие обработчики могли обработать
         
         # Проверяем, что ответ на сообщение бота
         replied_from = update.message.reply_to_message.from_user
@@ -8174,6 +8174,10 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not update.message:
             logger.info("[HANDLER] Нет update.message, выходим")
             return
+        
+        # Логируем текст сообщения сразу
+        message_text_preview = update.message.text[:100] if update.message.text else (update.message.caption[:100] if update.message.caption else "None")
+        logger.info(f"[HANDLER] Текст сообщения (preview): '{message_text_preview}'")
             
         logger.info(f"[HANDLER] message_id={update.message.message_id}, chat_id={update.message.chat.id if update.message.chat else None}")
         
@@ -8422,6 +8426,19 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         is_good_morning = any(greeting in check_text for greeting in good_morning_keywords)
         logger.info(f"[MORNING] Проверка: '{check_text[:100]}...' | is_good_morning={is_good_morning}")
+        logger.info(f"[MORNING] check_text.lower()='{check_text.lower()}'")
+        logger.info(f"[MORNING] Длина check_text: {len(check_text)}")
+        
+        # Дополнительная проверка: ищем "доброе утро" в разных вариантах
+        check_lower = check_text.lower()
+        has_dobroe = 'доброе' in check_lower or 'доброго' in check_lower or 'доброутро' in check_lower
+        has_utro = 'утро' in check_lower or 'утра' in check_lower or 'утречка' in check_lower
+        logger.info(f"[MORNING] Дополнительная проверка: has_dobroe={has_dobroe}, has_utro={has_utro}")
+        
+        # Если есть и "доброе" и "утро" - это точно приветствие
+        if has_dobroe and has_utro:
+            logger.info("[MORNING] OK Найдено 'доброе' И 'утро' - принудительно устанавливаем is_good_morning=True")
+            is_good_morning = True
     
         if is_good_morning:
             # Дополнительное логирование для отладки
