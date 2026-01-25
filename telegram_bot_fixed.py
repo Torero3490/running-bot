@@ -7801,6 +7801,68 @@ async def handle_replies_to_bot(update: Update, context: ContextTypes.DEFAULT_TY
             logger.info("[REPLY] Пустое сообщение, пропускаем")
             return
         
+        # === СПЕЦИАЛЬНАЯ ОБРАБОТКА: ДОБРОЕ УТРО ===
+        # Если это "доброе утро", обрабатываем как приветствие, а не как обычный reply
+        check_text = message_text.strip().lower()
+        good_morning_keywords = [
+            'доброе утро', 'доброе утро!', 'доброе утро всем', 'всем доброе утро',
+            'доброе утро.', 'доброе утро,', 'утро доброе', 'утро!',
+            'всем утро', 'утро доброе', 'доброутро', 'доброго утра',
+            'всем доброго утра', 'доброго утра!', 'доброго утра всем',
+            '☀️ утро', '☀️доброе', 'утро ☀️',
+            'утра', 'всем утра', 'утречка', 'утречко', 'с утра', 'с утра!',
+            'всем с утра', 'и тебе доброе утро', 'и тебе утро',
+            'good morning', 'good morning!', 'morning!', 'morning',
+            '?доброе утро', 'утро?', 'доброе утро?',
+        ]
+        
+        # Дополнительная проверка: ищем "доброе утро" в разных вариантах
+        has_dobroe = 'доброе' in check_text or 'доброго' in check_text or 'доброутро' in check_text
+        has_utro = 'утро' in check_text or 'утра' in check_text or 'утречка' in check_text
+        is_good_morning = any(greeting in check_text for greeting in good_morning_keywords) or (has_dobroe and has_utro)
+        
+        if is_good_morning:
+            logger.info(f"[REPLY] Обнаружено 'доброе утро' в reply от {user_name}, обрабатываем как приветствие")
+            
+            # Проверяем пол через ИИ с таймаутом
+            try:
+                is_female = await asyncio.wait_for(check_is_female_by_ai(user_name), timeout=3.0)
+            except asyncio.TimeoutError:
+                logger.warning(f"[REPLY-MORNING] Таймаут определения пола для {user_name}, используем нейтральный ответ")
+                is_female = False
+            except Exception as e:
+                logger.error(f"[REPLY-MORNING] Ошибка определения пола: {e}")
+                is_female = False
+            
+            # Рандомный выбор ответа
+            rand = random.random()
+            if is_female and rand < 0.4:
+                morning_text = get_random_good_morning_flirt()
+                logger.info(f"[REPLY-MORNING] Рандом: ФЛИРТ для {user_name}")
+            elif rand < 0.7:
+                morning_text = random.choice(MOVIE_QUOTES)
+                logger.info(f"[REPLY-MORNING] Рандом: ЦИТАТА для {user_name}")
+            else:
+                morning_text = get_random_good_morning()
+                logger.info(f"[REPLY-MORNING] Рандом: НЕЙТРАЛЬНО для {user_name}")
+            
+            # Формируем упоминание пользователя
+            user_mention = f"@{user_name}" if user_name else ""
+            
+            # Отправляем ответ на доброе утро
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"{user_mention} 💫 **{morning_text}**",
+                    parse_mode="Markdown",
+                )
+                logger.info(f"[REPLY-MORNING] Ответ на доброе утро отправлен для {user_name}")
+                return  # Выходим после отправки ответа на утро
+            except Exception as e:
+                logger.error(f"[REPLY-MORNING] Ошибка отправки: {e}")
+                # Продолжаем обычную обработку reply, если не удалось отправить
+        
+        # === ОБЫЧНАЯ ОБРАБОТКА REPLY (если не "доброе утро") ===
         # Проверяем пол для комплиментов с таймаутом
         try:
             is_female = await asyncio.wait_for(check_is_female_by_ai(user_name), timeout=5.0)

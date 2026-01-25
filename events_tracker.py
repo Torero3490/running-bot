@@ -2020,15 +2020,16 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     year_match = re.search(r'20[2-9]\d', date_str)
     if year_match:
         year = int(year_match.group())
+        logger.info(f"[EVENTS FILTER] Извлечён год {year} из даты '{date_str}' для события '{event.get('title', 'Без названия')}'")
 
     # Если год не найден (0) - не отбрасываем сразу (дальше фильтр по региону)
     if year == 0:
-        logger.info(f"[EVENTS] Год не определён, продолжаем фильтрацию по региону: {event.get('title', 'Без названия')}")
-        year = 9999
+        logger.info(f"[EVENTS FILTER] Год не определён из даты '{date_str}', продолжаем фильтрацию по региону: {event.get('title', 'Без названия')}")
+        year = 9999  # Устанавливаем большое значение, чтобы не отфильтровать
 
     # Если год меньше 2025 - пропускаем
     if year < 2025:
-        logger.info(f"[EVENTS] Пропуск мероприятия (год {year}): {event.get('title', 'Без названия')}")
+        logger.info(f"[EVENTS FILTER] ❌ Пропуск мероприятия (год {year} < 2025): {event.get('title', 'Без названия')} - city='{event.get('city', '')}'")
         return False
 
     # Проверка региона - по городу/названию/локации
@@ -2042,8 +2043,9 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     # Формируем text_blob из всех полей для более надежной проверки
     text_blob = " ".join([city, title, location, region, source, url])
     
-    # Логирование для отладки (только для первых нескольких событий)
-    logger.debug(f"[EVENTS FILTER] Проверка: title='{title[:50]}', city='{city}', text_blob='{text_blob[:150]}'")
+    # Логирование для отладки - ВСЕГДА логируем для понимания проблем
+    logger.info(f"[EVENTS FILTER] Проверка события: title='{title[:50]}', city='{city}', source='{source}'")
+    logger.info(f"[EVENTS FILTER] text_blob (первые 200 символов): '{text_blob[:200]}'")
 
     moscow_region_keywords = [
         'москва', 'moscow', 'московск', 'подмосков', 'подмосковье',
@@ -2088,19 +2090,27 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     is_spb = any(x in text_blob for x in spb_region_keywords)
     is_izhevsk = any(x in text_blob for x in izhevsk_region_keywords)
     
+    # Детальное логирование найденных ключевых слов
+    found_moscow_keywords = [kw for kw in moscow_region_keywords if kw in text_blob]
+    found_spb_keywords = [kw for kw in spb_region_keywords if kw in text_blob]
+    found_izhevsk_keywords = [kw for kw in izhevsk_region_keywords if kw in text_blob]
+    
+    logger.info(f"[EVENTS FILTER] Найденные ключевые слова: Москва={found_moscow_keywords[:3]}, СПб={found_spb_keywords[:3]}, Ижевск={found_izhevsk_keywords[:3]}")
+    logger.info(f"[EVENTS FILTER] Результат: is_moscow={is_moscow}, is_spb={is_spb}, is_izhevsk={is_izhevsk}")
+    
     # Логирование для отладки
     if not (is_moscow or is_spb or is_izhevsk):
         logger.info(
-            f"[EVENTS] Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - city='{event.get('city', '')}', text_blob='{text_blob[:200]}'"
+            f"[EVENTS] ❌ Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - city='{event.get('city', '')}', text_blob='{text_blob[:200]}'"
         )
         return False
     
     if is_moscow:
-        logger.info(f"[EVENTS] ✅ Москва/МО: {event.get('title', 'Без названия')} - city='{event.get('city', '')}'")
+        logger.info(f"[EVENTS] ✅ Москва/МО: {event.get('title', 'Без названия')} - city='{event.get('city', '')}', найденные ключевые слова: {found_moscow_keywords[:3]}")
     elif is_spb:
-        logger.info(f"[EVENTS] ✅ СПб/ЛО: {event.get('title', 'Без названия')} - city='{event.get('city', '')}'")
+        logger.info(f"[EVENTS] ✅ СПб/ЛО: {event.get('title', 'Без названия')} - city='{event.get('city', '')}', найденные ключевые слова: {found_spb_keywords[:3]}")
     elif is_izhevsk:
-        logger.info(f"[EVENTS] ✅ Ижевск/Удмуртия: {event.get('title', 'Без названия')} - city='{event.get('city', '')}'")
+        logger.info(f"[EVENTS] ✅ Ижевск/Удмуртия: {event.get('title', 'Без названия')} - city='{event.get('city', '')}', найденные ключевые слова: {found_izhevsk_keywords[:3]}")
 
     return True
 
@@ -2493,11 +2503,46 @@ async def get_all_events() -> List[Dict]:
 
     # Фильтруем мероприятия - только 2026+ год и Москва/СПб/области
     filtered_events = []
+    skipped_by_year = 0
+    skipped_by_city = 0
+    moscow_count = 0
+    spb_count = 0
+    izhevsk_count = 0
+    
+    logger.info(f"[EVENTS] Всего собрано событий до фильтрации: {len(all_events)}")
+    
     for event in all_events:
+        # Проверяем год
+        date_str = event.get('date', '')
+        year = 0
+        year_match = re.search(r'20[2-9]\d', date_str)
+        if year_match:
+            year = int(year_match.group())
+        
+        if year > 0 and year < 2025:
+            skipped_by_year += 1
+            logger.info(f"[EVENTS] Пропуск по году ({year}): {event.get('title', 'Без названия')} - city='{event.get('city', '')}'")
+            continue
+        
+        # Проверяем регион
         if filter_event_by_year_and_city(event):
             filtered_events.append(event)
+            # Подсчитываем по регионам
+            city_lower = (event.get('city', '') or '').lower()
+            title_lower = (event.get('title', '') or '').lower()
+            text_check = f"{city_lower} {title_lower}".lower()
+            if any(kw in text_check for kw in ['москва', 'moscow', 'московск', 'подмосков', 'зеленоград']):
+                moscow_count += 1
+            elif any(kw in text_check for kw in ['петербург', 'питер', 'спб', 'spb', 'ленинград']):
+                spb_count += 1
+            elif any(kw in text_check for kw in ['ижевск', 'удмурт']):
+                izhevsk_count += 1
+        else:
+            skipped_by_city += 1
 
     logger.info(f"[EVENTS] После фильтрации: {len(filtered_events)} мероприятий")
+    logger.info(f"[EVENTS] Распределение: Москва/МО={moscow_count}, СПб/ЛО={spb_count}, Ижевск/Удмуртия={izhevsk_count}")
+    logger.info(f"[EVENTS] Пропущено: по году={skipped_by_year}, по региону={skipped_by_city}")
 
     # Строгая проверка открытых регистраций
     open_events = []
