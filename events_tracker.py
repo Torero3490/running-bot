@@ -1958,8 +1958,13 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
         logger.info(f"[EVENTS] Пропуск мероприятия (год {year}): {event.get('title', 'Без названия')}")
         return False
 
-    # Проверка города - только Москва, Подмосковье, СПб, Ленинградская область
-    city = event.get('city', '').lower()
+    # Проверка региона - по городу/названию/локации
+    city = (event.get('city', '') or '').lower()
+    title = (event.get('title', '') or '').lower()
+    location = (event.get('location', '') or '').lower()
+    region = (event.get('region', '') or '').lower()
+    source = (event.get('source', '') or '').lower()
+    text_blob = " ".join([city, title, location, region, source])
 
     moscow_region_keywords = [
         'москва', 'moscow', 'московск', 'подмосков', 'подмосковье',
@@ -1981,17 +1986,14 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     ]
 
     # Проверяем, относится ли мероприятие к целевому региону
-    is_moscow = any(x in city for x in moscow_region_keywords)
-    is_spb = any(x in city for x in spb_region_keywords)
-    is_izhevsk = any(x in city for x in izhevsk_region_keywords)
-
-    # Если город не определён (пустой или "Россия") - пропускаем
-    if not city or city.lower() in ['', 'россия', 'russia']:
-        logger.info(f"[EVENTS] Город не определён, пропускаем: {event.get('title', 'Без названия')}")
-        return False
+    is_moscow = any(x in text_blob for x in moscow_region_keywords)
+    is_spb = any(x in text_blob for x in spb_region_keywords)
+    is_izhevsk = any(x in text_blob for x in izhevsk_region_keywords)
 
     if not (is_moscow or is_spb or is_izhevsk):
-        logger.info(f"[EVENTS] Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - {event.get('city', '')}")
+        logger.info(
+            f"[EVENTS] Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - {event.get('city', '')}"
+        )
         return False
 
     return True
