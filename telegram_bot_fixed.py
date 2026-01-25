@@ -8098,7 +8098,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # ОТЛАДКА - логируем ЧТО ПРИШЛО
     try:
-        if not update.message or update.message.from_user.is_bot:
+        if not update.message or not update.message.from_user or update.message.from_user.is_bot:
             return
 
         now = datetime.now(MOSCOW_TZ)
@@ -8206,6 +8206,92 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         who_are_you_words = ["кто ты", "что ты", "ты бот", "ты робот", "ты живой", "кто такой"]
         if any(word in check_text_lower for word in who_are_you_words):
             message_type = "who_are_you"
+
+        # === РАННИЙ УЧЁТ СТАТИСТИКИ (чтобы не терять сообщения из-за ранних return) ===
+        try:
+            moscow_now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
+            today = moscow_now.strftime("%Y-%m-%d")
+
+            if not isinstance(daily_stats, dict) or "date" not in daily_stats:
+                daily_stats = {
+                    "date": today,
+                    "total_messages": 0,
+                    "user_messages": {},
+                    "photos": [],
+                    "first_photo_user_id": None,
+                    "first_photo_user_name": None
+                }
+                logger.info("[MSG] daily_stats переинициализирован (ранний учёт)")
+
+            daily_stats["total_messages"] += 1
+            current_count = daily_stats["total_messages"]
+            logger.info(f"[MSG] Сообщение #{current_count} от {user_name} (ранний учёт)")
+
+            if user_id not in daily_stats["user_messages"]:
+                safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+                daily_stats["user_messages"][user_id] = {"name": safe_name, "count": 0}
+            daily_stats["user_messages"][user_id]["count"] += 1
+
+            if is_photo:
+                photo = update.message.photo[-1]
+                safe_photo_user_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+                daily_stats["photos"].append({
+                    "file_id": photo.file_id,
+                    "user_id": user_id,
+                    "message_id": update.message.message_id,
+                    "likes": 0,
+                    "user_name": safe_photo_user_name
+                })
+                if daily_stats.get("first_photo_user_id") is None:
+                    daily_stats["first_photo_user_id"] = user_id
+                    daily_stats["first_photo_user_name"] = safe_photo_user_name
+
+            await save_daily_stats()
+
+            # === СОХРАНЕНИЕ В ИСТОРИЮ ЧАТА (СКРЫТО) ===
+            try:
+                message_entry = {
+                    "id": update.message.message_id,
+                    "user_id": user_id,
+                    "user_name": user_name,
+                    "text": message_text[:500] if message_text else "",
+                    "timestamp": moscow_now.isoformat(),
+                    "type": message_type,
+                    "has_photo": is_photo,
+                    "photo_count": len(update.message.photo) if is_photo else 0,
+                    "has_video": is_video,
+                    "has_voice": is_voice,
+                    "has_document": is_document,
+                    "reply_to_message_id": update.message.reply_to_message.message_id if update.message.reply_to_message else None,
+                    "chat_id": CHAT_ID
+                }
+                chat_history["messages"].append(message_entry)
+                if len(chat_history["messages"]) > HISTORY_MAX_MESSAGES:
+                    chat_history["messages"] = chat_history["messages"][-HISTORY_MAX_MESSAGES:]
+
+                if is_photo:
+                    for photo in update.message.photo:
+                        photo_entry = {
+                            "file_id": photo.file_id,
+                            "user_id": user_id,
+                            "user_name": user_name,
+                            "timestamp": moscow_now.isoformat(),
+                            "message_id": update.message.message_id,
+                            "file_unique_id": photo.file_unique_id,
+                            "width": photo.width,
+                            "height": photo.height,
+                            "file_size": photo.file_size
+                        }
+                        chat_history["photos"].append(photo_entry)
+
+                chat_history["last_updated"] = moscow_now.isoformat()
+                logger.info(f"[HISTORY] Сохранено сообщение от {user_name} (всего в истории: {len(chat_history['messages'])} сообщений)")
+            except Exception as e:
+                logger.error(f"[HISTORY] Ошибка сохранения в историю: {e}")
+
+            await save_chat_history()
+        except Exception as e:
+            logger.error(f"[MSG] Ошибка раннего учёта статистики: {e}", exc_info=True)
     
         logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
         logger.info(f"[MSG] message_text='{message_text}', check_text='{check_text}'")
@@ -8581,109 +8667,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 logger.info(f"[GOODNIGHT] Ответил на спокойную ночь от {user_name}")
                 # Не делаем return, чтобы статистика тоже считалась
     
-            # === СТАТИСТИКА ===
-            
-            # Считаем дату по Москве
-            moscow_now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
-            today = moscow_now.strftime("%Y-%m-%d")
-            
-            # Безопасная инициализация daily_stats
-            if not isinstance(daily_stats, dict) or "date" not in daily_stats:
-                daily_stats = {"date": today, "total_messages": 0, "user_messages": {}, "photos": [], "first_photo_user_id": None, "first_photo_user_name": None}
-                logger.info("[MSG] daily_stats переинициализирован")
-            
-            logger.info(f"[MSG] today={today}, daily_stats_date={daily_stats.get('date', 'EMPTY')}")
-            
-            # НЕ сбрасываем daily_stats - данные восстановлены из канала
-            # if daily_stats.get("date", "") != today:
-            #     daily_stats["date"] = today
-            #     daily_stats["total_messages"] = 0
-            #     daily_stats["user_messages"] = {}
-            #     daily_stats["photos"] = []
-            #     daily_stats["first_photo_user_id"] = None
-            #     daily_stats["first_photo_user_name"] = None
-            #     logger.info("[MSG] Новый день - статистика сброшена")
-            #     logger.info(f"[MSG] Новый день! Сброшена статистика")
-            
-            # Увеличиваем счётчик
-            daily_stats["total_messages"] += 1
-            current_count = daily_stats["total_messages"]
-            logger.info(f"[MSG] Сообщение #{current_count} от {user_name}")
-            
-            if user_id not in daily_stats["user_messages"]:
-                # Экранируем спецсимволы Markdown в имени при сохранении
-                safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
-                daily_stats["user_messages"][user_id] = {"name": safe_name, "count": 0}
-            daily_stats["user_messages"][user_id]["count"] += 1
-    
-            if is_photo:
-                photo = update.message.photo[-1]
-                # Экранируем имя пользователя для Markdown
-                safe_photo_user_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
-                daily_stats["photos"].append({
-                    "file_id": photo.file_id,
-                    "user_id": user_id,
-                    "message_id": update.message.message_id,
-                    "likes": 0,  # Инициализируем лайки
-                    "user_name": safe_photo_user_name  # Сохраняем имя автора (экранировано)
-                })
-                # Запоминаем первого автора фото (для двойных баллов)
-                if daily_stats.get("first_photo_user_id") is None:
-                    daily_stats["first_photo_user_id"] = user_id
-                    # Экранируем имя для Markdown
-                    safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
-                    daily_stats["first_photo_user_name"] = safe_name
-            
-            # Сохраняем ежедневную статистику в канал
-            await save_daily_stats()
-            
-            # === СОХРАНЕНИЕ В ИСТОРИЮ ЧАТА (СКРЫТО) ===
-            try:
-                # Добавляем сообщение в историю
-                message_entry = {
-                    "id": update.message.message_id,
-                    "user_id": user_id,
-                    "user_name": user_name,
-                    "text": message_text[:500] if message_text else "",  # Ограничиваем длину текста
-                    "timestamp": moscow_now.isoformat(),
-                    "type": message_type,
-                    "has_photo": is_photo,
-                    "photo_count": len(update.message.photo) if is_photo else 0,
-                    "has_video": is_video,
-                    "has_voice": is_voice,
-                    "has_document": is_document,
-                    "reply_to_message_id": update.message.reply_to_message.message_id if update.message.reply_to_message else None,
-                    "chat_id": CHAT_ID
-                }
-                chat_history["messages"].append(message_entry)
-                if len(chat_history["messages"]) > HISTORY_MAX_MESSAGES:
-                    chat_history["messages"] = chat_history["messages"][-HISTORY_MAX_MESSAGES:]
-                
-                # Если есть фото - сохраняем отдельно
-                if is_photo:
-                    for photo in update.message.photo:
-                        photo_entry = {
-                            "file_id": photo.file_id,
-                            "user_id": user_id,
-                            "user_name": user_name,
-                            "timestamp": moscow_now.isoformat(),
-                            "message_id": update.message.message_id,
-                            "file_unique_id": photo.file_unique_id,
-                            "width": photo.width,
-                            "height": photo.height,
-                            "file_size": photo.file_size
-                        }
-                        chat_history["photos"].append(photo_entry)
-                
-                # Обновляем время последнего обновления
-                chat_history["last_updated"] = moscow_now.isoformat()
-                
-                logger.info(f"[HISTORY] Сохранено сообщение от {user_name} (всего в истории: {len(chat_history['messages'])} сообщений)")
-            except Exception as e:
-                logger.error(f"[HISTORY] Ошибка сохранения в историю: {e}")
-            
-            # Сохраняем историю в канал (асинхронно)
-            await save_chat_history()
+            # Статистика и история учтены раньше (ранний учёт)
             
             # === РЕЙТИНГ ===
             if user_id not in user_rating_stats:

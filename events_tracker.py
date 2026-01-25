@@ -251,9 +251,9 @@ async def parse_russia_running_events() -> List[Dict]:
     """Парсинг мероприятий с RussiaRunning"""
     events = []
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(
-                "https://russiarunning.com/Events",
+                "https://russiarunning.com/events",
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 }
@@ -295,13 +295,7 @@ async def parse_russia_running_events() -> List[Dict]:
                     loc_elem = card.find(class_='city') or card.find(class_='location')
                     city = loc_elem.get_text(strip=True) if loc_elem else ""
 
-                    # Расширенный фильтр городов
-                    city_lower = city.lower()
-                    moscow_region = ['москва', 'moscow', 'московская', 'подмосковье', 'московской']
-                    spb_region = ['санкт-петербург', 'st. petersburg', 'спб', 'saint petersburg', 'питер', 'петербург', 'ленинградская', 'ленинградской']
-
-                    if not any(x in city_lower for x in moscow_region + spb_region):
-                        continue
+                    # Фильтрация по регионам делается ниже, на общем уровне
                     
                     events.append({
                         'title': title,
@@ -359,13 +353,7 @@ async def parse_marathonec_events() -> List[Dict]:
                         # Местоположение
                         city = cols[2].get_text(strip=True) if len(cols) > 2 else ""
 
-                        # Расширенный фильтр городов
-                        city_lower = city.lower()
-                        moscow_region = ['москва', 'moscow', 'московская', 'подмосковье', 'московской']
-                        spb_region = ['санкт-петербург', 'st. petersburg', 'спб', 'saint petersburg', 'питер', 'петербург', 'ленинградская', 'ленинградской']
-
-                        if not any(x in city_lower for x in moscow_region + spb_region):
-                            continue
+                        # Фильтрация по регионам делается ниже, на общем уровне
                         
                         # Ссылка
                         url = ""
