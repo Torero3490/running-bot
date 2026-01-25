@@ -8098,6 +8098,23 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # ОТЛАДКА - логируем ЧТО ПРИШЛО
     try:
+        if not update.message or update.message.from_user.is_bot:
+            return
+
+        now = datetime.now(MOSCOW_TZ)
+        user = update.message.from_user
+        user_id = user.id
+        user_name = user.full_name or user.username or "Пользователь"
+
+        message_text = update.message.text or update.message.caption or ""
+        check_text = message_text.strip()
+
+        # Типы медиа в сообщении
+        is_photo = bool(update.message.photo)
+        is_video = bool(update.message.video)
+        is_voice = bool(update.message.voice)
+        is_document = bool(update.message.document)
+
         try:
             logger.info(f"[HANDLER] Получен update: type={type(update)}, message={update.message is not None}")
             if update.message:
