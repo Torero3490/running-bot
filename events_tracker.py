@@ -314,6 +314,10 @@ async def parse_russia_running_events() -> List[Dict]:
                         'url': url,
                         'source': 'RussiaRunning'
                     })
+                    
+                except Exception as e:
+                    logger.warning(f"[EVENTS] Ошибка парсинга карточки RussiaRunning: {e}")
+                    continue
             
             # Обрабатываем прямые ссылки на reg.russiarunning.com
             for link in reg_links:
@@ -340,10 +344,6 @@ async def parse_russia_running_events() -> List[Dict]:
                         })
                 except Exception as e:
                     logger.warning(f"[EVENTS] Ошибка парсинга ссылки RussiaRunning: {e}")
-                    continue
-                    
-                except Exception as e:
-                    logger.warning(f"[EVENTS] Ошибка парсинга карточки RussiaRunning: {e}")
                     continue
                     
     except Exception as e:
