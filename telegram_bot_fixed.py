@@ -7661,19 +7661,25 @@ async def challenge_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщений когда обращаются к боту через @mention"""
     try:
+        logger.info(f"[MENTION] Проверка сообщения (message={update.message is not None})")
         if not update.message or not update.message.text:
+            logger.info("[MENTION] Нет сообщения или текста, пропускаем")
             return
         
         user_name = update.message.from_user.full_name or update.message.from_user.username or "Пользователь"
         user_id = update.message.from_user.id
         message_text = update.message.text
         
-        # Проверяем пол пользователя для комплиментов
-        is_female = await check_is_female_by_ai(user_name)
-        
-        # Получаем информацию о боте
-        bot_info = await context.bot.get_me()
-        bot_username = bot_info.username.lower()
+        # Получаем информацию о боте с таймаутом
+        try:
+            bot_info = await asyncio.wait_for(context.bot.get_me(), timeout=5.0)
+            bot_username = bot_info.username.lower()
+        except asyncio.TimeoutError:
+            logger.warning("[MENTION] Таймаут получения информации о боте")
+            return
+        except Exception as e:
+            logger.error(f"[MENTION] Ошибка получения информации о боте: {e}")
+            return
         
         logger.info(f"[MENTION] Проверка сообщения от {user_name}: '{message_text[:50]}...' (ищем @{bot_username})")
         
@@ -7690,6 +7696,7 @@ async def handle_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"[MENTION] is_mention={is_mention}, паттерны={mention_patterns}")
         
         if not is_mention:
+            logger.info("[MENTION] Нет @mention, пропускаем")
             return
         
         # Убираем @mention из сообщения для обработки
@@ -7703,45 +7710,83 @@ async def handle_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         logger.info(f"[MENTION] Пользователь {user_name} обратился к боту: '{clean_text}'")
         
-        # Отправляем "печатает" статус
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        # Проверяем пол пользователя для комплиментов с таймаутом
+        try:
+            is_female = await asyncio.wait_for(check_is_female_by_ai(user_name), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"[MENTION] Таймаут определения пола для {user_name}, используем нейтральный")
+            is_female = False
+        except Exception as e:
+            logger.error(f"[MENTION] Ошибка определения пола: {e}")
+            is_female = False
         
-        # Получаем ответ с медиа
-        response_data = await generate_toxic_response_with_media(clean_text, user_name, is_female, include_media=True)
+        # Отправляем "печатает" статус
+        try:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        except Exception as e:
+            logger.warning(f"[MENTION] Ошибка отправки chat_action: {e}")
+        
+        # Получаем ответ с медиа с таймаутом
+        try:
+            response_data = await asyncio.wait_for(
+                generate_toxic_response_with_media(clean_text, user_name, is_female, include_media=True),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.error("[MENTION] Таймаут генерации ответа")
+            return
+        except Exception as e:
+            logger.error(f"[MENTION] Ошибка генерации ответа: {e}")
+            return
         
         # Отправляем ответ с медиа
-        await send_toxic_response(
-            context=context,
-            chat_id=update.effective_chat.id,
-            text=response_data['text'],
-            sticker=response_data['sticker'],
-            gif=response_data['gif']
-        )
-        
-        logger.info(f"[MENTION] Ответ с медиа отправлен пользователю {user_name}")
+        try:
+            await send_toxic_response(
+                context=context,
+                chat_id=update.effective_chat.id,
+                text=response_data['text'],
+                sticker=response_data['sticker'],
+                gif=response_data['gif']
+            )
+            logger.info(f"[MENTION] Ответ с медиа отправлен пользователю {user_name}")
+        except Exception as e:
+            logger.error(f"[MENTION] Ошибка отправки ответа: {e}")
         
     except Exception as e:
-        logger.error(f"[MENTION] Ошибка обработки обращения: {e}")
+        logger.error(f"[MENTION] КРИТИЧЕСКАЯ ОШИБКА обработки обращения: {e}", exc_info=True)
 
 
 async def handle_replies_to_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщений когда отвечают на сообщение бота"""
     try:
+        logger.info(f"[REPLY] Проверка сообщения (message={update.message is not None})")
         if not update.message or not update.message.text:
+            logger.info("[REPLY] Нет сообщения или текста, пропускаем")
             return
         
         # Проверяем, что это reply (ответ на сообщение)
         if not update.message.reply_to_message:
+            logger.info("[REPLY] Не reply, пропускаем")
             return
         
         # Проверяем, что ответ на сообщение бота
         replied_from = update.message.reply_to_message.from_user
         if not replied_from or not replied_from.is_bot:
+            logger.info("[REPLY] Не ответ на бота, пропускаем")
             return
         
         # Проверяем, что это наш бот (а не другой бот)
-        bot_info = await context.bot.get_me()
+        try:
+            bot_info = await asyncio.wait_for(context.bot.get_me(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("[REPLY] Таймаут получения информации о боте")
+            return
+        except Exception as e:
+            logger.error(f"[REPLY] Ошибка получения информации о боте: {e}")
+            return
+            
         if replied_from.id != bot_info.id:
+            logger.info("[REPLY] Ответ не на нашего бота, пропускаем")
             return
         
         user_name = update.message.from_user.full_name or update.message.from_user.username or "Пользователь"
@@ -7752,30 +7797,53 @@ async def handle_replies_to_bot(update: Update, context: ContextTypes.DEFAULT_TY
         
         # Игнорируем пустые сообщения
         if not message_text or len(message_text.strip()) < 2:
+            logger.info("[REPLY] Пустое сообщение, пропускаем")
             return
         
-        # Проверяем пол для комплиментов
-        is_female = await check_is_female_by_ai(user_name)
+        # Проверяем пол для комплиментов с таймаутом
+        try:
+            is_female = await asyncio.wait_for(check_is_female_by_ai(user_name), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"[REPLY] Таймаут определения пола для {user_name}, используем нейтральный")
+            is_female = False
+        except Exception as e:
+            logger.error(f"[REPLY] Ошибка определения пола: {e}")
+            is_female = False
         
         # Отправляем "печатает" статус
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        try:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        except Exception as e:
+            logger.warning(f"[REPLY] Ошибка отправки chat_action: {e}")
         
-        # Получаем ответ с медиа
-        response_data = await generate_toxic_response_with_media(message_text, user_name, is_female, include_media=True)
+        # Получаем ответ с медиа с таймаутом
+        try:
+            response_data = await asyncio.wait_for(
+                generate_toxic_response_with_media(message_text, user_name, is_female, include_media=True),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.error("[REPLY] Таймаут генерации ответа")
+            return
+        except Exception as e:
+            logger.error(f"[REPLY] Ошибка генерации ответа: {e}")
+            return
         
         # Отправляем ответ с медиа
-        await send_toxic_response(
-            context=context,
-            chat_id=update.effective_chat.id,
-            text=response_data['text'],
-            sticker=response_data['sticker'],
-            gif=response_data['gif']
-        )
-        
-        logger.info(f"[REPLY] Ответ отправлен пользователю {user_name}")
+        try:
+            await send_toxic_response(
+                context=context,
+                chat_id=update.effective_chat.id,
+                text=response_data['text'],
+                sticker=response_data['sticker'],
+                gif=response_data['gif']
+            )
+            logger.info(f"[REPLY] Ответ отправлен пользователю {user_name}")
+        except Exception as e:
+            logger.error(f"[REPLY] Ошибка отправки ответа: {e}")
         
     except Exception as e:
-        logger.error(f"[REPLY] Ошибка обработки ответа: {e}")
+        logger.error(f"[REPLY] КРИТИЧЕСКАЯ ОШИБКА обработки ответа: {e}", exc_info=True)
 
 
 # ============== ОБРАБОТКА ГИФОК И СТИКЕРОВ ==============
@@ -8098,8 +8166,9 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # ОТЛАДКА - логируем ЧТО ПРИШЛО
     try:
-        logger.info(f"[HANDLER] === НАЧАЛО ОБРАБОТКИ ===")
+        logger.info(f"[HANDLER] === НАЧАЛО ОБРАБОТКИ handle_all_messages ===")
         logger.info(f"[HANDLER] update.message={update.message is not None}")
+        logger.info(f"[HANDLER] update.effective_chat={update.effective_chat.id if update.effective_chat else None}")
         
         if not update.message:
             logger.info("[HANDLER] Нет update.message, выходим")
@@ -8310,11 +8379,14 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
         logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
         logger.info(f"[MSG] message_text='{message_text}', check_text='{check_text}'")
+        logger.info(f"[MSG] chat_id={update.message.chat.id}, message_id={update.message.message_id}")
     
         # Проверяем, не команда ли это
         if message_text and message_text.startswith('/'):
             logger.info(f"[MSG] Это команда, пропускаем")
             return
+        
+        logger.info(f"[MSG] Продолжаем обработку (не команда)")
     
         # === ПРОВЕРКА: ДОБРОЕ УТРО (РАНДОМНЫЙ ОТВЕТ) ===
         # Ключевые слова для определения "доброго утра"
@@ -9991,7 +10063,13 @@ async def likes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Глобальный обработчик ошибок"""
-    logger.error("[ERROR] Исключение при обработке:", exc_info=context.error)
+    logger.error(f"[ERROR] 💥 КРИТИЧЕСКАЯ ОШИБКА в обработчике:", exc_info=context.error)
+    logger.error(f"[ERROR] update={update}, context.error={context.error}")
+    
+    # Логируем информацию о сообщении, если есть
+    if update and update.message:
+        logger.error(f"[ERROR] message_id={update.message.message_id}, chat_id={update.message.chat.id if update.message.chat else None}")
+        logger.error(f"[ERROR] from_user={update.message.from_user.id if update.message.from_user else None}")
 
     try:
         if update and update.effective_chat:
@@ -10000,8 +10078,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=update.effective_chat.id,
                 text=error_msg
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"[ERROR] Ошибка отправки сообщения об ошибке: {e}")
 
 
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -10269,6 +10347,28 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("anon", anon))
     application.add_handler(CommandHandler("anonphoto", anonphoto))
     
+    # === ЛОГИРОВАНИЕ ВСЕХ ОБНОВЛЕНИЙ (ДОЛЖЕН БЫТЬ ПЕРВЫМ!) ===
+    async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Логируем все входящие обновления для отладки"""
+        try:
+            if update.message:
+                user_info = f"{update.message.from_user.id}" if update.message.from_user else "None"
+                text_preview = update.message.text[:100] if update.message.text else (update.message.caption[:100] if update.message.caption else "None")
+                logger.info(f"[UPDATE] 📨 Получено сообщение: message_id={update.message.message_id}, chat_id={update.message.chat.id}, from_user={user_info}, text='{text_preview}'")
+            elif update.callback_query:
+                logger.info(f"[UPDATE] 🔘 Получен callback_query: {update.callback_query.data}")
+            elif update.poll:
+                logger.info(f"[UPDATE] 📊 Получен poll")
+            else:
+                logger.info(f"[UPDATE] ❓ Получено неизвестное обновление: {type(update)}")
+        except Exception as e:
+            logger.error(f"[UPDATE] Ошибка логирования обновления: {e}", exc_info=True)
+    
+    # Регистрируем обработчик логирования ПЕРЕД всеми остальными
+    application.add_handler(
+        MessageHandler(filters.ALL, log_update)
+    )
+    
     # === ЛИЧНЫЕ СООБЩЕНИЯ: AI ОТВЕТ ===
     application.add_handler(
         MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_private_messages)
@@ -10359,7 +10459,21 @@ if __name__ == "__main__":
     logger.info("Планировщик мероприятий запущен (10:00)")
     
     logger.info("Планировщики запущены")
-    application.run_polling(drop_pending_updates=True)
+    
+    logger.info("[INIT] 🚀 Запускаем polling...")
+    logger.info(f"[INIT] BOT_TOKEN: {BOT_TOKEN[:10]}... (первые 10 символов)")
+    logger.info(f"[INIT] CHAT_ID: {CHAT_ID}")
+    logger.info(f"[INIT] Всего обработчиков зарегистрировано")
+    
+    try:
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+            close_loop=False
+        )
+    except Exception as e:
+        logger.error(f"[INIT] ❌ КРИТИЧЕСКАЯ ОШИБКА при запуске polling: {e}", exc_info=True)
+        raise
 
 
 # === Функция для обработки ЛИЧНЫХ сообщений ===
