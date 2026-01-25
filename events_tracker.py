@@ -2546,10 +2546,27 @@ async def get_all_events() -> List[Dict]:
 
     # Строгая проверка открытых регистраций
     open_events = []
+    skipped_no_url = 0
+    skipped_closed = 0
+    skipped_unknown = 0
+    moscow_open = 0
+    spb_open = 0
+    izhevsk_open = 0
+    
     for event in filtered_events:
         url = event.get("url") or ""
         if not url:
+            skipped_no_url += 1
             continue
+        
+        # Определяем регион события для статистики
+        city_lower = (event.get('city', '') or '').lower()
+        title_lower = (event.get('title', '') or '').lower()
+        text_check = f"{city_lower} {title_lower}".lower()
+        is_moscow_event = any(kw in text_check for kw in ['москва', 'moscow', 'московск', 'подмосков', 'зеленоград'])
+        is_spb_event = any(kw in text_check for kw in ['петербург', 'питер', 'спб', 'spb', 'ленинград'])
+        is_izhevsk_event = any(kw in text_check for kw in ['ижевск', 'удмурт'])
+        
         try:
             async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
                 page_response = await client.get(
@@ -2558,13 +2575,34 @@ async def get_all_events() -> List[Dict]:
                 )
                 page_text = page_response.text
                 is_open = check_registration_status_strict(page_text, url)
-                if is_open is not False:
-                    event["registration_open"] = (is_open is True)
+                
+                if is_open is False:
+                    skipped_closed += 1
+                    if is_moscow_event:
+                        logger.info(f"[EVENTS] Москва/МО - регистрация закрыта: {event.get('title', 'Без названия')} - {url}")
+                elif is_open is None:
+                    skipped_unknown += 1
+                    if is_moscow_event:
+                        logger.info(f"[EVENTS] Москва/МО - статус не определён: {event.get('title', 'Без названия')} - {url}")
+                else:
+                    # is_open is True
+                    event["registration_open"] = True
                     open_events.append(event)
+                    if is_moscow_event:
+                        moscow_open += 1
+                        logger.info(f"[EVENTS] ✅ Москва/МО - регистрация открыта: {event.get('title', 'Без названия')} - {url}")
+                    elif is_spb_event:
+                        spb_open += 1
+                    elif is_izhevsk_event:
+                        izhevsk_open += 1
         except Exception as e:
-            logger.warning(f"[EVENTS] Не удалось проверить регистрацию: {e}")
+            logger.warning(f"[EVENTS] Не удалось проверить регистрацию для {event.get('title', 'Без названия')}: {e}")
+            if is_moscow_event:
+                logger.info(f"[EVENTS] Москва/МО - ошибка проверки: {event.get('title', 'Без названия')} - {url}")
 
     logger.info(f"[EVENTS] Открытых регистраций: {len(open_events)}")
+    logger.info(f"[EVENTS] Открытых по регионам: Москва/МО={moscow_open}, СПб/ЛО={spb_open}, Ижевск/Удмуртия={izhevsk_open}")
+    logger.info(f"[EVENTS] Пропущено при проверке: без URL={skipped_no_url}, закрыто={skipped_closed}, неопределён={skipped_unknown}")
 
     # Добавляем цены (чтобы /slots показывал стоимость)
     max_price_checks = 20  # ограничение, чтобы не перегружать источники

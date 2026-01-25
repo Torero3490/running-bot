@@ -8229,7 +8229,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # ОТЛАДКА - логируем ЧТО ПРИШЛО
     try:
-        logger.info(f"[HANDLER] === НАЧАЛО ОБРАБОТКИ handle_all_messages ===")
+        logger.info(f"[HANDLER] ========== НАЧАЛО ОБРАБОТКИ handle_all_messages ==========")
         logger.info(f"[HANDLER] update.message={update.message is not None}")
         logger.info(f"[HANDLER] update.effective_chat={update.effective_chat.id if update.effective_chat else None}")
         
@@ -8240,6 +8240,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Логируем текст сообщения сразу
         message_text_preview = update.message.text[:100] if update.message.text else (update.message.caption[:100] if update.message.caption else "None")
         logger.info(f"[HANDLER] Текст сообщения (preview): '{message_text_preview}'")
+        logger.info(f"[HANDLER] Это reply? {update.message.reply_to_message is not None}")
             
         logger.info(f"[HANDLER] message_id={update.message.message_id}, chat_id={update.message.chat.id if update.message.chat else None}")
         
@@ -8547,14 +8548,15 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Формируем упоминание пользователя
             user_mention = f"@{user_name}" if user_name else ""
             
-            # Отправляем ответ на доброе утро с упоминанием
+            # Отправляем ответ на доброе утро с reply на исходное сообщение
             try:
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text=f"{user_mention} 💫 **{morning_text}**",
                     parse_mode="Markdown",
+                    reply_to_message_id=update.message.message_id  # Отвечаем на сообщение пользователя
                 )
-                logger.info(f"[MORNING] Ответ на доброе утро отправлен для {user_name}")
+                logger.info(f"[MORNING] Ответ на доброе утро отправлен для {user_name} (reply на message_id={update.message.message_id})")
                 return  # Выходим после отправки ответа на утро
             except Exception as e:
                 logger.error(f"[MORNING] Ошибка отправки: {e}")
@@ -9860,6 +9862,29 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         events = await get_all_events()
         
+        logger.info(f"[SLOTS] Получено событий от get_all_events(): {len(events)}")
+        
+        # Логируем распределение по регионам
+        moscow_events = []
+        spb_events = []
+        izhevsk_events = []
+        other_events = []
+        
+        for event in events:
+            city_lower = (event.get('city', '') or '').lower()
+            title_lower = (event.get('title', '') or '').lower()
+            text_check = f"{city_lower} {title_lower}".lower()
+            if any(kw in text_check for kw in ['москва', 'moscow', 'московск', 'подмосков', 'зеленоград']):
+                moscow_events.append(event)
+            elif any(kw in text_check for kw in ['петербург', 'питер', 'спб', 'spb', 'ленинград']):
+                spb_events.append(event)
+            elif any(kw in text_check for kw in ['ижевск', 'удмурт']):
+                izhevsk_events.append(event)
+            else:
+                other_events.append(event)
+        
+        logger.info(f"[SLOTS] Распределение событий: Москва/МО={len(moscow_events)}, СПб/ЛО={len(spb_events)}, Ижевск/Удмуртия={len(izhevsk_events)}, Другие={len(other_events)}")
+        
         if not events:
             await context.bot.send_message(
                 chat_id=CHAT_ID,
@@ -9869,9 +9894,14 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Формируем список событий: сначала Москва/МО, потом СПб/ЛО, потом Ижевск/Удмуртия, потом остальные
+        sorted_events = moscow_events + spb_events + izhevsk_events + other_events
+        
+        logger.info(f"[SLOTS] Итого событий для отображения: {len(sorted_events)} (Москва={len(moscow_events)}, СПб={len(spb_events)}, Ижевск={len(izhevsk_events)})")
+
         text = "🏃‍♂️ **Открытые регистрации на забеги:**\n\n"
         # Показываем первые 10 событий, чтобы не превысить лимит сообщения
-        for event in events[:10]:
+        for event in sorted_events[:10]:
             title = event.get('title', 'Без названия')
             date = event.get('date', 'Дата не указана')
             city = event.get('city', 'Город не указан')
@@ -10476,11 +10506,13 @@ if __name__ == "__main__":
     )
     
     # Обработка ответов на сообщения бота (ДОЛЖЕН быть ПЕРЕД handle_mentions!)
+    # ВАЖНО: Используем фильтр REPLY, чтобы не перехватывать все текстовые сообщения
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_replies_to_bot)
+        MessageHandler(filters.REPLY & filters.TEXT & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_replies_to_bot)
     )
     
     # Обработка личных обращений через @mention (должен быть ДО handle_all_messages!)
+    # ВАЖНО: Этот обработчик проверяет @mention внутри функции, поэтому фильтр TEXT допустим
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_mentions)
     )
