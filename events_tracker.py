@@ -2037,14 +2037,37 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     location = (event.get('location', '') or '').lower()
     region = (event.get('region', '') or '').lower()
     source = (event.get('source', '') or '').lower()
-    text_blob = " ".join([city, title, location, region, source])
+    url = (event.get('url', '') or '').lower()
+    
+    # Формируем text_blob из всех полей для более надежной проверки
+    text_blob = " ".join([city, title, location, region, source, url])
+    
+    # Логирование для отладки (только для первых нескольких событий)
+    logger.debug(f"[EVENTS FILTER] Проверка: title='{title[:50]}', city='{city}', text_blob='{text_blob[:150]}'")
 
     moscow_region_keywords = [
         'москва', 'moscow', 'московск', 'подмосков', 'подмосковье',
-        'московской', 'химки', 'мытищи', 'королев', 'балашиха',
+        'московской', 'московская', 'московская область', 'мо',
+        'химки', 'мытищи', 'королев', 'балашиха',
         'красногорск', 'одинцово', 'люберцы', 'электросталь',
         'коломна', 'серпухов', 'подольск', 'домодедово',
-        'чулково'
+        'чулково', 'зеленоград', 'троицк', 'щербинка',
+        'жуковский', 'раменское', 'воскресенск', 'егорьевск',
+        'наро-фоминск', 'солнечногорск', 'клин', 'волоколамск',
+        'истра', 'руза', 'можайск', 'шатура', 'орехово-зуево',
+        'павловский посад', 'ногинск', 'электрогорск', 'фризино',
+        'лосино-петровский', 'старая купавна', 'черноголовка',
+        'московский', 'апрелевка', 'бронницы', 'видное', 'дзержинский',
+        'долгопрудный', 'дрезна', 'дубна', 'железнодорожный',
+        'жуковский', 'зина', 'звенигород', 'ивантеевка', 'кашира',
+        'климовск', 'котельники', 'краснознаменск', 'кубинка',
+        'ликино-дулево', 'лобня', 'луховицы', 'лыткарино',
+        'молодежный', 'наро-фоминск', 'озеры', 'протвино',
+        'пущино', 'реутов', 'рошаль', 'руза', 'сергиев посад',
+        'серпухов', 'солнечногорск', 'старая купавна', 'ступино',
+        'таруса', 'фрязино', 'химки', 'хотьково', 'черноголовка',
+        'шатура', 'щелково', 'электрогорск', 'электросталь',
+        'юбилейный', 'яхрома', 'мкад', 'садовое кольцо'
     ]
 
     spb_region_keywords = [
@@ -2064,12 +2087,20 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     is_moscow = any(x in text_blob for x in moscow_region_keywords)
     is_spb = any(x in text_blob for x in spb_region_keywords)
     is_izhevsk = any(x in text_blob for x in izhevsk_region_keywords)
-
+    
+    # Логирование для отладки
     if not (is_moscow or is_spb or is_izhevsk):
         logger.info(
-            f"[EVENTS] Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - {event.get('city', '')}"
+            f"[EVENTS] Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - city='{event.get('city', '')}', text_blob='{text_blob[:200]}'"
         )
         return False
+    
+    if is_moscow:
+        logger.info(f"[EVENTS] ✅ Москва/МО: {event.get('title', 'Без названия')} - city='{event.get('city', '')}'")
+    elif is_spb:
+        logger.info(f"[EVENTS] ✅ СПб/ЛО: {event.get('title', 'Без названия')} - city='{event.get('city', '')}'")
+    elif is_izhevsk:
+        logger.info(f"[EVENTS] ✅ Ижевск/Удмуртия: {event.get('title', 'Без названия')} - city='{event.get('city', '')}'")
 
     return True
 
@@ -2522,7 +2553,7 @@ async def events_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     # Получаем ID топика из сообщения (если есть) - отвечаем в том же топике где вызвали
     raw_thread_id = getattr(update.message, 'message_thread_id', None)
-    logger.info(f"[EVENTS] DEBUG: raw message_thread_id={raw_thread_id}, hasattr={hasattr(update.message, 'message_thread_id')}")
+image.png    logger.info(f"[EVENTS] DEBUG: raw message_thread_id={raw_thread_id}, hasattr={hasattr(update.message, 'message_thread_id')}")
 
     # Если message_thread_id None или 0, используем EVENTS_TOPIC_ID
     message_thread_id = raw_thread_id if raw_thread_id else EVENTS_TOPIC_ID

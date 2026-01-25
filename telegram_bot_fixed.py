@@ -28,6 +28,7 @@ from telegram.ext import (
     PollHandler,
     filters,
 )
+from telegram.error import Conflict, RetryAfter, TimedOut, NetworkError
 import pytz
 
 # ============== EVENTS TRACKER INTEGRATION ==============
@@ -10063,8 +10064,29 @@ async def likes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Глобальный обработчик ошибок"""
-    logger.error(f"[ERROR] 💥 КРИТИЧЕСКАЯ ОШИБКА в обработчике:", exc_info=context.error)
-    logger.error(f"[ERROR] update={update}, context.error={context.error}")
+    error = context.error
+    
+    # Специальная обработка для Conflict ошибки
+    if isinstance(error, Conflict):
+        logger.error(f"[ERROR] ⚠️ CONFLICT: {error}")
+        logger.error("[ERROR] Другой экземпляр бота пытается получать обновления одновременно!")
+        logger.error("[ERROR] Убедитесь, что бот запущен только в одном месте (Render ИЛИ локально, но не оба).")
+        # Не отправляем сообщение пользователю для Conflict, это внутренняя проблема
+        return
+    
+    # Обработка RetryAfter (слишком много запросов)
+    if isinstance(error, RetryAfter):
+        logger.warning(f"[ERROR] ⏳ RetryAfter: Нужно подождать {error.retry_after} секунд")
+        return
+    
+    # Обработка сетевых ошибок
+    if isinstance(error, (TimedOut, NetworkError)):
+        logger.warning(f"[ERROR] 🌐 Сетевая ошибка: {error}")
+        return
+    
+    # Для остальных ошибок - полное логирование
+    logger.error(f"[ERROR] 💥 КРИТИЧЕСКАЯ ОШИБКА в обработчике:", exc_info=error)
+    logger.error(f"[ERROR] update={update}, context.error={error}")
     
     # Логируем информацию о сообщении, если есть
     if update and update.message:
@@ -10465,15 +10487,67 @@ if __name__ == "__main__":
     logger.info(f"[INIT] CHAT_ID: {CHAT_ID}")
     logger.info(f"[INIT] Всего обработчиков зарегистрировано")
     
+    # Флаг для отслеживания, что polling уже запущен
+    polling_started = False
+    
     try:
-        application.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES,
-            close_loop=False
-        )
-    except Exception as e:
-        logger.error(f"[INIT] ❌ КРИТИЧЕСКАЯ ОШИБКА при запуске polling: {e}", exc_info=True)
-        raise
+        # Сначала пытаемся остановить любые существующие getUpdates
+        try:
+            logger.info("[INIT] Останавливаем предыдущие getUpdates запросы...")
+            # Используем drop_pending_updates для очистки
+            application.run_polling(
+                drop_pending_updates=True,
+                allowed_updates=Update.ALL_TYPES,
+                close_loop=False,
+                stop_signals=None  # Отключаем обработку сигналов, чтобы не конфликтовать
+            )
+            polling_started = True
+        except Conflict as conflict_error:
+            logger.error(f"[INIT] ⚠️ CONFLICT: Другой экземпляр бота уже запущен: {conflict_error}")
+            logger.error("[INIT] Это может означать:")
+            logger.error("[INIT] 1. Бот запущен локально И на Render одновременно")
+            logger.error("[INIT] 2. Несколько процессов на Render пытаются запустить бота")
+            logger.error("[INIT] 3. Предыдущий процесс не завершился корректно")
+            logger.error("[INIT] Решение: Убедитесь, что бот запущен только в одном месте!")
+            
+            # Ждём немного и пытаемся снова
+            import time
+            logger.info("[INIT] Ждём 10 секунд и пытаемся снова...")
+            time.sleep(10)
+            
+            try:
+                logger.info("[INIT] Повторная попытка запуска polling...")
+                application.run_polling(
+                    drop_pending_updates=True,
+                    allowed_updates=Update.ALL_TYPES,
+                    close_loop=False,
+                    stop_signals=None
+                )
+                polling_started = True
+                logger.info("[INIT] ✅ Polling успешно запущен после повторной попытки")
+            except Conflict as retry_conflict:
+                logger.error(f"[INIT] ❌ CONFLICT снова: {retry_conflict}")
+                logger.error("[INIT] Бот не может запуститься из-за конфликта. Проверьте, что нет других запущенных экземпляров.")
+                raise
+        except (RetryAfter, TimedOut, NetworkError) as network_error:
+            logger.warning(f"[INIT] ⚠️ Сетевая ошибка: {network_error}, повторяем попытку...")
+            import time
+            time.sleep(5)
+            application.run_polling(
+                drop_pending_updates=True,
+                allowed_updates=Update.ALL_TYPES,
+                close_loop=False,
+                stop_signals=None
+            )
+            polling_started = True
+        except Exception as e:
+            logger.error(f"[INIT] ❌ КРИТИЧЕСКАЯ ОШИБКА при запуске polling: {e}", exc_info=True)
+            raise
+    finally:
+        if polling_started:
+            logger.info("[INIT] ✅ Polling успешно запущен")
+        else:
+            logger.error("[INIT] ❌ Polling не был запущен")
 
 
 # === Функция для обработки ЛИЧНЫХ сообщений ===
