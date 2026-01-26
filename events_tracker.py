@@ -139,6 +139,15 @@ def check_registration_status_strict(page_text: str, url: str) -> Optional[bool]
         'присоединиться',
         'купить слот',
         'оплатить участие',
+        'регистрация',  # Общий индикатор (если нет явного закрытия)
+        'записаться',
+        'принять участие',
+        'участвовать',
+        'регистрация участников',
+        'подать заявку',
+        'заявка на участие',
+        'регистрация продолжается',
+        'регистрация активна',
     ]
 
     closed_indicators = [
@@ -154,19 +163,30 @@ def check_registration_status_strict(page_text: str, url: str) -> Optional[bool]
         'full',
         'мест не осталось',
         'ожидается открытие',
+        'регистрация приостановлена',
+        'регистрация временно недоступна',
+        'приём заявок закрыт',
     ]
 
     text_lower = page_text.lower()
 
+    # Сначала проверяем закрытые индикаторы (они имеют приоритет)
     for indicator in closed_indicators:
         if indicator in text_lower:
             logger.info(f"[EVENTS] Регистрация закрыта (найдено: '{indicator}') URL={url}")
             return False
 
+    # Затем проверяем открытые индикаторы
     for indicator in open_indicators:
         if indicator in text_lower:
             logger.info(f"[EVENTS] Регистрация открыта (найдено: '{indicator}') URL={url}")
             return True
+
+    # Если не нашли явных индикаторов, но есть упоминание регистрации вообще,
+    # считаем что регистрация может быть открыта (более мягкий подход)
+    if 'регистрац' in text_lower or 'registration' in text_lower:
+        logger.info(f"[EVENTS] Статус не определён, но есть упоминание регистрации - считаем открытой: {url}")
+        return True  # Более мягкий подход - если есть упоминание регистрации, считаем открытой
 
     logger.info(f"[EVENTS] Не удалось определить статус регистрации (строго): {url}")
     return None
