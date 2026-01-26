@@ -2640,12 +2640,19 @@ async def get_all_events() -> List[Dict]:
                         logger.info(f"[EVENTS] Ижевск/Удмуртия - регистрация закрыта: {event.get('title', 'Без названия')} - {url}")
                 elif is_open is None:
                     skipped_unknown += 1
+                    # Если статус не определён, добавляем событие как "возможно открыто" для показа в /slots
+                    # Это позволит показывать события, даже если статус не удалось определить
+                    event["registration_open"] = None  # None означает "не определён, но показываем"
+                    open_events.append(event)  # Добавляем в список для показа
                     if is_moscow_event:
-                        logger.info(f"[EVENTS] Москва/МО - статус не определён: {event.get('title', 'Без названия')} - {url}")
+                        moscow_open += 1
+                        logger.info(f"[EVENTS] ⚠️ Москва/МО - статус не определён (показываем): {event.get('title', 'Без названия')} - {url}")
                     elif is_spb_event:
-                        logger.info(f"[EVENTS] СПб/ЛО - статус не определён: {event.get('title', 'Без названия')} - {url}")
+                        spb_open += 1
+                        logger.info(f"[EVENTS] ⚠️ СПб/ЛО - статус не определён (показываем): {event.get('title', 'Без названия')} - {url}")
                     elif is_izhevsk_event:
-                        logger.info(f"[EVENTS] Ижевск/Удмуртия - статус не определён: {event.get('title', 'Без названия')} - {url}")
+                        izhevsk_open += 1
+                        logger.info(f"[EVENTS] ⚠️ Ижевск/Удмуртия - статус не определён (показываем): {event.get('title', 'Без названия')} - {url}")
                 else:
                     # is_open is True
                     event["registration_open"] = True

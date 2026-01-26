@@ -8521,9 +8521,15 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.info(f"[HANDLER] ========== НАЧАЛО ОБРАБОТКИ handle_all_messages ==========")
         logger.info(f"[HANDLER] update.message={update.message is not None}")
         logger.info(f"[HANDLER] update.effective_chat={update.effective_chat.id if update.effective_chat else None}")
+        logger.info(f"[HANDLER] CHAT_ID={CHAT_ID}")
         
         if not update.message:
             logger.info("[HANDLER] Нет update.message, выходим")
+            return
+        
+        # Проверяем, что сообщение из нужного чата (если CHAT_ID установлен)
+        if CHAT_ID and update.effective_chat.id != CHAT_ID:
+            logger.info(f"[HANDLER] Сообщение не из целевого чата: {update.effective_chat.id} != {CHAT_ID}, пропускаем")
             return
         
         # Логируем текст сообщения сразу
@@ -10230,13 +10236,23 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
             distances = event.get('distances', 'Уточняйте на сайте')
             source = event.get('source', 'Источник не указан')
             price = event.get('price', 'Цена не указана')
+            registration_status = event.get('registration_open', None)
             
             event_text = f"📅 *{date}* — {title}\n"
             event_text += f"📍 {city}\n"
             event_text += f"🏃 Дистанции: {distances}\n"
             event_text += f"💰 Цена: {price}\n"
             event_text += f"🏷 Источник: {source}\n"
-            event_text += f"🔗 [Зарегистрироваться]({link})\n\n"
+            
+            # Показываем статус регистрации
+            if registration_status is True:
+                event_text += f"✅ Регистрация открыта\n"
+            elif registration_status is None:
+                event_text += f"⚠️ Статус регистрации не определён (проверьте на сайте)\n"
+            else:
+                event_text += f"❌ Регистрация закрыта\n"
+            
+            event_text += f"🔗 [Подробнее]({link})\n\n"
             
             # Проверяем, не превысит ли добавление этого события лимит
             if len(current_text) + len(event_text) > max_chars_per_message:
@@ -10853,8 +10869,10 @@ if __name__ == "__main__":
     
     # === ВАЖНО: handle_all_messages ДОЛЖЕН быть ПЕРВЫМ для обновления статистики ===
     # Это гарантирует, что статистика обновляется для ВСЕХ сообщений
+    # Используем более широкий фильтр, чтобы гарантировать обработку всех сообщений
     application.add_handler(
-        MessageHandler(filters.ALL & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_all_messages)
+        MessageHandler(filters.ALL & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_all_messages),
+        group=0  # Группа 0 - самый высокий приоритет
     )
     
     # === ЛИЧНЫЕ СООБЩЕНИЯ: AI ОТВЕТ ===
@@ -10864,14 +10882,18 @@ if __name__ == "__main__":
     
     # Обработка ответов на сообщения бота
     # ВАЖНО: Используем фильтр REPLY, чтобы не перехватывать все текстовые сообщения
+    # Используем группу 1, чтобы handle_all_messages (группа 0) обрабатывался первым
     application.add_handler(
-        MessageHandler(filters.REPLY & filters.TEXT & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_replies_to_bot)
+        MessageHandler(filters.REPLY & filters.TEXT & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_replies_to_bot),
+        group=1
     )
     
     # Обработка личных обращений через @mention
     # ВАЖНО: Этот обработчик проверяет @mention внутри функции
+    # Используем группу 1, чтобы handle_all_messages (группа 0) обрабатывался первым
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_mentions)
+        MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_mentions),
+        group=1
     )
     
     # Обработка гифок и стикеров
