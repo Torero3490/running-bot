@@ -50,30 +50,103 @@ YANDEX_AVAILABLE = bool(YANDEX_API_KEY) and bool(YANDEX_FOLDER_ID)
 TOXIC_GIFS = {
     "greeting": [
         "https://media.giphy.com/media/J1tWmcMuMuZu1yKmhn/giphy.gif",  # приветствие
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # приветствие 2
+        "https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif",  # приветствие 3
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",  # приветствие 4
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",  # приветствие 5
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",  # приветствие 6
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",  # приветствие 7
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",  # приветствие 8
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",  # приветствие 9
+        "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",  # приветствие 10
     ],
     "roast": [
         "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",  # сарказм
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # сарказм 2
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",  # сарказм 3
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",  # сарказм 4
+        "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",  # сарказм 5
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",  # сарказм 6
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",  # сарказм 7
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",  # сарказм 8
+        "https://media.giphy.com/media/J1tWmcMuMuZu1yKmhn/giphy.gif",  # сарказм 9
+        "https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif",  # сарказм 10
     ],
     "flirt": [
         "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",  # флирт
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",  # флирт 2
+        "https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif",  # флирт 3
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # флирт 4
+        "https://media.giphy.com/media/J1tWmcMuMuZu1yKmhn/giphy.gif",  # флирт 5
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",  # флирт 6
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",  # флирт 7
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",  # флирт 8
+        "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",  # флирт 9
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",  # флирт 10
     ],
     "laugh": [
         "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",  # смех
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",  # смех 2
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",  # смех 3
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # смех 4
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",  # смех 5
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",  # смех 6
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",  # смех 7
+        "https://media.giphy.com/media/J1tWmcMuMuZu1yKmhn/giphy.gif",  # смех 8
+        "https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif",  # смех 9
+        "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",  # смех 10
     ],
     "sad": [
         "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",  # грусть
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # грусть 2
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",  # грусть 3
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",  # грусть 4
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",  # грусть 5
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",  # грусть 6
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",  # грусть 7
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",  # грусть 8
     ],
     "toxic": [
         "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",  # токсик
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",  # токсик 2
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",  # токсик 3
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # токсик 4
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",  # токсик 5
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",  # токсик 6
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",  # токсик 7
     ],
     "wow": [
         "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",  # удивление
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # удивление 2
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",  # удивление 3
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",  # удивление 4
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",  # удивление 5
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",  # удивление 6
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",  # удивление 7
+        "https://media.giphy.com/media/J1tWmcMuMuZu1yKmhn/giphy.gif",  # удивление 8
     ],
     "praise": [
         "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",  # похвала
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # похвала 2
+        "https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif",  # похвала 3
+        "https://media.giphy.com/media/J1tWmcMuMuZu1yKmhn/giphy.gif",  # похвала 4
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",  # похвала 5
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",  # похвала 6
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",  # похвала 7
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",  # похвала 8
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",  # похвала 9
     ],
     "default": [
         "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",  # дефолтная
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",  # дефолтная 2
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",  # дефолтная 3
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",  # дефолтная 4
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",  # дефолтная 5
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",  # дефолтная 6
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",  # дефолтная 7
+        "https://media.giphy.com/media/J1tWmcMuMuZu1yKmhn/giphy.gif",  # дефолтная 8
+        "https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif",  # дефолтная 9
+        "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",  # дефолтная 10
     ]
 }
 
@@ -8022,195 +8095,271 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # ОТЛАДКА - логируем ЧТО ПРИШЛО
     try:
-        logger.info(f"[HANDLER] Получен update: type={type(update)}, message={update.message is not None}")
-        if update.message:
-            logger.info(f"[HANDLER] message_id={update.message.message_id}, text='{update.message.text or ''[:50]}'")
-    except Exception as e:
-        logger.error(f"[HANDLER] Ошибка логирования: {e}")
-    
-    # Ночной режим
-    hour = now.hour
-    if hour >= 22 or hour < 6:
-        night_msgs = daily_stats.get("night_messages", 0) + 1
-        daily_stats["night_messages"] = night_msgs
-        if night_msgs % 10 == 0:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="🤖 **Ночной режим!**\n\nУже поздно, пора восстанавливаться. Бегунам нужен сон! 🛌💤",
-                parse_mode="Markdown"
-            )
-
-    # При получении баллов — уведомление
-    # (логика начисления баллов должна вызывать это)
-    # По умолчанию - обычное сообщение
-    message_type = "default"
-
-    # Определяем тип сообщения для истории
-    check_text_lower = check_text.lower()
-
-    # Приветствия
-    greetings = ["привет", "здравствуй", "здорово", "добрый день", "добрый вечер", "доброе утро", "hello", "hi", "hey", "приветик", "приветствую", "йо"]
-    if any(word in check_text_lower for word in greetings):
-        message_type = "greeting"
-
-    # Утро
-    morning_words = ["утро", "доброе утро", "утра", "проснулся", "проснулась", "встал", "встала", "утречка", "доброутро", "с утра"]
-    if any(word in check_text_lower for word in morning_words):
-        message_type = "morning"
-
-    # Благодарности
-    thanks = ["спасибо", "благодарю", "мерси", "thx", "thanks", "благодарность", "пасиб", "сяп", "сэнк ю"]
-    if any(word in check_text_lower for word in thanks):
-        message_type = "thanks"
-
-    # Согласие
-    agreement = ["да", "согласен", "точно", "именно", "верно", "прав", "поддерживаю", "yes", "agreed", "угу", "ага"]
-    if any(word in check_text_lower for word in agreement):
-        message_type = "agreement"
-
-    # Вопросы
-    questions = ["?", "как", "что", "почему", "зачем", "когда", "где", "кто", "сколько", "подскажи", "скажи", "объясни", "а это"]
-    if any(word in check_text_lower for word in questions) or "?" in message_text:
-        message_type = "question"
-
-    # Активность / спорт
-    running_words = ["активность", "активный", "спорт", "тренировка", "тренироваться", "тренируюсь", "заниматься", "занимаюсь", "фитнес", "йога", "кардио", "силовая", "упражнения", "пробежка", "бег", "бегать", "бегаю"]
-    if any(word in check_text_lower for word in running_words):
-        message_type = "running"
-
-    # Мотивация
-    motivation_words = ["сложно", "тяжело", "устал", "не могу", "лениво", "мотивация", "лень", "не хочу", "нет сил"]
-    if any(word in check_text_lower for word in motivation_words):
-        message_type = "motivation"
-
-    # Шутки
-    joke_words = ["хаха", "lol", "смешно", "прикол", "кринж", "ахах", "хех", "😂", "🤣", "хдх", "рофл", "шутка"]
-    if any(word in check_text_lower for word in joke_words):
-        message_type = "joke"
-
-    # Усталость
-    tired_words = ["устал", "устала", "уставать", "устаю", "измотан", "выжат", "нет сил", "разбит", "разбита"]
-    if any(word in check_text_lower for word in tired_words):
-        message_type = "tired"
-
-    # Боль / травмы
-    pain_words = ["болит", "боль", "травма", "растяжение", "болят", "тянет", "ноющая", "резкая", "опухло", "синяк"]
-    if any(word in check_text_lower for word in pain_words):
-        message_type = "pain"
-
-    # Погода
-    weather_words = ["погода", "дождь", "снег", "холод", "жара", "ветер", "мороз", "гроза", "солнце", "туман", "сыро", "мокро"]
-    if any(word in check_text_lower for word in weather_words):
-        message_type = "weather"
-
-    # Как дела
-    how_are_you_words = ["как дела", "как ты", "как жизнь", "как настроение", "как себя", "как у тебя"]
-    if any(word in check_text_lower for word in how_are_you_words):
-        message_type = "how_are_you"
-
-    # Кто ты
-    who_are_you_words = ["кто ты", "что ты", "ты бот", "ты робот", "ты живой", "кто такой"]
-    if any(word in check_text_lower for word in who_are_you_words):
-        message_type = "who_are_you"
-
-    logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
-    logger.info(f"[MSG] message_text='{message_text}', check_text='{check_text}'")
-
-    # Проверяем, не команда ли это
-    if message_text and message_text.startswith('/'):
-        logger.info(f"[MSG] Это команда, пропускаем")
-        return
-
-    # === ПРОВЕРКА: ДОБРОЕ УТРО (РАНДОМНЫЙ ОТВЕТ) ===
-    # Ключевые слова для определения "доброго утра"
-    good_morning_keywords = [
-        # Русские варианты (полные фразы)
-        'доброе утро', 'доброе утро!', 'доброе утро всем', 'всем доброе утро',
-        'доброе утро!', 'доброе утро.', 'доброе утро,', 'утро доброе', 'утро!',
-        'всем утро', 'утро доброе', 'доброутро', 'доброго утра',
-        'всем доброго утра', 'доброго утра!', 'доброго утра всем',
-        # Смайлики с утром
-        '☀️ утро', '☀️доброе', 'утро ☀️',
-        # Короткие и разговорные
-        'утра', 'всем утра', 'утречка', 'утречко', 'с утра', 'с утра!',
-        'всем с утра', 'и тебе доброе утро', 'и тебе утро',
-        # Английские
-        'good morning', 'good morning!', 'morning!', 'morning',
-        # С вопросом или в предложении
-        '?доброе утро', 'утро?', 'доброе утро?',
-    ]
-    
-    # DEBUG: Логируем check_text полностью
-    logger.info(f"[MORNING DEBUG] check_text='{check_text}'")
-    
-    # Проверяем逐слово
-    words_in_message = check_text.split()
-    logger.info(f"[MORNING DEBUG] words_in_message={words_in_message[:20]}")
-    
-    # Проверяем каждое ключевое слово
-    for kw in good_morning_keywords:
-        if kw in check_text:
-            logger.info(f"[MORNING DEBUG] Найдено ключевое слово: '{kw}'")
-    
-    is_good_morning = any(greeting in check_text for greeting in good_morning_keywords)
-    logger.info(f"[MORNING] Проверка: '{check_text[:100]}...' | is_good_morning={is_good_morning}")
-
-    if is_good_morning:
-        # Дополнительное логирование для отладки
-        logger.info(f"[MORNING] DEBUG: user_id={user_id}, user_name='{user_name}', message='{check_text[:50]}'")
-        if update.message.reply_to_message:
-            logger.info(f"[MORNING] DEBUG: reply_to_message from_user='{update.message.reply_to_message.from_user.username or update.message.reply_to_message.from_user.full_name}'")
+        logger.info(f"[HANDLER] ========== НАЧАЛО ОБРАБОТКИ handle_all_messages ==========")
+        logger.info(f"[HANDLER] update.message={update.message is not None}")
+        logger.info(f"[HANDLER] update.effective_chat={update.effective_chat.id if update.effective_chat else None}")
+        logger.info(f"[HANDLER] CHAT_ID={CHAT_ID}")
         
-        logger.info(f"[MORNING] detected от {user_name}")
+        if not update.message:
+            logger.info("[HANDLER] Нет update.message, выходим")
+            return
         
-        # Проверяем пол через ИИ с таймаутом 3 секунды
+        # Проверяем, что сообщение из нужного чата (если CHAT_ID установлен)
+        if CHAT_ID and update.effective_chat.id != CHAT_ID:
+            logger.info(f"[HANDLER] Сообщение не из целевого чата: {update.effective_chat.id} != {CHAT_ID}, пропускаем")
+            return
+        
+        # Логируем текст сообщения сразу
+        message_text_preview = update.message.text[:100] if update.message.text else (update.message.caption[:100] if update.message.caption else "None")
+        logger.info(f"[HANDLER] Текст сообщения (preview): '{message_text_preview}'")
+        logger.info(f"[HANDLER] Это reply? {update.message.reply_to_message is not None}")
+            
+        logger.info(f"[HANDLER] message_id={update.message.message_id}, chat_id={update.message.chat.id if update.message.chat else None}")
+        
+        if not update.message.from_user:
+            logger.warning("[HANDLER] Нет from_user, выходим")
+            return
+            
+        if update.message.from_user.is_bot:
+            logger.info("[HANDLER] Сообщение от бота, пропускаем")
+            return
+
+        now = datetime.now(MOSCOW_TZ)
+        moscow_now = now  # Определяем moscow_now для использования во всей функции
+        user = update.message.from_user
+        user_id = user.id
+        user_name = user.full_name or user.username or "Пользователь"
+        
+        logger.info(f"[HANDLER] Обработка сообщения от {user_name} (ID: {user_id})")
+
+        message_text = update.message.text or update.message.caption or ""
+        check_text = message_text.strip()
+        
+        logger.info(f"[HANDLER] Текст сообщения: '{check_text[:100]}'")
+
+        # Типы медиа в сообщении
+        is_photo = bool(update.message.photo)
+        is_video = bool(update.message.video)
+        is_voice = bool(update.message.voice)
+        is_document = bool(update.message.document)
+        
+        logger.info(f"[HANDLER] Медиа: photo={is_photo}, video={is_video}, voice={is_voice}, document={is_document}")
+        
+        # Ночной режим обрабатывается ниже в коде (персональный счётчик для каждого пользователя)
+        
+        # При получении баллов — уведомление
+        # (логика начисления баллов должна вызывать это)
+        # По умолчанию - обычное сообщение
+        message_type = "default"
+
+        # Определяем тип сообщения для истории
+        check_text_lower = check_text.lower()
+        
+        # === РАННИЙ УЧЁТ СТАТИСТИКИ (чтобы не терять сообщения из-за ранних return) ===
         try:
-            is_female = await asyncio.wait_for(
-                check_is_female_by_ai(user_name),
-                timeout=3.0
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"[MORNING] Таймаут определения пола для {user_name}, используем нейтральный ответ")
-            is_female = False
+            logger.info("[MSG] Начинаем ранний учёт статистики")
+            today = moscow_now.strftime("%Y-%m-%d")
+            logger.info(f"[MSG] Дата: {today}, время: {moscow_now}")
+
+            if not isinstance(daily_stats, dict) or "date" not in daily_stats:
+                daily_stats = {
+                    "date": today,
+                    "total_messages": 0,
+                    "user_messages": {},
+                    "photos": [],
+                    "first_photo_user_id": None,
+                    "first_photo_user_name": None
+                }
+                logger.info("[MSG] daily_stats переинициализирован (ранний учёт)")
+
+            daily_stats["total_messages"] += 1
+            current_count = daily_stats["total_messages"]
+            logger.info(f"[MSG] Сообщение #{current_count} от {user_name} (ранний учёт)")
+
+            if user_id not in daily_stats["user_messages"]:
+                safe_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+                daily_stats["user_messages"][user_id] = {"name": safe_name, "count": 0}
+            daily_stats["user_messages"][user_id]["count"] += 1
+
+            if is_photo:
+                photo = update.message.photo[-1]
+                safe_photo_user_name = user_name.replace('(', '\\(').replace(')', '\\)') if user_name else "Unknown"
+                daily_stats["photos"].append({
+                    "file_id": photo.file_id,
+                    "user_id": user_id,
+                    "message_id": update.message.message_id,
+                    "likes": 0,
+                    "user_name": safe_photo_user_name
+                })
+                if daily_stats.get("first_photo_user_id") is None:
+                    daily_stats["first_photo_user_id"] = user_id
+                    daily_stats["first_photo_user_name"] = safe_photo_user_name
         except Exception as e:
-            logger.error(f"[MORNING] Ошибка определения пола: {e}")
-            is_female = False
+            logger.error(f"[MSG] Ошибка раннего учёта статистики: {e}", exc_info=True)
         
-        logger.info(f"[MORNING] Пол определён: {user_name} -> is_female={is_female}")
+        # Приветствия
+        greetings = ["привет", "здравствуй", "здорово", "добрый день", "добрый вечер", "доброе утро", "hello", "hi", "hey", "приветик", "приветствую", "йо"]
+        if any(word in check_text_lower for word in greetings):
+            message_type = "greeting"
 
-        # Рандомный выбор ответа:
-        # - 40% флирт (если девушка)
-        # - 30% цитата из фильма (для всех)
-        # - 30% нейтральный ответ (для всех)
-        rand = random.random()
+        # Утро
+        morning_words = ["утро", "доброе утро", "утра", "проснулся", "проснулась", "встал", "встала", "утречка", "доброутро", "с утра"]
+        if any(word in check_text_lower for word in morning_words):
+            message_type = "morning"
 
-        if is_female and rand < 0.4:
-            # Это девушка и выпал флирт
-            morning_text = get_random_good_morning_flirt()
-            logger.info(f"[MORNING] Рандом: ФЛИРТ для {user_name}")
-        elif rand < 0.7:
-            # Цитата из фильма (для всех)
-            morning_text = random.choice(MOVIE_QUOTES)
-            logger.info(f"[MORNING] Рандом: ЦИТАТА для {user_name}")
-        else:
-            # Нейтральный ответ
-            morning_text = get_random_good_morning()
-            logger.info(f"[MORNING] Рандом: НЕЙТРАЛЬНО для {user_name}")
+        # Благодарности
+        thanks = ["спасибо", "благодарю", "мерси", "thx", "thanks", "благодарность", "пасиб", "сяп", "сэнк ю"]
+        if any(word in check_text_lower for word in thanks):
+            message_type = "thanks"
 
-        # Формируем упоминание пользователя
-        user_mention = f"@{user_name}" if user_name else ""
+        # Согласие
+        agreement = ["да", "согласен", "точно", "именно", "верно", "прав", "поддерживаю", "yes", "agreed", "угу", "ага"]
+        if any(word in check_text_lower for word in agreement):
+            message_type = "agreement"
+
+        # Вопросы
+        questions = ["?", "как", "что", "почему", "зачем", "когда", "где", "кто", "сколько", "подскажи", "скажи", "объясни", "а это"]
+        if any(word in check_text_lower for word in questions) or "?" in message_text:
+            message_type = "question"
+
+        # Активность / спорт
+        running_words = ["активность", "активный", "спорт", "тренировка", "тренироваться", "тренируюсь", "заниматься", "занимаюсь", "фитнес", "йога", "кардио", "силовая", "упражнения", "пробежка", "бег", "бегать", "бегаю"]
+        if any(word in check_text_lower for word in running_words):
+            message_type = "running"
+
+        # Мотивация
+        motivation_words = ["сложно", "тяжело", "устал", "не могу", "лениво", "мотивация", "лень", "не хочу", "нет сил"]
+        if any(word in check_text_lower for word in motivation_words):
+            message_type = "motivation"
+
+        # Шутки
+        joke_words = ["хаха", "lol", "смешно", "прикол", "кринж", "ахах", "хех", "😂", "🤣", "хдх", "рофл", "шутка"]
+        if any(word in check_text_lower for word in joke_words):
+            message_type = "joke"
+
+        # Усталость
+        tired_words = ["устал", "устала", "уставать", "устаю", "измотан", "выжат", "нет сил", "разбит", "разбита"]
+        if any(word in check_text_lower for word in tired_words):
+            message_type = "tired"
+
+        # Боль / травмы
+        pain_words = ["болит", "боль", "травма", "растяжение", "болят", "тянет", "ноющая", "резкая", "опухло", "синяк"]
+        if any(word in check_text_lower for word in pain_words):
+            message_type = "pain"
+
+        # Погода
+        weather_words = ["погода", "дождь", "снег", "холод", "жара", "ветер", "мороз", "гроза", "солнце", "туман", "сыро", "мокро"]
+        if any(word in check_text_lower for word in weather_words):
+            message_type = "weather"
+
+        # Как дела
+        how_are_you_words = ["как дела", "как ты", "как жизнь", "как настроение", "как себя", "как у тебя"]
+        if any(word in check_text_lower for word in how_are_you_words):
+            message_type = "how_are_you"
+
+        # Кто ты
+        who_are_you_words = ["кто ты", "что ты", "ты бот", "ты робот", "ты живой", "кто такой"]
+        if any(word in check_text_lower for word in who_are_you_words):
+            message_type = "who_are_you"
+
+        logger.info(f"[MSG] === НАЧАЛО обработки от {user_name} ===")
+        logger.info(f"[MSG] message_text='{message_text}', check_text='{check_text}'")
+
+        # Проверяем, не команда ли это
+        if message_text and message_text.startswith('/'):
+            logger.info(f"[MSG] Это команда, пропускаем")
+            return
+
+        # === ПРОВЕРКА: ДОБРОЕ УТРО (РАНДОМНЫЙ ОТВЕТ) ===
+        # Ключевые слова для определения "доброго утра"
+        good_morning_keywords = [
+            # Русские варианты (полные фразы)
+            'доброе утро', 'доброе утро!', 'доброе утро всем', 'всем доброе утро',
+            'доброе утро!', 'доброе утро.', 'доброе утро,', 'утро доброе', 'утро!',
+            'всем утро', 'утро доброе', 'доброутро', 'доброго утра',
+            'всем доброго утра', 'доброго утра!', 'доброго утра всем',
+            # Смайлики с утром
+            '☀️ утро', '☀️доброе', 'утро ☀️',
+            # Короткие и разговорные
+            'утра', 'всем утра', 'утречка', 'утречко', 'с утра', 'с утра!',
+            'всем с утра', 'и тебе доброе утро', 'и тебе утро',
+            # Английские
+            'good morning', 'good morning!', 'morning!', 'morning',
+            # С вопросом или в предложении
+            '?доброе утро', 'утро?', 'доброе утро?',
+        ]
         
-        # Отправляем ответ на доброе утро с упоминанием
-        try:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f"{user_mention} 💫 **{morning_text}**",
-                parse_mode="Markdown",
-            )
-            logger.info(f"[MORNING] Ответ на доброе утро отправлен для {user_name}")
-            return  # Выходим после отправки ответа на утро
-        except Exception as e:
-            logger.error(f"[MORNING] Ошибка отправки: {e}")
+        # DEBUG: Логируем check_text полностью
+        logger.info(f"[MORNING DEBUG] check_text='{check_text}'")
+        
+        # Проверяем逐слово
+        words_in_message = check_text.split()
+        logger.info(f"[MORNING DEBUG] words_in_message={words_in_message[:20]}")
+        
+        # Проверяем каждое ключевое слово
+        for kw in good_morning_keywords:
+            if kw in check_text:
+                logger.info(f"[MORNING DEBUG] Найдено ключевое слово: '{kw}'")
+        
+        is_good_morning = any(greeting in check_text for greeting in good_morning_keywords)
+        logger.info(f"[MORNING] Проверка: '{check_text[:100]}...' | is_good_morning={is_good_morning}")
+
+        if is_good_morning:
+            # Дополнительное логирование для отладки
+            logger.info(f"[MORNING] DEBUG: user_id={user_id}, user_name='{user_name}', message='{check_text[:50]}'")
+            if update.message.reply_to_message:
+                logger.info(f"[MORNING] DEBUG: reply_to_message from_user='{update.message.reply_to_message.from_user.username or update.message.reply_to_message.from_user.full_name}'")
+            
+            logger.info(f"[MORNING] detected от {user_name}")
+            
+            # Проверяем пол через ИИ с таймаутом 3 секунды
+            try:
+                is_female = await asyncio.wait_for(
+                    check_is_female_by_ai(user_name),
+                    timeout=3.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"[MORNING] Таймаут определения пола для {user_name}, используем нейтральный ответ")
+                is_female = False
+            except Exception as e:
+                logger.error(f"[MORNING] Ошибка определения пола: {e}")
+                is_female = False
+            
+            logger.info(f"[MORNING] Пол определён: {user_name} -> is_female={is_female}")
+
+            # Рандомный выбор ответа:
+            # - 40% флирт (если девушка)
+            # - 30% цитата из фильма (для всех)
+            # - 30% нейтральный ответ (для всех)
+            rand = random.random()
+
+            if is_female and rand < 0.4:
+                # Это девушка и выпал флирт
+                morning_text = get_random_good_morning_flirt()
+                logger.info(f"[MORNING] Рандом: ФЛИРТ для {user_name}")
+            elif rand < 0.7:
+                # Цитата из фильма (для всех)
+                morning_text = random.choice(MOVIE_QUOTES)
+                logger.info(f"[MORNING] Рандом: ЦИТАТА для {user_name}")
+            else:
+                # Нейтральный ответ
+                morning_text = get_random_good_morning()
+                logger.info(f"[MORNING] Рандом: НЕЙТРАЛЬНО для {user_name}")
+
+            # Формируем упоминание пользователя
+            user_mention = f"@{user_name}" if user_name else ""
+            
+            # Отправляем ответ на доброе утро с упоминанием
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"{user_mention} 💫 **{morning_text}**",
+                    parse_mode="Markdown",
+                )
+                logger.info(f"[MORNING] Ответ на доброе утро отправлен для {user_name}")
+                return  # Выходим после отправки ответа на утро
+            except Exception as e:
+                logger.error(f"[MORNING] Ошибка отправки: {e}")
 
         # === АВТОМАТИЧЕСКИЙ ФЛИРТ С ДЕВУШКАМИ (НА ОБЫЧНЫЕ СООБЩЕНИЯ) ===
         # Проверяем, является ли пользователь девушкой через ИИ
@@ -8489,8 +8638,8 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # === СТАТИСТИКА ===
         
-        # Считаем дату по Москве
-        moscow_now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
+        # Считаем дату по Москве (используем уже определённую переменную moscow_now)
+        # moscow_now уже определена выше
         today = moscow_now.strftime("%Y-%m-%d")
         
         # Безопасная инициализация daily_stats
