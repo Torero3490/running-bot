@@ -8926,18 +8926,24 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_last_active[user_id] = datetime.now(MOSCOW_TZ)
 
         # Ответ на "доброе утро" от участников в чате (без @mention и reply)
-        if message.text and str(update.effective_chat.id) == str(CHAT_ID):
+        chat_ok = str(update.effective_chat.id) == str(CHAT_ID)
+        if message.text and chat_ok:
             text_lower = message.text.lower().strip()
-            morning_phrases = ("доброе утро", "добрый день", "добрый вечер")
+            morning_phrases = ("доброе утро", "добрый день", "добрый вечер", "доброго утра", "доброго дня", "доброго вечера")
             if any(p in text_lower for p in morning_phrases) and len(text_lower) <= 80:
+                logger.info(f"[MORNING] Найдено приветствие от {user_name}: '{text_lower[:50]}'")
                 try:
-                    is_female = await check_is_female_by_ai(user_name)
+                    is_female = False
+                    try:
+                        is_female = await check_is_female_by_ai(user_name)
+                    except Exception as gender_err:
+                        logger.warning(f"[MORNING] Не удалось определить пол для {user_name}: {gender_err}")
                     reply_text = get_random_good_morning_flirt() if is_female else get_random_good_morning()
                     await message.reply_text(reply_text)
                     logger.info(f"[MORNING] Ответ на приветствие от {user_name}")
                     return
                 except Exception as e:
-                    logger.error(f"[MORNING] Ошибка: {e}")
+                    logger.error(f"[MORNING] Ошибка отправки: {e}")
 
         # Определяем тип сообщения
         message_type = "text"
