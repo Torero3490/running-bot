@@ -27,6 +27,7 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
     PollHandler,
+    MessageReactionHandler,
     filters,
 )
 try:
@@ -2753,7 +2754,7 @@ HOROSCOPE_FALLBACK = [
     "лучше действовать последовательно, без спешки.",
     "полезно сосредоточиться на главном.",
     "день подходит для общения и новых идей.",
-    "терпение сегодня принесет пользу.",
+    "терпение сегодня принесёт пользу.",
     "хорошее время завершать начатое.",
     "стоит навести порядок в делах.",
     "избегай лишних споров и суеты.",
@@ -2761,16 +2762,86 @@ HOROSCOPE_FALLBACK = [
     "ищи баланс между работой и отдыхом.",
     "интуиция сегодня поможет.",
     "мягкий ритм даст больше результата.",
+    "удачный день для важных разговоров.",
+    "не торопись — качество важнее скорости.",
+    "звёзды благоволят планам на неделю.",
+    "хороший день для старта нового дела.",
+    "доверься себе в выборе.",
+    "мелочи сегодня имеют значение.",
+    "отдых так же важен, как дела.",
+    "день для упорядочивания мыслей и планов.",
 ]
 
 
 def build_fallback_horoscope() -> str:
-    today_key = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+    """Гороскоп на день: разный каждый день за счёт даты в «зерне»."""
+    now = datetime.now(MOSCOW_TZ)
+    today_ordinal = now.toordinal()  # уникальное число для каждого дня
     lines = []
     for i, (emoji, sign) in enumerate(ZODIAC_SIGNS):
-        idx = abs(hash(f"{today_key}:{sign}")) % len(HOROSCOPE_FALLBACK)
+        seed = today_ordinal * 12 + i  # разное сочетание для каждого дня и знака
+        idx = seed % len(HOROSCOPE_FALLBACK)
         lines.append(f"{emoji} {sign}: {HOROSCOPE_FALLBACK[idx]}")
     return "\n".join(lines)
+
+
+HOROSCOPE_SITE_URL = "https://www.thevoicemag.ru/horoscope/"
+
+
+async def fetch_horoscope_from_site() -> str | None:
+    """Парсит гороскоп с thevoicemag.ru. Возвращает текст или None при ошибке."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            response = await client.get(HOROSCOPE_SITE_URL)
+            response.raise_for_status()
+            html = response.text
+    except Exception as e:
+        logger.warning(f"[HOROSCOPE] Не удалось загрузить страницу: {e}")
+        return None
+
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        lines = []
+        sign_names = [s[1] for s in ZODIAC_SIGNS]  # Овен, Телец, ...
+        # Ищем блоки: часто гороскоп в статьях/карточках с заголовком по знаку
+        for emoji, sign in ZODIAC_SIGNS:
+            # Ищем элемент, содержащий название знака (заголовок, ссылка, класс)
+            found = None
+            for tag in soup.find_all(["h2", "h3", "h4", "a", "div", "span"]):
+                if not tag.get_text(strip=True):
+                    continue
+                text = tag.get_text(strip=True)
+                if sign.lower() in text.lower() and len(text) < 50:
+                    # Берём следующий текстовый блок или соседний параграф
+                    parent = tag.parent
+                    if parent:
+                        p = parent.find("p") or tag.find_next("p")
+                        if p:
+                            desc = p.get_text(strip=True)
+                            if len(desc) > 10 and len(desc) < 500:
+                                found = desc
+                                break
+                    if not found and tag.find_next_sibling():
+                        sib = tag.find_next_sibling()
+                        if sib.name in ("p", "div"):
+                            desc = sib.get_text(strip=True)
+                            if 10 < len(desc) < 500:
+                                found = desc
+                                break
+            if found:
+                # Сокращаем до одного предложения, если длинно
+                first_sentence = found.split(".")[0].strip()
+                if first_sentence:
+                    found = first_sentence + "." if not first_sentence.endswith(".") else first_sentence
+                lines.append(f"{emoji} {sign}: {found}")
+            else:
+                idx = abs(hash(f"{datetime.now(MOSCOW_TZ).strftime('%Y-%m-%d')}:{sign}")) % len(HOROSCOPE_FALLBACK)
+                lines.append(f"{emoji} {sign}: {HOROSCOPE_FALLBACK[idx]}")
+        if len(lines) >= 12:
+            return "\n".join(lines)
+    except Exception as e:
+        logger.warning(f"[HOROSCOPE] Ошибка парсинга сайта: {e}")
+    return None
 
 
 async def get_horoscope_text_for_today() -> str:
@@ -2783,23 +2854,26 @@ async def get_horoscope_text_for_today() -> str:
     if YANDEX_AVAILABLE:
         try:
             import httpx
+            today_label = datetime.now(MOSCOW_TZ).strftime("%d.%m.%Y")
+            weekday_names = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+            weekday = weekday_names[datetime.now(MOSCOW_TZ).weekday()]
             prompt = (
-                "Составь гороскоп на сегодня для всех знаков зодиака.\n"
+                f"Сегодня {today_label}, {weekday}. Составь НОВЫЙ гороскоп именно на этот день для всех 12 знаков зодиака.\n"
                 "Требования:\n"
-                "- 12 строк, по одной на знак\n"
-                "- Формат: \"♈ Овен: короткий текст\"\n"
-                "- Очень коротко (1 короткое предложение)\n"
-                "- Без темы бега и спорта\n"
-                "- Нейтральный тон\n"
+                "- Ровно 12 строк, по одной на знак, в порядке: Овен, Телец, Близнецы, Рак, Лев, Дева, Весы, Скорпион, Стрелец, Козерог, Водолей, Рыбы\n"
+                "- Формат каждой строки: \"♈ Овен: короткий текст\" (эмодзи знака, название, двоеточие, текст)\n"
+                "- Очень коротко (одно предложение на знак)\n"
+                "- Без темы бега и спорта, нейтральный тон\n"
+                "- Текст должен быть разным каждый день, не повторяй предыдущие формулировки\n"
             )
             request_body = {
                 "modelUri": f"gpt://{YANDEX_FOLDER_ID}/{YANDEX_MODEL}",
                 "messages": [
-                    {"role": "system", "text": "Ты нейтральный астролог. Пиши кратко и без мистификаций."},
+                    {"role": "system", "text": "Ты астролог. Пиши кратко, по-разному каждый день, без мистики."},
                     {"role": "user", "text": prompt},
                 ],
                 "completionOptions": {
-                    "temperature": 0.6,
+                    "temperature": 0.85,
                     "maxTokens": 600
                 },
             }
@@ -7032,75 +7106,22 @@ async def get_top_liked_photos() -> list:
     if not photos:
         return []
     
-    try:
-        # Обновляем количество лайков для каждого фото.
-        # ВАЖНО: здесь НЕ трогаем user_rating_stats["likes"], чтобы не перезаписывать накопленный счётчик.
-        # Начисление баллов/лайков делаем в handle_reactions() по дельте.
-        updated_photos = []
-        for photo in photos:
-            try:
-                reactions = await application.bot.get_message_reactions(
-                    chat_id=CHAT_ID,
-                    message_id=photo["message_id"],
-                )
-                # Считаем ВСЕ реакции (любые эмодзи)
-                like_count = 0
-                for reaction in reactions:
-                    for choice in reaction.choices:
-                        like_count += int(getattr(choice, "count", 0) or 0)
+    # Лайки обновляются в handle_reactions() по событиям реакций.
+    # Здесь просто берём уже накопленные значения из daily_stats.
+    updated_photos = []
+    for photo in photos:
+        updated_photos.append({
+            "file_id": photo.get("file_id"),
+            "user_id": photo.get("user_id"),
+            "likes": int(photo.get("likes", 0) or 0),
+            "message_id": photo.get("message_id"),
+        })
 
-                # Обновляем общий счётчик лайков по дельте
-                try:
-                    prev_likes = int(photo.get("likes", 0) or 0)
-                except Exception:
-                    prev_likes = 0
-                delta = max(like_count - prev_likes, 0)
-                if delta > 0:
-                    user_id = photo.get("user_id")
-                    user_name = photo.get("user_name", "Unknown")
-                    if user_id is not None:
-                        if user_id not in user_rating_stats:
-                            user_rating_stats[user_id] = {
-                                "name": user_name,
-                                "messages": 0,
-                                "photos": 0,
-                                "likes": 0,
-                                "replies": 0,
-                                "bonus_points": 0,
-                                "days_active": set(),
-                            }
-                        user_rating_stats[user_id]["likes"] += delta
+    # Сортируем по лайкам и фильтруем (минимум 4)
+    updated_photos.sort(key=lambda x: x["likes"], reverse=True)
+    top_photos = [p for p in updated_photos if p["likes"] >= 4]
 
-                # Обновляем лайки внутри daily_stats, чтобы сводка видела актуальные значения
-                try:
-                    photo["likes"] = like_count
-                except Exception:
-                    pass
-                
-                updated_photos.append({
-                    "file_id": photo["file_id"],
-                    "user_id": photo["user_id"],
-                    "likes": like_count,
-                    "message_id": photo["message_id"],
-                })
-            except Exception:
-                # Если не удалось получить лайки, считаем как 0
-                updated_photos.append({
-                    "file_id": photo["file_id"],
-                    "user_id": photo["user_id"],
-                    "likes": 0,
-                    "message_id": photo["message_id"],
-                })
-        
-        # Сортируем по лайкам и фильтруем (минимум 4)
-        updated_photos.sort(key=lambda x: x["likes"], reverse=True)
-        top_photos = [p for p in updated_photos if p["likes"] >= 4]
-        
-        return top_photos[:2]  # Возвращаем максимум 2 фото
-        
-    except Exception as e:
-        logger.error(f"Ошибка получения топ фото: {e}")
-        return []
+    return top_photos[:2]  # Возвращаем максимум 2 фото
 
 
 async def get_top_users() -> list:
@@ -8499,6 +8520,54 @@ async def handle_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"[MENTION] Ошибка обработки обращения: {e}")
 
 
+async def handle_reactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка событий реакций (лайков) на сообщения."""
+    try:
+        global daily_stats, user_rating_stats
+        reaction_update = update.message_reaction_count
+        if not reaction_update:
+            return
+
+        chat_id = getattr(reaction_update.chat, "id", None)
+        if chat_id is None or str(chat_id) != str(CHAT_ID):
+            return
+
+        message_id = reaction_update.message_id
+        reactions = reaction_update.reactions or []
+
+        like_count = 0
+        for reaction in reactions:
+            like_count += int(getattr(reaction, "count", 0) or 0)
+
+        photos = daily_stats.get("photos", [])
+        for photo in photos:
+            if photo.get("message_id") == message_id:
+                prev_likes = int(photo.get("likes", 0) or 0)
+                if like_count != prev_likes:
+                    photo["likes"] = like_count
+
+                delta = max(like_count - prev_likes, 0)
+                if delta > 0:
+                    user_id = photo.get("user_id")
+                    user_name = photo.get("user_name", "Unknown")
+                    if user_id is not None:
+                        if user_id not in user_rating_stats:
+                            user_rating_stats[user_id] = {
+                                "name": user_name,
+                                "messages": 0,
+                                "photos": 0,
+                                "likes": 0,
+                                "replies": 0,
+                                "bonus_points": 0,
+                                "days_active": set(),
+                            }
+                        user_rating_stats[user_id]["likes"] += delta
+                logger.info(f"[REACTIONS] Фото {message_id}: лайков={like_count}, дельта={delta}")
+                break
+    except Exception as e:
+        logger.error(f"[REACTIONS] Ошибка обработки реакций: {e}")
+
+
 async def handle_replies_to_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщений когда отвечают на сообщение бота"""
     try:
@@ -8930,7 +8999,9 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         if message.text and chat_ok:
             text_lower = message.text.lower().strip()
             morning_phrases = ("доброе утро", "добрый день", "добрый вечер", "доброго утра", "доброго дня", "доброго вечера")
-            if any(p in text_lower for p in morning_phrases) and len(text_lower) <= 80:
+            morning_match = any(p in text_lower for p in morning_phrases) and len(text_lower) <= 80
+            logger.info(f"[MORNING] chat_ok={chat_ok} text_len={len(text_lower)} morning_match={morning_match} text='{text_lower[:60]}'")
+            if morning_match:
                 logger.info(f"[MORNING] Найдено приветствие от {user_name}: '{text_lower[:50]}'")
                 try:
                     is_female = False
@@ -9635,6 +9706,7 @@ def register_handlers(app):
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mentions, block=False)
     )
+    app.add_handler(MessageReactionHandler(handle_reactions, block=False))
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_replies_to_bot, block=False)
     )
