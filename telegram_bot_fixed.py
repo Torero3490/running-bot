@@ -1,4 +1,4 @@
-image.png#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Telegram Бот для Бегового Сообщества
