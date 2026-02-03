@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+image.png#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Telegram Бот для Бегового Сообщества
@@ -1824,16 +1824,16 @@ except ImportError:
 GARMIN_ENCRYPTION_KEY = None
 
 # ============== КОНФИГУРАЦИЯ ==============
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+# Bothost и др. могут передавать токен как API_TOKEN
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("API_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("Токен бота не найден!")
+    print("ОШИБКА: Задайте TELEGRAM_BOT_TOKEN или API_TOKEN в переменных окружения.")
+    raise ValueError("Токен бота не найден! Задайте TELEGRAM_BOT_TOKEN или API_TOKEN.")
 
 RENDER_URL = os.environ.get("RENDER_URL", "")
 
-CHAT_ID = os.environ.get("CHAT_ID")
-if not CHAT_ID:
-    raise ValueError("CHAT_ID не найден!")
-
+# CHAT_ID: из переменной окружения или запасное значение (если на хостинге не удаётся добавить переменную)
+CHAT_ID = os.environ.get("CHAT_ID") or "-1002573395736"
 try:
     CHAT_ID = int(CHAT_ID)
 except ValueError:
