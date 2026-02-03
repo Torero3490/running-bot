@@ -7,3 +7,5 @@ beautifulsoup4==4.12.2
 garminconnect==0.2.20
 cryptography==42.0.0
 schedule==1.2.2
+certifi>=2024.2.2
+urllib3>=2.0.0
