@@ -2378,6 +2378,7 @@ daily_stats = {
     "message_likes": {},   # {message_id: int}
     "first_photo_user_id": None,
     "first_photo_user_name": None,
+    "summary_last_sent": "",
 }
 daily_summary_sent = False
 
@@ -6539,6 +6540,7 @@ _DAILY_STATS_DEFAULTS = {
     "message_likes": {},
     "first_photo_user_id": None,
     "first_photo_user_name": None,
+    "summary_last_sent": "",
 }
 
 
@@ -7743,9 +7745,13 @@ async def send_daily_summary(force: bool = False):
         logger.error("Application не инициализирован")
         return
     
-    if daily_summary_sent and not force:
-        logger.info("Сводка уже отправлена сегодня (используй force=True или /summary)")
-        return
+    if not force:
+        last_sent = daily_stats.get("summary_last_sent", "")
+        if last_sent == datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d"):
+            daily_summary_sent = True
+        if daily_summary_sent:
+            logger.info("Сводка уже отправлена сегодня (используй force=True или /summary)")
+            return
     
     try:
         today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
@@ -7982,13 +7988,15 @@ async def send_daily_summary(force: bool = False):
         except Exception as e:
             logger.error(f"Ошибка получения фото: {e}")
         
+        # Отмечаем отправку сводки
+        daily_stats["summary_last_sent"] = today
+        daily_summary_sent = True
+
         # Сохраняем данные в историю (СКРЫТО, в чат не выводится)
         await save_daily_stats()
         await save_user_rating_stats()
         await save_chat_history()
         await save_user_active_stats()
-        
-        daily_summary_sent = True
         logger.info("Ежедневная сводка отправлена в чат + данные сохранены")
         
     except Exception as e:
@@ -8297,6 +8305,10 @@ async def daily_summary_scheduler_task():
         if now.hour == 0 and current_minute == 0:
             daily_summary_sent = False
 
+        # Синхронизация флага с сохраненной датой отправки
+        if daily_stats.get("summary_last_sent") == today_date:
+            daily_summary_sent = True
+
         # === ПЕРЕХОД НА НОВЫЙ ДЕНЬ (полночь) ===
         if now.hour == 0 and current_minute == 0:
             logger.info("[RUNNING] Новый день - перенос статистики бега в недельную/месячную")
@@ -8309,8 +8321,8 @@ async def daily_summary_scheduler_task():
             except Exception as e:
                 logger.error(f"Ошибка при переносе статистики бега: {e}")
 
-        # Отправка сводки в 23:58-23:59 (расширенное окно — на случай пропуска при sleep 60 сек)
-        if current_hour == 23 and current_minute >= 58:
+        # Отправка сводки в 23:55-23:59 (расширенное окно — на случай пропуска при sleep)
+        if current_hour == 23 and current_minute >= 55:
             if not daily_summary_sent:
                 logger.info(f"Время {current_hour}:{current_minute} - отправляем ежедневную сводку")
                 try:
