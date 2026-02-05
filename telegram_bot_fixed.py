@@ -9767,11 +9767,12 @@ async def slots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             parser_errors = []
         # Дополнительная фильтрация по регионам (защита от зарубежных и пустых городов)
-        def is_allowed_city(city_text: str, source_text: str) -> bool:
+        def is_allowed_city(city_text: str, source_text: str, title_text: str) -> bool:
             if not city_text:
                 city_lower = ""
             else:
                 city_lower = city_text.lower()
+            title_lower = (title_text or "").lower()
             if city_lower in ("россия", "russia") or not city_lower:
                 russian_sources = {
                     "russiarunning", "марафонец", "пробег", "беговое сообщество",
@@ -9781,6 +9782,8 @@ async def slots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "пробег трейлы", "пробег календарь",
                 }
                 return (source_text or "").lower() in russian_sources
+            if any(k in title_lower for k in ["забег.рф", "забег рф", "чулков", "лига героев", "hero league"]):
+                return True
             moscow_region = [
                 "москва", "moscow", "московск", "подмосков", "подмосковье",
                 "московской", "химки", "мытищи", "королев", "балашиха",
@@ -9805,7 +9808,7 @@ async def slots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 or any(x in city_lower for x in spb_region)
                 or any(x in city_lower for x in izhevsk_region)
             )
-        events = [e for e in events if is_allowed_city(e.get("city", ""), e.get("source", ""))]
+        events = [e for e in events if is_allowed_city(e.get("city", ""), e.get("source", ""), e.get("title", ""))]
         if not events:
             extra = ""
             if parser_errors:
