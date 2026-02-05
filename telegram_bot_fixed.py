@@ -10087,6 +10087,7 @@ BOT_HELP_TEXT = (
     "**🏃 Слоты на забеги:**\n"
     "• /slots — показать открытые регистрации на беговые мероприятия\n\n"
     "**💡 Полезное:**\n"
+    "• /plan — план подготовки к забегу (выбор дистанции и целевого времени)\n"
     "• /advice — совет по бегу из интернета\n"
     "• /music — музыка дня\n"
     "• /horoscope — гороскоп дня\n"
@@ -10377,6 +10378,162 @@ async def advice_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"[ADVICE] Ошибка команды /advice: {e}")
 
 
+# План подготовки к забегу: выбор дистанции → выбор целевого времени → генерация плана
+# callback_data: plan_dist_5k | plan_dist_10k | plan_dist_21 | plan_dist_42
+# затем: plan_time_5k_25 | plan_time_10k_50 | plan_time_21_120 | plan_time_42_270 (время в минутах)
+PLAN_DISTANCES = {
+    "5k": {"label": "5 км", "weeks": 6, "times": [(20, "20 мин"), (25, "25 мин"), (30, "30 мин"), (35, "35 мин"), (40, "40 мин"), (45, "45 мин"), (50, "50 мин")]},
+    "10k": {"label": "10 км", "weeks": 8, "times": [(40, "40 мин"), (45, "45 мин"), (50, "50 мин"), (55, "55 мин"), (60, "60 мин"), (65, "65 мин"), (70, "70 мин"), (80, "80 мин")]},
+    "21": {"label": "21.1 км (полумарафон)", "weeks": 12, "times": [(90, "1:30"), (105, "1:45"), (120, "2:00"), (135, "2:15"), (150, "2:30"), (165, "2:45"), (180, "3:00")]},
+    "42": {"label": "42.2 км (марафон)", "weeks": 16, "times": [(180, "3:00"), (210, "3:30"), (240, "4:00"), (270, "4:30"), (300, "5:00"), (330, "5:30"), (360, "6:00")]},
+}
+
+
+def _format_plan_time(minutes: int, dist_key: str) -> str:
+    """Форматирует целевое время для отображения (например 90 → 1:30, 25 → 25 мин)."""
+    if dist_key in ("21", "42") and minutes >= 60:
+        h, m = divmod(minutes, 60)
+        return f"{h}:{m:02d}"
+    return f"{minutes} мин"
+
+
+async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /plan — выбор дистанции, затем целевого времени, затем генерация плана."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keyboard = [
+        [InlineKeyboardButton("5 км", callback_data="plan_dist_5k"), InlineKeyboardButton("10 км", callback_data="plan_dist_10k")],
+        [InlineKeyboardButton("21.1 км", callback_data="plan_dist_21"), InlineKeyboardButton("42.2 км", callback_data="plan_dist_42")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="🏃 <b>План подготовки к забегу</b>\n\nВыбери дистанцию:",
+        parse_mode="HTML",
+        reply_markup=reply_markup,
+    )
+
+
+async def handle_plan_distance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """После выбора дистанции — показываем варианты целевого времени."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # plan_dist_5k | plan_dist_10k | plan_dist_21 | plan_dist_42
+    if not data.startswith("plan_dist_"):
+        return
+    dist_key = data.replace("plan_dist_", "")
+    if dist_key not in PLAN_DISTANCES:
+        return
+    info = PLAN_DISTANCES[dist_key]
+    label = info["label"]
+    times = info["times"]
+    buttons = []
+    row = []
+    for i, (mins, text) in enumerate(times):
+        row.append(InlineKeyboardButton(text, callback_data=f"plan_time_{dist_key}_{mins}"))
+        if len(row) >= 4:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    reply_markup = InlineKeyboardMarkup(buttons)
+    await query.edit_message_text(
+        text=f"🏃 Дистанция: <b>{label}</b>\n\nВыбери целевое время, за которое хочешь пробежать:",
+        parse_mode="HTML",
+        reply_markup=reply_markup,
+    )
+
+
+async def handle_plan_time_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """После выбора времени — генерируем план и отправляем."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # plan_time_5k_25 | plan_time_21_120 ...
+    if not data.startswith("plan_time_"):
+        return
+    parts = data.split("_")
+    if len(parts) != 4:
+        return
+    dist_key = parts[2]
+    try:
+        time_mins = int(parts[3])
+    except ValueError:
+        return
+    if dist_key not in PLAN_DISTANCES:
+        return
+    info = PLAN_DISTANCES[dist_key]
+    label = info["label"]
+    weeks = info["weeks"]
+    time_display = _format_plan_time(time_mins, dist_key)
+    if time_mins >= 60:
+        h, m = divmod(time_mins, 60)
+        target_str = f"{h}:{m:02d}"
+    else:
+        target_str = f"{time_mins} мин"
+
+    await query.edit_message_text(
+        text=f"⏳ Генерирую план: <b>{label}</b>, цель <b>{time_display}</b>…",
+        parse_mode="HTML",
+    )
+    chat_id = update.effective_chat.id
+
+    if YANDEX_AVAILABLE:
+        user_prompt = (
+            f"Составь недельный план подготовки к забегу на дистанцию {label}. "
+            f"До старта {weeks} недель. Целевое время на финиш: {target_str}. "
+            "План по неделям: объём в км, длинная пробежка, темповые/интервалы, отдых. "
+            "Кратко и по делу, на русском. В конце 2-3 совета на день старта (питание, разминка, темп)."
+        )
+        system_prompt = (
+            "Ты — опытный тренер по бегу. Дай структурированный план: недели, километраж, типы тренировок. "
+            "Пиши кратко. Формат: заголовки недель и списки."
+        )
+        try:
+            payload = {
+                "modelUri": f"gpt://{YANDEX_FOLDER_ID}/{YANDEX_MODEL}",
+                "completionOptions": {"stream": False, "temperature": 0.5, "maxTokens": "2500"},
+                "messages": [
+                    {"role": "system", "text": system_prompt},
+                    {"role": "user", "text": user_prompt},
+                ],
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+                    json=payload,
+                    headers={"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"},
+                )
+                response.raise_for_status()
+                data_resp = response.json()
+            if data_resp and "result" in data_resp and "alternatives" in data_resp["result"]:
+                plan_text = data_resp["result"]["alternatives"][0]["message"]["text"]
+                header = f"🏃 План: <b>{label}</b>, цель <b>{time_display}</b> ({weeks} нед.)\n\n"
+                full = header + plan_text.replace("*", "").strip()
+                max_len = 3800
+                chunks = []
+                while full:
+                    if len(full) <= max_len:
+                        chunks.append(full)
+                        break
+                    split_at = full.rfind("\n", 0, max_len)
+                    if split_at == -1:
+                        split_at = max_len
+                    chunks.append(full[:split_at].strip())
+                    full = full[split_at:].strip()
+                for chunk in chunks:
+                    await context.bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
+                return
+        except Exception as api_err:
+            logger.warning(f"[PLAN] Ошибка Yandex API: {api_err}")
+
+    fallback = (
+        f"🏃 План: {label}, цель {time_display}. "
+        "Генерация планов временно недоступна. Используй Hal Higdon, Nike Run Club или Strava."
+    )
+    await context.bot.send_message(chat_id=chat_id, text=fallback, parse_mode="HTML")
+
+
 async def music_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /music — музыка дня."""
     music = get_music_of_day()
@@ -10602,6 +10759,9 @@ def register_handlers(app):
     app.add_handler(CommandHandler("garmin_stop", garmin_stop_cmd))
     app.add_handler(CommandHandler("garmin_list", garmin_list_cmd))
 
+    app.add_handler(CommandHandler("plan", plan_cmd))
+    app.add_handler(CallbackQueryHandler(handle_plan_distance_callback, pattern=r"^plan_dist_"))
+    app.add_handler(CallbackQueryHandler(handle_plan_time_callback, pattern=r"^plan_time_"))
     app.add_handler(CommandHandler("advice", advice_cmd))
     app.add_handler(CommandHandler("music", music_cmd))
     app.add_handler(CommandHandler("horoscope", horoscope_cmd))
