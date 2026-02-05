@@ -3044,10 +3044,25 @@ async def get_horoscope_text_for_today() -> str:
 
 # ============== СКИДКИ НА ЭКИПИРОВКУ ==============
 DEALS_SOURCES = [
-    {"name": "Sport-Marafon", "url": "https://sport-marafon.ru/"},
-    {"name": "Nordski", "url": "https://nordski.ru/"},
+    {
+        "name": "Sport-Marafon",
+        "url": "https://sport-marafon.ru/",
+        "url_male": "https://sport-marafon.ru/catalog/muzhchiny/",
+        "url_female": "https://sport-marafon.ru/catalog/zhenshchiny/",
+    },
+    {
+        "name": "Nordski",
+        "url": "https://nordski.ru/",
+        "url_male": "https://nordski.ru/muzhskoe/",
+        "url_female": "https://nordski.ru/zhenskoe/",
+    },
     {"name": "SHU", "url": "https://shuclothes.com/"},
-    {"name": "GRI", "url": "https://www.grigri.ru/"},
+    {
+        "name": "GRI",
+        "url": "https://www.grigri.ru/",
+        "url_male": "https://www.grigri.ru/muzhskoe/",
+        "url_female": "https://www.grigri.ru/zhenskoe/",
+    },
     {"name": "Insanity", "url": "https://insanity.ru/"},
 ]
 
@@ -3104,22 +3119,23 @@ def _matches_gender(name: str, url: str, gender: str | None) -> bool:
     if not gender or gender == "all":
         return True
     text = f"{name} {url}".lower()
-    male_keywords = ["муж", "men", "male", "mens", "man", "boys", "boy", "m/"]
-    female_keywords = ["жен", "women", "female", "womens", "lady", "ladies", "w/"]
+    male_keywords = ["муж", "men", "male", "mens", "man", "boys", "boy", "m/", "мужск"]
+    female_keywords = ["жен", "women", "female", "womens", "lady", "ladies", "w/", "женск", "девуш"]
     unisex_keywords = ["унисекс", "unisex", "универс"]
 
+    # Сначала исключаем чужой пол
     if gender == "male":
-        if any(k in text for k in male_keywords):
-            return True
-        if any(k in text for k in unisex_keywords):
-            return True
-    if gender == "female":
         if any(k in text for k in female_keywords):
-            return True
-        if any(k in text for k in unisex_keywords):
-            return True
+            return False
+    if gender == "female":
+        if any(k in text for k in male_keywords):
+            return False
 
-    # Если явных признаков нет — не отбрасываем
+    # Подходим по полу: явно мужское/женское или унисекс
+    if gender == "male":
+        return any(k in text for k in male_keywords) or any(k in text for k in unisex_keywords)
+    if gender == "female":
+        return any(k in text for k in female_keywords) or any(k in text for k in unisex_keywords)
     return True
 
 
@@ -3166,12 +3182,22 @@ def extract_products_from_html(
     return unique
 
 
+def _deals_source_url(source: dict, gender: str | None) -> str:
+    """Ссылка на магазин с учётом пола (раздел муж/жен), если есть."""
+    if gender == "male" and source.get("url_male"):
+        return source["url_male"]
+    if gender == "female" and source.get("url_female"):
+        return source["url_female"]
+    return source["url"]
+
+
 async def fetch_deals_for_source(source: dict, gender: str | None = None, category: str | None = None) -> list[dict]:
     try:
+        url = _deals_source_url(source, gender)
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            response = await client.get(source["url"])
+            response = await client.get(url)
             response.raise_for_status()
-            return extract_products_from_html(response.text, source["url"], gender, category)
+            return extract_products_from_html(response.text, url, gender, category)
     except Exception as e:
         logger.error(f"[DEALS] Ошибка загрузки {source['name']}: {e}")
         return []
@@ -3191,7 +3217,9 @@ async def build_deals_message(gender: str | None = None, category: str | None = 
         products = await fetch_deals_for_source(source, gender, category)
         lines.append(f"🏬 <b>{html_escape(source['name'])}</b>")
         if not products:
-            lines.append(f"🔗 <a href=\"{html_escape(source['url'])}\">Открыть магазин</a>")
+            shop_url = _deals_source_url(source, gender)
+            label = f"Открыть магазин — {gender_title}" if gender else "Открыть магазин"
+            lines.append(f"🔗 <a href=\"{html_escape(shop_url)}\">{html_escape(label)}</a>")
             lines.append("")
             continue
         for product in products[:5]:
@@ -10675,7 +10703,7 @@ async def post_init(app):
     except Exception as e:
         logger.warning(f"[STARTUP] Ошибка загрузки рейтинга: {e}")
 
-    set_config(GENERAL_CHAT_ID, app, asyncio.get_running_loop(), EVENTS_TOPIC_ID, NEWS_TOPIC_ID)
+    set_config(GENERAL_CHAT_ID, app, asyncio.get_running_loop(), EVENTS_TOPIC_ID, NEWS_TOPIC_ID, DATA_DIR)
     start_background_threads()
 
     add_background_task(app, facts_scheduler_task())

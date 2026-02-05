@@ -46,6 +46,7 @@ import asyncio
 import logging
 import hashlib
 import json
+import os
 import re
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
@@ -63,10 +64,14 @@ EVENTS_TOPIC_ID = None
 NEWS_TOPIC_ID = None  # Топик для сводок ("Новости")
 application = None
 loop = None
+DATA_DIR = ""  # Папка для сохранения снимка слотов (передаётся из основного бота)
 LAST_EVENTS_ERRORS: List[str] = []
 
 # Хранилище для отслеживания опубликованных мероприятий
 published_events_db = set()
+
+# Файл снимка "последних известных слотов" для публикации только новых в 15:00
+LAST_EVENTS_SNAPSHOT_FILE = "last_events_snapshot.json"
 
 
 def is_registration_open(page_text: str, url: str) -> bool:
@@ -172,20 +177,57 @@ def extract_price(page_text: str) -> Optional[str]:
     return None
 
 
-def set_config(chat_id: int, app, event_loop, events_topic_id: int = None, news_topic_id: int = None):
+def set_config(chat_id: int, app, event_loop, events_topic_id: int = None, news_topic_id: int = None, data_dir: str = None):
     """Установка конфигурации из основного бота"""
-    global CHAT_ID, EVENTS_TOPIC_ID, NEWS_TOPIC_ID, application, loop
+    global CHAT_ID, EVENTS_TOPIC_ID, NEWS_TOPIC_ID, application, loop, DATA_DIR
     CHAT_ID = chat_id
     EVENTS_TOPIC_ID = events_topic_id
     NEWS_TOPIC_ID = news_topic_id
     application = app
     loop = event_loop
+    DATA_DIR = data_dir or ""
 
 
 def get_event_hash(title: str, date_str: str) -> str:
     """Генерирует уникальный хеш мероприятия для избежания дубликатов"""
     key_string = f"{title}_{date_str}".lower().strip()
     return hashlib.md5(key_string.encode('utf-8')).hexdigest()[:12]
+
+
+def _snapshot_path() -> str:
+    """Путь к файлу снимка слотов."""
+    if DATA_DIR and os.path.isdir(DATA_DIR):
+        return os.path.join(DATA_DIR, LAST_EVENTS_SNAPSHOT_FILE)
+    for d in ("/app/data", "/data"):
+        if os.path.isdir(d):
+            return os.path.join(d, LAST_EVENTS_SNAPSHOT_FILE)
+    return os.path.join(os.path.dirname(__file__) or ".", LAST_EVENTS_SNAPSHOT_FILE)
+
+
+def load_last_events_snapshot() -> set:
+    """Загружает множество хешей мероприятий из последнего снимка."""
+    path = _snapshot_path()
+    try:
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return set(data.get("hashes", []))
+    except Exception as e:
+        logger.warning(f"[EVENTS] Не удалось загрузить снимок слотов: {e}")
+    return set()
+
+
+def save_last_events_snapshot(hashes: set) -> None:
+    """Сохраняет снимок хешей мероприятий."""
+    path = _snapshot_path()
+    try:
+        dir_path = os.path.dirname(path)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"hashes": list(hashes), "updated": datetime.now().isoformat()}, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"[EVENTS] Не удалось сохранить снимок слотов: {e}")
 
 
 def get_last_events_errors() -> List[str]:
@@ -2646,9 +2688,14 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
         # ОТЛАДКА - логируем какой топик используем
         logger.info(f"[EVENTS] DEBUG: message_thread_id={message_thread_id}, EVENTS_TOPIC_ID={EVENTS_TOPIC_ID}, target={target_thread_id}")
 
+        bot = (context.bot if context else None) or (application.bot if application else None)
+        if not bot:
+            logger.error("[EVENTS] Нет бота для отправки сообщения")
+            return False
+
         # Отправляем в чат
         try:
-            await context.bot.send_message(
+            await bot.send_message(
                 chat_id=CHAT_ID,
                 message_thread_id=target_thread_id,
                 text=text,
@@ -2661,7 +2708,7 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
             # Если топик не найден - пробуем без топика (в основной чат)
             if "message thread not found" in error_str or "thread not found" in error_str:
                 logger.warning(f"[EVENTS] Топик {target_thread_id} не найден, публикуем в основной чат")
-                await context.bot.send_message(
+                await bot.send_message(
                     chat_id=CHAT_ID,
                     text=text,
                     parse_mode="Markdown",
@@ -2846,11 +2893,70 @@ async def check_and_publish_events(context: ContextTypes.DEFAULT_TYPE, message_t
         if await publish_event(context, event, message_thread_id):
             published_count += 1
 
+    # Обновляем снимок слотов (для проверки в 15:00 — показывать только новые)
+    current_hashes = {get_event_hash(e.get("title", ""), e.get("date", "") or "") for e in filtered_events}
+    save_last_events_snapshot(current_hashes)
+
     if published_count > 0:
         topic_info = f"в топик {message_thread_id}" if message_thread_id else "в топик мероприятий"
         logger.info(f"[EVENTS] Опубликовано {published_count} новых мероприятий {topic_info}")
     else:
         logger.info("[EVENTS] Новых мероприятий не найдено (или уже были опубликованы)")
+
+
+async def update_events_snapshot_only():
+    """Обновляет снимок слотов без публикации в чат (для 10:00)."""
+    logger.info("[EVENTS] Обновление снимка слотов (10:00)...")
+    events = await get_all_events()
+    current_hashes = {get_event_hash(e.get("title", ""), e.get("date", "") or "") for e in events}
+    save_last_events_snapshot(current_hashes)
+    logger.info(f"[EVENTS] Снимок слотов обновлён: {len(current_hashes)} мероприятий")
+
+
+async def check_and_publish_new_slots_only(context: ContextTypes.DEFAULT_TYPE, message_thread_id: int = None):
+    """Проверяет слоты и публикует в чат только те, что открылись с прошлой проверки (для запуска в 15:00)."""
+    logger.info("[EVENTS] Запуск проверки новых слотов (15:00)...")
+    target_thread_id = message_thread_id if message_thread_id is not None else EVENTS_TOPIC_ID
+    if not target_thread_id:
+        logger.warning("[EVENTS] EVENTS_TOPIC_ID не задан, новые слоты не публикуем")
+        return
+
+    last_known = load_last_events_snapshot()
+    events = await get_all_events()
+    current_hashes = {}
+    new_events = []
+    for e in events:
+        h = get_event_hash(e.get("title", ""), e.get("date", "") or "")
+        current_hashes[h] = e
+        if h not in last_known:
+            new_events.append(e)
+
+    save_last_events_snapshot(set(current_hashes.keys()))
+
+    if not new_events:
+        logger.info("[EVENTS] Новых слотов с прошлой проверки нет")
+        return
+
+    bot = (context.bot if context else None) or (application.bot if application else None)
+    if not bot:
+        logger.error("[EVENTS] Нет бота для отправки новых слотов")
+        return
+
+    try:
+        await bot.send_message(
+            chat_id=CHAT_ID,
+            message_thread_id=target_thread_id,
+            text="🔔 **Открылись новые слоты:**",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.warning(f"[EVENTS] Не удалось отправить заголовок новых слотов: {e}")
+
+    published = 0
+    for event in new_events:
+        if await publish_event(context, event, target_thread_id):
+            published += 1
+    logger.info(f"[EVENTS] Опубликовано новых слотов: {published} из {len(new_events)}")
 
 
 async def events_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2896,9 +3002,8 @@ async def events_help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """🏃 **Бот отслеживает беговые мероприятия и трейлы**
 
 **Автоматически:**
-• Проверяет источники каждый день в 10:00
-• Ищет открытые регистрации на слоты
-• Публикует только активные регистрации
+• 10:00 — обновление базы слотов (в чат ничего не отправляется)
+• 15:00 — в чат отправляются только новые открывшиеся слоты
 • Указывает даты, дистанции и ссылки
 
 **Источники беговые:**
@@ -2954,21 +3059,30 @@ async def handle_event_reminder_callback(update: Update, context: ContextTypes.D
 
 
 def events_scheduler_task():
-    """Планировщик проверки мероприятий - каждый день в 10:00 (без schedule)."""
+    """Планировщик: 10:00 — полный список слотов, 15:00 — только новые открывшиеся слоты."""
     import time as time_module
 
-    logger.info("[EVENTS] Планировщик мероприятий запущен (каждый день в 10:00)")
+    logger.info("[EVENTS] Планировщик слотов запущен (10:00 — все слоты, 15:00 — только новые)")
+    last_run_10 = ""
+    last_run_15 = ""
 
     while True:
         now = datetime.now()
-        run_at = now.replace(hour=10, minute=0, second=0, microsecond=0)
-        if run_at <= now:
-            run_at += timedelta(days=1)
-        sleep_seconds = max(1, int((run_at - now).total_seconds()))
-        time_module.sleep(sleep_seconds)
+        today = now.strftime("%Y-%m-%d")
 
-        # При автоматической проверке публикуем в EVENTS_TOPIC_ID (message_thread_id=None)
-        asyncio.run_coroutine_threadsafe(check_and_publish_events(None, None), loop)
+        if now.hour == 10 and now.minute == 0 and last_run_10 != today:
+            last_run_10 = today
+            asyncio.run_coroutine_threadsafe(update_events_snapshot_only(), loop)
+            time_module.sleep(120)
+            continue
+
+        if now.hour == 15 and now.minute == 0 and last_run_15 != today:
+            last_run_15 = today
+            asyncio.run_coroutine_threadsafe(check_and_publish_new_slots_only(None, None), loop)
+            time_module.sleep(120)
+            continue
+
+        time_module.sleep(60)
 
 
 def get_handlers() -> list:
