@@ -828,6 +828,46 @@ async def parse_probeg_trails_events() -> List[Dict]:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
 
+            # Табличный формат (актуальная разметка)
+            table = soup.find("table")
+            if table:
+                for row in table.find_all("tr"):
+                    cells = row.find_all("td")
+                    if len(cells) < 4:
+                        continue
+                    try:
+                        date_text = cells[1].get_text(" ", strip=True)
+                        title_text = cells[2].get_text(" ", strip=True)
+                        city_text = cells[3].get_text(" ", strip=True)
+                        distances_text = cells[4].get_text(" ", strip=True) if len(cells) > 4 else ""
+
+                        if not title_text or len(title_text) < 3:
+                            continue
+                        if "подробнее" in title_text.lower():
+                            continue
+
+                        date_str = parse_russian_date(date_text)
+                        url = ""
+                        title_link = cells[2].find("a", href=True)
+                        if title_link:
+                            href = title_link.get("href")
+                            url = href if href.startswith("http") else f"https://probeg.org{href}"
+
+                        events.append({
+                            'title': title_text,
+                            'date': date_str,
+                            'city': city_text or "Трейл (регион уточняйте)",
+                            'distances': distances_text or 'Трейл/Горный бег',
+                            'url': url,
+                            'source': 'ПроБЕГ Трейлы'
+                        })
+                    except Exception as e:
+                        logger.warning(f"[EVENTS] Ошибка парсинга строки probeg таблицы: {e}")
+                        continue
+
+            if events:
+                return events
+
             # Ищем блоки с трейловыми забегами
             trail_cards = soup.find_all('div', class_='race-item') or \
                          soup.find_all('div', class_='event') or \
@@ -1944,7 +1984,9 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
         'московской', 'химки', 'мытищи', 'королев', 'балашиха',
         'красногорск', 'одинцово', 'люберцы', 'электросталь',
         'коломна', 'серпухов', 'подольск', 'домодедово',
-        'зеленоград'
+        'зеленоград', 'раменск', 'жуковск', 'бронниц',
+        'чулков', 'ильинск', 'быково', 'лыткарино',
+        'дзержинск', 'вельяминово', 'яхрома'
     ]
 
     spb_region_keywords = [
