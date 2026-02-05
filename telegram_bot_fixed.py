@@ -9784,7 +9784,8 @@ async def slots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }
                 return (source_text or "").lower() in russian_sources
             if any(k in title_lower for k in ["забег.рф", "забег рф", "чулков", "лига героев", "hero league"]):
-                return True
+                if not city_lower or city_lower in ("россия", "russia"):
+                    return True
             moscow_region = [
                 "москва", "moscow", "московск", "подмосков", "подмосковье",
                 "московской", "химки", "мытищи", "королев", "балашиха",

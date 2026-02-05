@@ -2371,9 +2371,10 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
         logger.info(f"[EVENTS] Город не определён, пропускаем: {event.get('title', 'Без названия')}")
         return False
 
-    # Принудительно показываем ключевые события вне города
+    # Принудительно показываем ключевые события, если город не указан
     if any(k in title_lower for k in ['забег.рф', 'забег рф', 'чулков', 'лига героев', 'hero league']):
-        return True
+        if not city or city in ['', 'россия', 'russia']:
+            return True
 
     if not (is_moscow or is_spb or is_izhevsk):
         logger.info(f"[EVENTS] Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - {event.get('city', '')}")
@@ -2421,7 +2422,8 @@ def filter_event_by_city_only(event: Dict) -> bool:
         return source in russian_sources
 
     if any(k in title_lower for k in ['забег.рф', 'забег рф', 'чулков', 'лига героев', 'hero league']):
-        return True
+        if not city or city in ['', 'россия', 'russia']:
+            return True
 
     is_moscow = any(x in city for x in moscow_region_keywords)
     is_spb = any(x in city for x in spb_region_keywords)
