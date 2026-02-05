@@ -52,7 +52,7 @@ from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup  # type: ignore[import-untyped]
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler, filters
 
