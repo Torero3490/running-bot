@@ -9679,6 +9679,18 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                     daily_stats["message_likes"][replied_message_id] = prev + 1
                     save_daily_stats_local()
                     logger.info(f"[PLUS] + на сообщение {replied_message_id} для {target_name}")
+                    try:
+                        reply_kwargs = {
+                            "chat_id": update.effective_chat.id,
+                            "text": "✅ Балл засчитан! Продолжаем в том же духе 💪",
+                            "reply_to_message_id": message.message_id,
+                        }
+                        thread_id = getattr(message, "message_thread_id", None)
+                        if thread_id:
+                            reply_kwargs["message_thread_id"] = thread_id
+                        await context.bot.send_message(**reply_kwargs)
+                    except Exception:
+                        pass
 
         # Анонимные сообщения
         if user_id in user_anon_state:
