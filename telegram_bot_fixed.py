@@ -3046,9 +3046,9 @@ async def get_horoscope_text_for_today() -> str:
 DEALS_SOURCES = [
     {
         "name": "Sport-Marafon",
-        "url": "https://sport-marafon.ru/",
-        "url_male": "https://sport-marafon.ru/catalog/muzhchiny/",
-        "url_female": "https://sport-marafon.ru/catalog/zhenshchiny/",
+        "url": "https://sport-marafon.ru/catalog/odezhda-dlya-bega/",
+        "url_male": "https://sport-marafon.ru/catalog/odezhda-dlya-bega/",
+        "url_female": "https://sport-marafon.ru/catalog/odezhda-dlya-bega/",
     },
     {
         "name": "Nordski",
@@ -3056,18 +3056,17 @@ DEALS_SOURCES = [
         "url_male": "https://nordski.ru/po-polu/muzhchiny/",
         "url_female": "https://nordski.ru/po-polu/zhenshchiny/",
     },
-    {"name": "SHU", "url": "https://shuclothes.com/"},
-    {
-        "name": "GRI",
-        "url": "https://www.grigri.ru/",
-        "url_male": "https://www.grigri.ru/collection/men",
-        "url_female": "https://www.grigri.ru/collection/women",
-    },
     {
         "name": "SHU",
         "url": "https://shuclothes.com/",
         "url_male": "https://shuclothes.com/man",
         "url_female": "https://shuclothes.com/woman",
+    },
+    {
+        "name": "GRI",
+        "url": "https://www.grigri.ru/",
+        "url_male": "https://www.grigri.ru/collection/men",
+        "url_female": "https://www.grigri.ru/collection/women",
     },
     {
         "name": "Insanity",
