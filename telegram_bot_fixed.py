@@ -3047,8 +3047,8 @@ DEALS_SOURCES = [
     {
         "name": "Sport-Marafon",
         "url": "https://sport-marafon.ru/catalog/odezhda-dlya-bega/",
-        "url_male": "https://sport-marafon.ru/catalog/odezhda-dlya-bega/",
-        "url_female": "https://sport-marafon.ru/catalog/odezhda-dlya-bega/",
+        "url_male": "https://sport-marafon.ru/catalog/muzhskaya-odezhda-dlya-bega/",
+        "url_female": "https://sport-marafon.ru/catalog/zhenskaya-odezhda-dlya-bega/",
     },
     {
         "name": "Nordski",
@@ -3129,8 +3129,9 @@ def _matches_gender(name: str, url: str, gender: str | None) -> bool:
     if not gender or gender == "all":
         return True
     text = f"{name} {url}".lower()
-    male_keywords = ["муж", "men", "male", "mens", "man", "boys", "boy", "m/", "мужск"]
-    female_keywords = ["жен", "women", "female", "womens", "lady", "ladies", "w/", "женск", "девуш"]
+    # кириллица + транслит из URL (sport-marafon: zhenskaya, muzhskaya, zhenshchiny, muzhchiny)
+    male_keywords = ["муж", "men", "male", "mens", "man", "boys", "boy", "m/", "мужск", "muzh", "muzhchin", "muzhski", "muzhskie"]
+    female_keywords = ["жен", "women", "female", "womens", "lady", "ladies", "w/", "женск", "девуш", "zhen", "zhenshchin", "zhenski", "zhenskie"]
     unisex_keywords = ["унисекс", "unisex", "универс"]
 
     # Сначала исключаем чужой пол
