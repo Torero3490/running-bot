@@ -3053,17 +3053,28 @@ DEALS_SOURCES = [
     {
         "name": "Nordski",
         "url": "https://nordski.ru/",
-        "url_male": "https://nordski.ru/muzhskoe/",
-        "url_female": "https://nordski.ru/zhenskoe/",
+        "url_male": "https://nordski.ru/po-polu/muzhchiny/",
+        "url_female": "https://nordski.ru/po-polu/zhenshchiny/",
     },
     {"name": "SHU", "url": "https://shuclothes.com/"},
     {
         "name": "GRI",
         "url": "https://www.grigri.ru/",
-        "url_male": "https://www.grigri.ru/muzhskoe/",
-        "url_female": "https://www.grigri.ru/zhenskoe/",
+        "url_male": "https://www.grigri.ru/collection/men",
+        "url_female": "https://www.grigri.ru/collection/women",
     },
-    {"name": "Insanity", "url": "https://insanity.ru/"},
+    {
+        "name": "SHU",
+        "url": "https://shuclothes.com/",
+        "url_male": "https://shuclothes.com/man",
+        "url_female": "https://shuclothes.com/woman",
+    },
+    {
+        "name": "Insanity",
+        "url": "https://insanity.ru/",
+        "url_male": "https://insanity.ru/male_capsule_2",
+        "url_female": "https://insanity.ru/female_capsule_1",
+    },
 ]
 
 DEALS_KEYWORDS = [
