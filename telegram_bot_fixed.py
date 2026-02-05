@@ -14,6 +14,7 @@ import time
 import random
 import httpx
 import json
+import calendar
 import base64
 from io import BytesIO
 from datetime import datetime, timedelta
@@ -1138,8 +1139,59 @@ facts_db = [
     },
 ]
 
+FACT_STYLE_SHOCK = "shock"
+FACT_STYLE_NICE = "nice"
+fact_style_next = FACT_STYLE_SHOCK
+FACTS_EXCLUDE_CATEGORIES = {"безопасность"}
 
-def get_random_fact(exclude_ids: list = None) -> dict:
+
+def get_next_fact_style() -> str:
+    global fact_style_next
+    style = fact_style_next
+    fact_style_next = FACT_STYLE_NICE if style == FACT_STYLE_SHOCK else FACT_STYLE_SHOCK
+    return style
+
+
+def build_fact_prompt(style: str) -> str:
+    if style == FACT_STYLE_SHOCK:
+        return """Ты — эксперт по бегу и фитнесу. Напиши ОДИН дикий, шокирующий факт о беге (треш), чтобы удивить.
+
+Требования:
+- ШОКИРУЮЩИЙ и НЕОЖИДАННЫЙ
+- Можно про экстремальные рекорды, риск, странные случаи
+- С конкретными цифрами или исследованиями
+- ОБЪЁМ: 4–6 предложений, сочный и детальный
+
+Обязательно добавь ссылку на источник в формате: "Источник: [название](ссылка)"
+Используй реальные ссылки на статьи из Runners World, Scientific American, PubMed, healthline.com, outsideonline.com или других надёжных источников.
+
+Ответь ТОЛЬКО в таком формате:
+**🔥 ШОКИРУЮЩИЙ ЗАГОЛОВОК**
+
+Сочный текст факта (4–6 предложений).
+
+Источник: [название](ссылка)"""
+    return """Ты — эксперт по бегу и фитнесу. Напиши ОДИН удивительный и красивый факт о беге.
+
+Требования:
+- Без треша, смерти и травм
+- Нейтральный или вдохновляющий тон
+- Можно про технику, восстановление, питание, экипировку, физиологию, рекорды (без жести)
+- С конкретными цифрами или результатами исследований
+- Объём: 3–5 предложений
+
+Обязательно добавь ссылку на источник в формате: "Источник: [название](ссылка)"
+Используй реальные ссылки на статьи из Runners World, Scientific American, PubMed, healthline.com, outsideonline.com или других надёжных источников.
+
+Ответь ТОЛЬКО в таком формате:
+**🏃 Заголовок**
+
+Текст факта (3–5 предложений).
+
+Источник: [название](ссылка)"""
+
+
+def get_random_fact(exclude_ids: list = None, allow_excluded: bool = False) -> dict:
     """
     Возвращает случайный факт из базы.
     exclude_ids: список ID фактов, которые уже показывались (для избежания повторов).
@@ -1147,12 +1199,17 @@ def get_random_fact(exclude_ids: list = None) -> dict:
     if exclude_ids is None:
         exclude_ids = []
     
-    available_facts = [f for f in facts_db if f["id"] not in exclude_ids]
+    if allow_excluded:
+        available_facts = [f for f in facts_db if f["id"] not in exclude_ids]
+    else:
+        available_facts = [f for f in facts_db if f["id"] not in exclude_ids and f.get("category") not in FACTS_EXCLUDE_CATEGORIES]
     
     if not available_facts:
         # Если все факты показаны — сбрасываем и показываем любой
         exclude_ids = []
-        available_facts = facts_db
+        available_facts = [f for f in facts_db if f.get("category") not in FACTS_EXCLUDE_CATEGORIES]
+        if not available_facts:
+            available_facts = facts_db
     
     return random.choice(available_facts)
 
@@ -1405,41 +1462,15 @@ async def send_daily_fact():
     global daily_fact_message_id
     
     try:
+        style = get_next_fact_style()
         if YANDEX_AVAILABLE:
-            # Генерируем факт через YandexGPT с просьбой дать ссылку - С ПОЛНЫМ ТРЕШЕМ!
-            prompt = """Ты — эксперт по бегу и фитнесу. Твоя задача — написать ОДИН ДИКИЙ, ШОКИРУЮЩИЙ факт о беге с ПОЛНЫМ ТРЕШЕМ!
-
-Требования к факту:
-- ШОКИРУЮЩИЙ и НЕОЖИДАННЫЙ — чтобы челюсть упала
-- Полная жесть: смерти, травмы, безумные рекорды, дикие истории
-- С конкретными цифрами или исследованиями
-- Малоизвестный — не банальности про пользу бега
-- ОБЪЁМ: 4-6 предложений, сочный и детальный
-
-ТИПЫ ТРЕША:
-- Люди, которые умирали на марафонах и продолжали бегать
-- Безумные рекорды: 100 марафонов за 100 дней, бег 500 км без остановки
-- Истории про травмы: бежал с переломом ноги 20 км
-- Жуткая статистика: 1 к 100000 — смертность на марафонах
-- Экстремальный бег: пустыни, горы,北极, вулканы
-- Бодибилдинг: как бег уничтожает колени (реальные данные!)
-- Психушка: марафонцы видят галлюцинации на 30 км
-- Полный треш в питании: бег на пустой желудок 80 км
-
-Обязательно добавь ссылку на источник в формате: "Источник: [название](ссылка)"
-Используй реальные ссылки на статьи из Runners World, Scientific American, PubMed, outsideonline.com, или других надёжных источников.
-
-Ответь ТОЛЬКО в таком формате:
-**🔥 ШОКИРУЮЩИЙ ЗАГОЛОВОК**
-
-Сочный текст факта (4-6 предложений с конкретикой).
-
-Источник: [название](ссылка)"""
+            # Генерируем факт через YandexGPT с просьбой дать ссылку (чередуем стиль)
+            prompt = build_fact_prompt(style)
 
             try:
                 payload = {
                     "modelUri": f"gpt://{YANDEX_FOLDER_ID}/{YANDEX_MODEL}",
-                    "completionOptions": {"stream": False, "temperature": 1.0, "maxTokens": "650"},
+                    "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "650"},
                     "messages": [
                         {"role": "system", "text": "Ты — эксперт по бегу с глубокими знаниями. Всегда указывай источники информации."},
                         {"role": "user", "text": prompt}
@@ -1474,7 +1505,7 @@ async def send_daily_fact():
             except Exception as api_error:
                 logger.error(f"[FACTS] Ошибка API: {api_error}, используем статический факт")
                 # Резервный вариант - статический факт
-                fact = get_random_fact()
+                fact = get_random_fact(allow_excluded=(style == FACT_STYLE_SHOCK))
                 fact_text = format_fact_message(fact)
                 fact_text = f"📢 **Ежедневный факт о беге**\n\n{fact_text}\n\n_(Источник: локальная база)_"
                 
@@ -1487,7 +1518,7 @@ async def send_daily_fact():
                 daily_fact_message_id = message.message_id
         else:
             # Если ИИ недоступен - используем статическую базу
-            fact = get_random_fact()
+            fact = get_random_fact(allow_excluded=(style == FACT_STYLE_SHOCK))
             fact_text = format_fact_message(fact)
             fact_text = f"📢 **Ежедневный факт о беге**\n\n{fact_text}"
             
@@ -1516,41 +1547,15 @@ async def facts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             action_kwargs["message_thread_id"] = thread_id
         await context.bot.send_chat_action(**action_kwargs)
         
+        style = get_next_fact_style()
         if YANDEX_AVAILABLE:
-            # Генерируем факт через YandexGPT - с полным трешем!
-            prompt = """Ты — эксперт по бегу и фитнесу. Твоя задача — написать ОДИН дикий, шокирующий, невероятный факт о беге с ПОЛНЫМ ТРЕШЕМ!
-
-Требования к факту:
-- ШОКИРУЮЩИЙ и НЕОЖИДАННЫй — такой, чтобы челюсть упала
-- Полная жесть: смерти, травмы, безумные рекорды, дикие истории
-- С КОНКРЕТНЫМИ цифрами и фактами из исследований
-- Малоизвестный — не банальности про пользу бега
-- ОБЪЁМ: 4-6 предложений, сочный и детальный
-
-ТИПЫ ТРЕША, которые ищем:
-- Люди, которые умирали на марафонах и продолжали бегать
-- Безумные рекорды: 100 марафонов за 100 дней, бег 500 км без остановки
-- Истории про травмы: бежал с переломом ноги 20 км
-- Жуткая статистика: 1 к 100000 — смертность на марафонах
-- Экстремальный бег: пустыни, горы,北极, вулканы
-- Бодибилдинг: как бег уничтожает колени (реальные данные!)
-- Психушка: марафонцы видят галлюцинации на 30 км
-- Полный треш в питании: бег на пустой желудок 80 км
-
-Обязательно добавь ссылку на источник в формате: "Источник: [название](ссылка)"
-Используй реальные ссылки на статьи из Runners World, Scientific American, PubMed, healthline.com, outsideonline.com, или других надёжных источников.
-
-Ответь ТОЛЬКО в таком формате:
-**🔥 ШОКИРУЮЩИЙ ЗАГОЛОВОК**
-
-Сочный текст факта (4-6 предложений с конкретикой).
-
-Источник: [название](ссылка)"""
+            # Генерируем факт через YandexGPT (чередуем стиль)
+            prompt = build_fact_prompt(style)
 
             try:
                 payload = {
                     "modelUri": f"gpt://{YANDEX_FOLDER_ID}/{YANDEX_MODEL}",
-                    "completionOptions": {"stream": False, "temperature": 1.0, "maxTokens": "650"},
+                    "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "650"},
                     "messages": [
                         {"role": "system", "text": "Ты — эксперт по бегу с глубокими знаниями. Всегда указывай источники информации."},
                         {"role": "user", "text": prompt}
@@ -1589,10 +1594,10 @@ async def facts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as api_error:
                 logger.error(f"[FACTS] Ошибка API: {api_error}, используем статический факт")
                 # Резервный вариант - статический факт
-                await send_static_fact(update, context, user_id, user_name)
+                await send_static_fact(update, context, user_id, user_name, style)
         else:
             # Если ИИ недоступен - используем статическую базу
-            await send_static_fact(update, context, user_id, user_name)
+            await send_static_fact(update, context, user_id, user_name, style)
             
     except Exception as e:
         logger.error(f"[FACTS] Ошибка команды facts: {e}")
@@ -1607,11 +1612,11 @@ async def facts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
-async def send_static_fact(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, user_name: str):
+async def send_static_fact(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, user_name: str, style: str = FACT_STYLE_NICE):
     """Отправляет статический факт из базы (резервный вариант)"""
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     
-    fact = get_random_fact()
+    fact = get_random_fact(allow_excluded=(style == FACT_STYLE_SHOCK))
     fact_text = format_fact_message(fact)
     
     keyboard = [
@@ -1646,37 +1651,14 @@ async def handle_facts_ai_callback(update: Update, context: ContextTypes.DEFAULT
             # Отправляем "печатает" статус
             await context.bot.send_chat_action(chat_id=query.message.chat.id, action="typing")
             
+            style = get_next_fact_style()
             if YANDEX_AVAILABLE:
-                prompt = """Ты — эксперт по бегу и фитнесу. Твоя задача — написать ОДИН ДИКИЙ, ШОКИРУЮЩИЙ факт о беге с ПОЛНЫМ ТРЕШЕМ, который ОТЛИЧАЕТСЯ от предыдущих!
-
-Требования к факту:
-- ШОКИРУЮЩИЙ и НЕОЖИДАННЫЙ — чтобы челюсть упала
-- ПОЛНАЯ ЖЕСТЬ: смерти, травмы, безумные рекорды, дикие истории
-- С КОНКРЕТНЫМИ цифрами из исследований
-- Малоизвестный — не банальности про пользу бега
-- ОБЪЁМ: 4-6 предложений, сочный и детальный
-
-ТИПЫ ТРЕША:
-- Люди, которые умирали на марафонах и продолжали бегать
-- Безумные рекорды: 100 марафонов за 100 дней, бег 500 км без остановки
-- Истории про травмы: бежал с переломом ноги 20 км
-- Жуткая статистика: 1 к 100000 — смертность на марафонах
-- Экстремальный бег: пустыни, горы,北极, вулканы
-- Бодибилдинг: как бег уничтожает колени (реальные данные!)
-- Психушка: марафонцы видят галлюцинации на 30 км
-- Полный треш в питании: бег на пустой желудок 80 км
-
-Формат ответа:
-**🔥 ШОКИРУЮЩИЙ ЗАГОЛОВОК**
-
-Сочный текст факта (4-6 предложений с конкретикой).
-
-Источник: [название](ссылка)"""
+                prompt = build_fact_prompt(style)
 
                 try:
                     payload = {
                         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/{YANDEX_MODEL}",
-                        "completionOptions": {"stream": False, "temperature": 1.0, "maxTokens": "650"},
+                        "completionOptions": {"stream": False, "temperature": 0.8, "maxTokens": "650"},
                         "messages": [
                             {"role": "system", "text": "Ты — эксперт по бегу. Всегда указывай источники."},
                             {"role": "user", "text": prompt}
@@ -2369,21 +2351,30 @@ user_night_warning_sent = {}
 user_last_active = {}
 
 # ============== СТАТИСТИКА ДЛЯ ЕЖЕДНЕВНОЙ СВОДКИ ==============
-daily_stats = {
-    "date": datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d"),
-    "total_messages": 0,
-    "user_messages": {},  # {user_id: {"name": str, "count": int}}
-    "photos": [],  # [{"file_id": str, "user_id": int, "likes": int, "message_id": int}]
-    "message_owners": {},  # {message_id: {"user_id": int, "user_name": str}}
-    "message_likes": {},   # {message_id: int}
-    "first_photo_user_id": None,
-    "first_photo_user_name": None,
-    "summary_last_sent": "",
-}
+def build_empty_daily_stats(date_str: str) -> dict:
+    return {
+        "date": date_str,
+        "total_messages": 0,
+        "user_messages": {},  # {user_id: {"name": str, "count": int}}
+        "photos": [],  # [{"file_id": str, "user_id": int, "likes": int, "message_id": int}]
+        "message_owners": {},  # {message_id: {"user_id": int, "user_name": str}}
+        "message_likes": {},   # {message_id: int}
+        "first_photo_user_id": None,
+        "first_photo_user_name": None,
+        "summary_last_sent": "",
+    }
+
+
+daily_stats = build_empty_daily_stats(datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d"))
 daily_summary_sent = False
 
 # Известные пользователи (для приветствия только новых)
 known_users = set()
+
+# Метаданные сводок (для устойчивости при рестартах)
+summary_state = {
+    "monthly_last_sent": "",
+}
 
 
 async def recalculate_daily_stats_from_chat(bot) -> dict:
@@ -2906,8 +2897,11 @@ def build_fallback_horoscope() -> str:
     lines = []
     for i, (emoji, sign) in enumerate(ZODIAC_SIGNS):
         seed = today_ordinal * 12 + i  # разное сочетание для каждого дня и знака
-        idx = seed % len(HOROSCOPE_FALLBACK)
-        lines.append(f"{emoji} {sign}: {HOROSCOPE_FALLBACK[idx]}")
+        idx1 = seed % len(HOROSCOPE_FALLBACK)
+        idx2 = (seed * 7 + 3) % len(HOROSCOPE_FALLBACK)
+        if idx2 == idx1:
+            idx2 = (idx2 + 5) % len(HOROSCOPE_FALLBACK)
+        lines.append(f"{emoji} {sign}: {HOROSCOPE_FALLBACK[idx1]} {HOROSCOPE_FALLBACK[idx2]}")
     return "\n".join(lines)
 
 
@@ -2955,10 +2949,13 @@ async def fetch_horoscope_from_site() -> str | None:
                                 found = desc
                                 break
             if found:
-                # Сокращаем до одного предложения, если длинно
-                first_sentence = found.split(".")[0].strip()
-                if first_sentence:
-                    found = first_sentence + "." if not first_sentence.endswith(".") else first_sentence
+                # Сокращаем до 1–2 предложений
+                parts = [p.strip() for p in found.split(".") if p.strip()]
+                short = parts[:2]
+                if short:
+                    found = ". ".join(short)
+                    if not found.endswith("."):
+                        found += "."
                 lines.append(f"{emoji} {sign}: {found}")
             else:
                 idx = abs(hash(f"{datetime.now(MOSCOW_TZ).strftime('%Y-%m-%d')}:{sign}")) % len(HOROSCOPE_FALLBACK)
@@ -3008,7 +3005,7 @@ async def get_horoscope_text_for_today() -> str:
                 "Требования:\n"
                 "- Ровно 12 строк, по одной на знак, в порядке: Овен, Телец, Близнецы, Рак, Лев, Дева, Весы, Скорпион, Стрелец, Козерог, Водолей, Рыбы\n"
                 "- Формат каждой строки: \"♈ Овен: короткий текст\" (эмодзи знака, название, двоеточие, текст)\n"
-                "- Очень коротко (одно предложение на знак)\n"
+                "- Коротко (1–2 предложения на знак)\n"
                 "- Без темы бега и спорта, нейтральный тон\n"
                 "- Текст должен быть разным каждый день, не повторяй предыдущие формулировки\n"
             )
@@ -3282,6 +3279,8 @@ LEGACY_BIRTHDAYS_FILE = "birthdays.json"
 LEGACY_GARMIN_DATA_FILE = "garmin_users.json"
 LEGACY_GARMIN_KEY_FILE = "garmin_key.key"
 LEGACY_USER_RATING_FILE = "user_rating_stats.json"
+SUMMARY_STATE_FILE = os.path.join(DATA_DIR, "summary_state.json")
+LEGACY_SUMMARY_STATE_FILE = "summary_state.json"
 LEGACY_DAILY_STATS_FILE = "daily_stats.json"
 LEGACY_KNOWN_USERS_FILE = "known_users.json"
 
@@ -3594,9 +3593,10 @@ def load_daily_stats() -> None:
         loaded_date = data.get("date") if isinstance(data, dict) else None
         if loaded_date != today:
             logger.warning(
-                f"[PERSIST] daily_stats date {loaded_date} != {today}, продолжаем без сброса"
+                f"[PERSIST] daily_stats date {loaded_date} != {today}, сбрасываем дневную статистику"
             )
-            data["date"] = today
+            daily_stats = build_empty_daily_stats(today)
+            return
 
         # Приводим ключи и типы
         user_messages = {}
@@ -3764,6 +3764,35 @@ def load_user_rating_stats():
         logger.error(f"[PERSIST] Ошибка загрузки из локального файла: {e}")
     
     return False
+
+
+def save_summary_state() -> None:
+    """Сохраняет метаданные сводок локально и в SQLite."""
+    global summary_state
+    try:
+        with open(SUMMARY_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(summary_state, f, ensure_ascii=False, indent=2)
+        db_save_json("summary_state", summary_state)
+    except Exception as e:
+        logger.warning(f"[PERSIST] Ошибка сохранения summary_state: {e}")
+
+
+def load_summary_state() -> None:
+    """Загружает метаданные сводок из SQLite/файла."""
+    global summary_state
+    try:
+        data = db_load_json("summary_state")
+        if not data:
+            migrate_legacy_file(SUMMARY_STATE_FILE, LEGACY_SUMMARY_STATE_FILE, "summary_state")
+            if os.path.exists(SUMMARY_STATE_FILE):
+                with open(SUMMARY_STATE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+        if not data:
+            return
+        if isinstance(data, dict):
+            summary_state.update(data)
+    except Exception as e:
+        logger.warning(f"[PERSIST] Ошибка загрузки summary_state: {e}")
 
 
 async def save_user_active_stats():
@@ -8128,7 +8157,7 @@ async def send_weekly_summary():
 
 
 # ============== ЕЖЕМЕСЯЧНАЯ СВОДКА ==============
-async def send_monthly_summary():
+async def send_monthly_summary(ref_date: datetime | None = None):
     """Отправка ежемесячной сводки с итогами месяца"""
     global user_rating_stats, user_running_stats, monthly_running_stats
 
@@ -8138,7 +8167,9 @@ async def send_monthly_summary():
 
     try:
         now = datetime.now(MOSCOW_TZ)
-        month_name = now.strftime("%B %Y")
+        ref_date = ref_date or now
+        month_name = ref_date.strftime("%B %Y")
+        month_key = ref_date.strftime("%Y-%m")
 
         # Функция для экранирования Markdown-символов (MarkdownV2)
         def escape_markdown(text: str) -> str:
@@ -8282,7 +8313,10 @@ async def send_monthly_summary():
         await save_chat_history()
         await save_user_active_stats()
         await save_user_running_stats()
-        
+
+        summary_state["monthly_last_sent"] = month_key
+        save_summary_state()
+
         logger.info("Ежемесячная сводка отправлена в чат + данные сохранены")
         
         # НЕ сбрасываем статистику здесь - это делает планировщик в нужное время
@@ -8301,9 +8335,10 @@ async def daily_summary_scheduler_task():
         current_minute = now.minute
         today_date = now.strftime("%Y-%m-%d")
 
-        # Сброс флага отправки в полночь
+        # Сброс флага отправки и дневной статистики в полночь
         if now.hour == 0 and current_minute == 0:
             daily_summary_sent = False
+            daily_stats = build_empty_daily_stats(today_date)
 
         # Синхронизация флага с сохраненной датой отправки
         if daily_stats.get("summary_last_sent") == today_date:
@@ -8348,12 +8383,18 @@ async def daily_summary_scheduler_task():
 
                 current_week = week_num
 
-        # Проверка конца месяца (последний день месяца в 23:59)
-        last_day_of_month = (now.replace(day=28) + timedelta(days=4)).day - (now.replace(day=28) + timedelta(days=4)).day % 28
-        if now.day == last_day_of_month and current_hour == 23 and current_minute == 59:
+        # Проверка конца месяца (последний день месяца в 23:55-23:59)
+        last_day_of_month = calendar.monthrange(now.year, now.month)[1]
+        month_key = now.strftime("%Y-%m")
+        if (
+            now.day == last_day_of_month
+            and current_hour == 23
+            and current_minute >= 55
+            and summary_state.get("monthly_last_sent") != month_key
+        ):
             logger.info(f"Последний день месяца - отправляем ежемесячную сводку")
             try:
-                await send_monthly_summary()
+                await send_monthly_summary(ref_date=now)
             except Exception as e:
                 logger.error(f"Ошибка при отправке ежемесячной сводки: {e}")
 
@@ -8376,6 +8417,17 @@ async def daily_summary_scheduler_task():
                 reset_monthly_running_stats()
             except Exception as e:
                 logger.error(f"Ошибка при сбросе статистики бега: {e}")
+
+        # Догоняем ежемесячную сводку в первые 5 минут нового месяца
+        if now.day == 1 and current_hour == 0 and current_minute <= 5:
+            prev_date = now - timedelta(days=1)
+            prev_month_key = prev_date.strftime("%Y-%m")
+            if summary_state.get("monthly_last_sent") != prev_month_key:
+                logger.info("Догоняем ежемесячную сводку за прошлый месяц")
+                try:
+                    await send_monthly_summary(ref_date=prev_date)
+                except Exception as e:
+                    logger.error(f"Ошибка при догоняющей ежемесячной сводке: {e}")
 
         # С 23:55 до 00:05 проверяем каждые 15 сек — чтобы не пропустить сводку
         if (current_hour == 23 and current_minute >= 55) or (current_hour == 0 and current_minute <= 5):
@@ -10614,6 +10666,7 @@ async def post_init(app):
     ensure_sqlite_db()
     load_daily_stats()
     load_known_users()
+    load_summary_state()
 
     init_garmin_on_startup()
     init_birthdays_on_startup()
