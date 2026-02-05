@@ -1224,14 +1224,25 @@ def get_gif_for_context(message_text: str, message_type: str, is_female: bool = 
     return None
 
 
-async def send_toxic_response(context, chat_id: int, text: str = None, sticker: str = None, gif: str = None):
+async def send_toxic_response(
+    context,
+    chat_id: int,
+    text: str = None,
+    sticker: str = None,
+    gif: str = None,
+    message_thread_id: int | None = None,
+):
     """
     Отправляет ответ: текст + опционально стикер/гифку.
     """
+    extra_kwargs = {}
+    if message_thread_id:
+        extra_kwargs["message_thread_id"] = message_thread_id
+
     # Сначала отправляем стикер если есть
     if sticker:
         try:
-            await context.bot.send_sticker(chat_id=chat_id, sticker=sticker)
+            await context.bot.send_sticker(chat_id=chat_id, sticker=sticker, **extra_kwargs)
             logger.info(f"[TOXIC-MEDIA] Стикер отправлен")
         except Exception as e:
             logger.error(f"[TOXIC-MEDIA] Ошибка отправки стикера: {e}")
@@ -1239,7 +1250,7 @@ async def send_toxic_response(context, chat_id: int, text: str = None, sticker: 
     # Потом отправляем гифку если есть
     if gif:
         try:
-            await context.bot.send_animation(chat_id=chat_id, animation=gif)
+            await context.bot.send_animation(chat_id=chat_id, animation=gif, **extra_kwargs)
             logger.info(f"[TOXIC-MEDIA] Гифка отправлена")
         except Exception as e:
             logger.error(f"[TOXIC-MEDIA] Ошибка отправки гифки: {e}")
@@ -1251,13 +1262,13 @@ async def send_toxic_response(context, chat_id: int, text: str = None, sticker: 
             try:
                 voice_audio = await synthesize_voice(text)
                 if voice_audio:
-                    await context.bot.send_voice(chat_id=chat_id, voice=voice_audio)
+                    await context.bot.send_voice(chat_id=chat_id, voice=voice_audio, **extra_kwargs)
                     sent_voice = True
                     logger.info("[VOICE] Голосовой ответ отправлен")
             except Exception as e:
                 logger.warning(f"[VOICE] Ошибка голосового ответа: {e}")
         if not sent_voice:
-            await context.bot.send_message(chat_id=chat_id, text=text)
+            await context.bot.send_message(chat_id=chat_id, text=text, **extra_kwargs)
 
 
 async def voice_test_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1499,7 +1510,11 @@ async def facts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_name = update.message.from_user.full_name or update.message.from_user.username or "Пользователь"
         
         # Отправляем "печатает" статус
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        thread_id = getattr(update.message, "message_thread_id", None)
+        action_kwargs = {"chat_id": update.effective_chat.id, "action": "typing"}
+        if thread_id:
+            action_kwargs["message_thread_id"] = thread_id
+        await context.bot.send_chat_action(**action_kwargs)
         
         if YANDEX_AVAILABLE:
             # Генерируем факт через YandexGPT - с полным трешем!
@@ -3338,7 +3353,7 @@ user_message_times = {}
 # ============== КОЭФФИЦИЕНТЫ РЕЙТИНГА ==============
 POINTS_PER_MESSAGES = 300  # За сколько сообщений даётся 1 балл
 POINTS_PER_PHOTOS = 10    # За сколько фото даётся 1 балл
-POINTS_PER_LIKES = 50     # За сколько лайков даётся 1 балл
+POINTS_PER_LIKES = 1      # За сколько лайков даётся 1 балл
 POINTS_PER_REPLY = 1      # За каждый ответ на твоё сообщение
 
 # ============== УРОВНИ УЧАСТНИКОВ ==============
@@ -9048,7 +9063,11 @@ async def handle_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"[MENTION] Пользователь {user_name} обратился к боту: '{clean_text}'")
         
         # Отправляем "печатает" статус
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        thread_id = getattr(update.message, "message_thread_id", None)
+        action_kwargs = {"chat_id": update.effective_chat.id, "action": "typing"}
+        if thread_id:
+            action_kwargs["message_thread_id"] = thread_id
+        await context.bot.send_chat_action(**action_kwargs)
         
         # Получаем ответ с медиа
         response_data = await generate_toxic_response_with_media(clean_text, user_name, is_female, include_media=True)
@@ -9059,7 +9078,8 @@ async def handle_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text=response_data['text'],
             sticker=response_data['sticker'],
-            gif=response_data['gif']
+            gif=response_data['gif'],
+            message_thread_id=thread_id,
         )
         
         logger.info(f"[MENTION] Ответ с медиа отправлен пользователю {user_name}")
@@ -9201,7 +9221,11 @@ async def handle_replies_to_bot(update: Update, context: ContextTypes.DEFAULT_TY
         is_female = await check_is_female_by_ai(user_name)
         
         # Отправляем "печатает" статус
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        thread_id = getattr(update.message, "message_thread_id", None)
+        action_kwargs = {"chat_id": update.effective_chat.id, "action": "typing"}
+        if thread_id:
+            action_kwargs["message_thread_id"] = thread_id
+        await context.bot.send_chat_action(**action_kwargs)
         
         # Получаем ответ с медиа
         response_data = await generate_toxic_response_with_media(message_text, user_name, is_female, include_media=True)
@@ -9297,7 +9321,11 @@ async def handle_gifs_and_stickers(update: Update, context: ContextTypes.DEFAULT
         is_female = await check_is_female_by_ai(user_name)
         
         # Отправляем "печатает" статус
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        thread_id = getattr(update.message, "message_thread_id", None)
+        action_kwargs = {"chat_id": update.effective_chat.id, "action": "typing"}
+        if thread_id:
+            action_kwargs["message_thread_id"] = thread_id
+        await context.bot.send_chat_action(**action_kwargs)
         
         # Генерируем случайный ответ
         import random
@@ -9329,11 +9357,14 @@ async def handle_gifs_and_stickers(update: Update, context: ContextTypes.DEFAULT
         response_text = response_template.format(media=media_type)
         
         # Отправляем ответ
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=response_text,
-            reply_to_message_id=update.message.message_id
-        )
+        message_kwargs = {
+            "chat_id": update.effective_chat.id,
+            "text": response_text,
+            "reply_to_message_id": update.message.message_id,
+        }
+        if thread_id:
+            message_kwargs["message_thread_id"] = thread_id
+        await context.bot.send_message(**message_kwargs)
         
         logger.info(f"[MEDIA] Ответ на {media_type} отправлен пользователю {user_name}")
         
