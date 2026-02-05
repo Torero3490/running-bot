@@ -395,6 +395,65 @@ async def parse_probeg_events() -> List[Dict]:
     return events
 
 
+async def parse_probeg_calendar_events() -> List[Dict]:
+    """Парсинг общего календаря probeg.org (дорога/шоссе)."""
+    events: List[Dict] = []
+    urls = [
+        "https://probeg.org/calendar/",
+        "https://probeg.org/calendar/road/",
+        "https://probeg.org/calendar/races/",
+    ]
+    for url in urls:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    }
+                )
+                if response.status_code != 200:
+                    continue
+                soup = BeautifulSoup(response.text, 'html.parser')
+                table = soup.find("table")
+                if not table:
+                    continue
+                for row in table.find_all("tr"):
+                    cells = row.find_all(["td", "th"])
+                    if len(cells) < 4:
+                        continue
+                    try:
+                        date_text = cells[1].get_text(" ", strip=True)
+                        title_text = cells[2].get_text(" ", strip=True)
+                        city_text = cells[3].get_text(" ", strip=True)
+                        distances_text = cells[4].get_text(" ", strip=True) if len(cells) > 4 else ""
+                        if not title_text or "название" in title_text.lower():
+                            continue
+                        date_str = parse_russian_date(date_text)
+                        if not date_str:
+                            date_str = extract_date_from_text(date_text)
+                        link = cells[2].find("a", href=True)
+                        href = link.get("href") if link else ""
+                        event_url = href if href.startswith("http") else f"https://probeg.org{href}" if href else ""
+                        events.append({
+                            'title': title_text,
+                            'date': date_str,
+                            'city': city_text,
+                            'distances': distances_text or 'Уточняйте на сайте',
+                            'url': event_url,
+                            'source': 'ПроБЕГ Календарь'
+                        })
+                    except Exception as e:
+                        logger.warning(f"[EVENTS] Ошибка парсинга probeg календаря: {e}")
+                        continue
+                if events:
+                    return events
+        except Exception as e:
+            logger.error(f"[EVENTS] Ошибка парсинга probeg календаря: {e}")
+            continue
+    return events
+
+
 async def parse_runc_run_events() -> List[Dict]:
     """Парсинг мероприятий с Бегового сообщества (runc.run)"""
     events = []
@@ -2014,7 +2073,7 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
             'лига героев', 'забег.рф', 's10.run', 'забег обещаний',
             'бегом по золотому кольцу', 'академия марафона',
             'кразмарафон', 'orgeo.ru', 'pushkin run', 'golden ring ultra',
-            'проБЕГ трейлы'.lower(),
+            'проБЕГ трейлы'.lower(), 'проБЕГ календарь'.lower(),
         }
         if source in russian_sources:
             return True
@@ -2060,7 +2119,7 @@ def filter_event_by_city_only(event: Dict) -> bool:
             'лига героев', 'забег.рф', 's10.run', 'забег обещаний',
             'бегом по золотому кольцу', 'академия марафона',
             'кразмарафон', 'orgeo.ru', 'pushkin run', 'golden ring ultra',
-            'проБЕГ трейлы'.lower(),
+            'проБЕГ трейлы'.lower(), 'проБЕГ календарь'.lower(),
         }
         return source in russian_sources
 
@@ -2101,6 +2160,7 @@ async def get_all_events() -> List[Dict]:
     events_zabeg = await safe_fetch("ЗаБег.РФ", parse_zabeg_rf_events())
     logger.info(f"[EVENTS] ЗаБег.РФ: {len(events_zabeg)}")
     events_probeg_trails = await safe_fetch("ПроБЕГ Трейлы", parse_probeg_trails_events())
+    events_probeg_calendar = await safe_fetch("ПроБЕГ Календарь", parse_probeg_calendar_events())
     logger.info(f"[EVENTS] ПроБЕГ Трейлы: {len(events_probeg_trails)}")
     events_pushkin = await safe_fetch("Pushkin Run", parse_pushkin_run_events())
     logger.info(f"[EVENTS] Pushkin Run: {len(events_pushkin)}")
@@ -2138,6 +2198,7 @@ async def get_all_events() -> List[Dict]:
     all_events.extend(events_hero)
     all_events.extend(events_zabeg)
     all_events.extend(events_probeg_trails)
+    all_events.extend(events_probeg_calendar)
     all_events.extend(events_pushkin)
     all_events.extend(events_golden)
     all_events.extend(events_s10)

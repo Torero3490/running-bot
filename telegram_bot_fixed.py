@@ -9778,7 +9778,7 @@ async def slots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "лига героев", "забег.рф", "s10.run", "забег обещаний",
                     "бегом по золотому кольцу", "академия марафона",
                     "кразмарафон", "orgeo.ru", "pushkin run", "golden ring ultra",
-                    "пробег трейлы",
+                    "пробег трейлы", "пробег календарь",
                 }
                 return (source_text or "").lower() in russian_sources
             moscow_region = [
