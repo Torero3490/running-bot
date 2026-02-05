@@ -9827,6 +9827,7 @@ async def slots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             date = html_escape(event.get("date", "Дата не указана"))
             city = html_escape(event.get("city", "Город не указан"))
             distances = html_escape(event.get("distances", ""))
+            price = html_escape(event.get("price", "")) if event.get("price") else ""
             url = event.get("url") or event.get("link") or ""
             url = html_escape(url) if url else ""
 
@@ -9834,6 +9835,8 @@ async def slots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"📅 {date} | 📍 {city}")
             if distances:
                 lines.append(f"🏁 Дистанции: {distances}")
+            if price:
+                lines.append(f"💰 Стоимость: {price}")
             if url:
                 lines.append(f'🔗 <a href="{url}">Страница регистрации</a>')
             lines.append("")

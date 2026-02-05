@@ -469,6 +469,7 @@ async def parse_chulkovo_trail_events() -> List[Dict]:
             soup = BeautifulSoup(response.text, 'html.parser')
 
             headings = soup.find_all(["h2", "h3", "h4"])
+            seen = set()
             for h in headings:
                 text = h.get_text(" ", strip=True)
                 if not text:
@@ -477,16 +478,37 @@ async def parse_chulkovo_trail_events() -> List[Dict]:
                 if date_match:
                     date_str = date_match.group(1)
                     title_text = (date_match.group(2) or "").strip()
-                    if not title_text:
+                else:
+                    date_str = extract_date_from_text(text)
+                    if not date_str:
                         continue
-                    events.append({
-                        'title': title_text,
-                        'date': date_str,
-                        'city': 'Московская область, Чулково',
-                        'distances': 'Уточняйте на сайте',
-                        'url': "https://chulkovo-trail.ru/",
-                        'source': 'Чулково Trail'
-                    })
+                    title_text = text.replace(date_str, "").strip()
+                if not title_text:
+                    continue
+
+                parent_text = ""
+                parent = h.parent
+                for _ in range(2):
+                    if not parent:
+                        break
+                    parent_text += " " + parent.get_text(" ", strip=True)
+                    parent = parent.parent
+                price = extract_price(parent_text) or extract_price(soup.get_text(" ", strip=True))
+
+                key = (date_str, title_text)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                events.append({
+                    'title': title_text,
+                    'date': date_str,
+                    'city': 'Московская область, Чулково',
+                    'distances': 'Уточняйте на сайте',
+                    'price': price,
+                    'url': "https://chulkovo-trail.ru/",
+                    'source': 'Чулково Trail'
+                })
 
             if not events:
                 page_text = soup.get_text(" ", strip=True)
