@@ -2670,9 +2670,13 @@ chat_history = {
 # {user_id: {"name": str, "email": str, "last_activity_id": str, "monthly_distance": float, "monthly_activities": int}}
 garmin_users = {}
 
-# Множество для отслеживания уже обработанных активностей (idempotency)
-# Формат: "user_id:activity_id"
+# Множество для отслеживания уже обработанных активностей в текущей сессии (idempotency)
 processed_activities = set()
+# Постоянный список уже опубликованных в чат активностей (не повторять никогда). Формат: ["user_id:activity_id", ...]
+garmin_published_ids = set()
+# Порядок добавления (для обрезки старых записей, лимит MAX_GARMIN_PUBLISHED_IDS)
+garmin_published_order = []
+MAX_GARMIN_PUBLISHED_IDS = 2000
 
 # {user_id: {"name": str, "activities": int, "distance": float, "duration": int, "calories": int}}
 user_running_stats = {}
@@ -3312,6 +3316,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 BIRTHDAYS_FILE = os.path.join(DATA_DIR, "birthdays.json")
 PASSPORT_DATA_FILE = os.path.join(DATA_DIR, "passport_data.json")
 GARMIN_DATA_FILE = os.path.join(DATA_DIR, "garmin_users.json")
+GARMIN_PUBLISHED_FILE = os.path.join(DATA_DIR, "garmin_published_ids.json")
 GARMIN_KEY_FILE = os.path.join(DATA_DIR, "garmin_key.key")
 USER_RATING_FILE = os.path.join(DATA_DIR, "user_rating_stats.json")
 DAILY_STATS_FILE = os.path.join(DATA_DIR, "daily_stats.json")
@@ -3516,6 +3521,45 @@ def save_garmin_users():
         logger.info(f"[GARMIN] Данные сохранены: {len(garmin_users)} пользователей")
     except Exception as e:
         logger.error(f"[GARMIN] Ошибка сохранения: {e}")
+
+
+def load_garmin_published_ids():
+    """Загрузка множества уже опубликованных активностей (user_id:activity_id) из файла/БД."""
+    global garmin_published_ids, garmin_published_order
+    try:
+        db_data = db_load_json("garmin_published_ids")
+        if db_data and isinstance(db_data, list):
+            lst = [str(x) for x in db_data]
+        else:
+            if os.path.exists(GARMIN_PUBLISHED_FILE):
+                with open(GARMIN_PUBLISHED_FILE, 'r', encoding='utf-8') as f:
+                    raw = json.load(f)
+                lst = [str(x) for x in (raw if isinstance(raw, list) else [])]
+            else:
+                lst = []
+        garmin_published_ids = set(lst)
+        garmin_published_order = lst
+        logger.info(f"[GARMIN] Загружено опубликованных ID: {len(garmin_published_ids)}")
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка загрузки опубликованных ID: {e}")
+        garmin_published_ids = set()
+        garmin_published_order = []
+
+
+def save_garmin_published_ids():
+    """Сохранение списка опубликованных активностей в файл и БД. Лимит MAX_GARMIN_PUBLISHED_IDS."""
+    global garmin_published_ids, garmin_published_order
+    try:
+        # Обрезаем старые записи, сохраняем порядок
+        while len(garmin_published_order) > MAX_GARMIN_PUBLISHED_IDS:
+            old = garmin_published_order.pop(0)
+            garmin_published_ids.discard(old)
+        lst = list(garmin_published_order)
+        with open(GARMIN_PUBLISHED_FILE, 'w', encoding='utf-8') as f:
+            json.dump(lst, f, ensure_ascii=False)
+        db_save_json("garmin_published_ids", lst)
+    except Exception as e:
+        logger.error(f"[GARMIN] Ошибка сохранения опубликованных ID: {e}")
 
 
 # Глобальная ссылка на event loop
@@ -4134,6 +4178,7 @@ def load_garmin_users():
             if not os.path.exists(GARMIN_DATA_FILE):
                 logger.info("[GARMIN] Файл данных не найден, создаём пустой")
                 garmin_users = {}
+                load_garmin_published_ids()
                 return
             with open(GARMIN_DATA_FILE, 'r', encoding='utf-8') as f:
                 load_data = json.load(f)
@@ -4152,6 +4197,7 @@ def load_garmin_users():
             }
         
         logger.info(f"[GARMIN] Загружено пользователей: {len(garmin_users)}")
+        load_garmin_published_ids()
     except Exception as e:
         logger.error(f"[GARMIN] Ошибка загрузки: {e}")
         garmin_users = {}
@@ -5316,7 +5362,7 @@ async def generate_ai_response(user_message: str, user_name: str, is_female: boo
 # ============== GARMIN CHECKER ==============
 async def check_garmin_activities():
     """Проверка новых пробежек у всех зарегистрированных пользователей"""
-    global garmin_users, user_running_stats
+    global garmin_users, user_running_stats, garmin_published_ids, garmin_published_order
     
     if not GARMIN_AVAILABLE:
         logger.warning("[GARMIN] Библиотека недоступна")
@@ -5481,15 +5527,17 @@ async def check_garmin_activities():
                 total_activities_month += 1
                 running_with_dates.append((activity, activity_date_dt, activity_id, activity_date_str))
 
-            last_id = user_data.get("last_activity_id", "")
+            last_id = str(user_data.get("last_activity_id") or "").strip()
             max_days = 60
-            # Публикуем только тренировки за последние 36 часов — по сути только после новой тренировки, не старые
-            max_hours_recent = 36
+            # Публикуем только тренировки за последние 4 часа — только по факту новой тренировки, не по расписанию
+            max_hours_recent = 4
             new_running = []
             for activity, activity_date_dt, activity_id, activity_date_str in running_with_dates:
-                if activity_id == last_id:
+                if str(activity_id) == last_id:
                     continue
                 if f"{user_id}:{activity_id}" in processed_activities:
+                    continue
+                if f"{user_id}:{activity_id}" in garmin_published_ids:
                     continue
                 if (now - activity_date_dt).days > max_days:
                     continue
@@ -5519,6 +5567,9 @@ async def check_garmin_activities():
             )
             if success:
                 processed_activities.add(activity_key)
+                garmin_published_ids.add(activity_key)
+                garmin_published_order.append(activity_key)
+                save_garmin_published_ids()
                 logger.info(f"[GARMIN] ✅ Пробежка {activity_id} успешно опубликована")
             else:
                 user_data["last_activity_id"] = old_activity_id
@@ -5663,10 +5714,10 @@ async def publish_run_result(user_id, user_data, activity, now, current_month, t
 
 
 async def garmin_scheduler_task():
-    """Планировщик проверки Garmin (каждые 5 минут)"""
+    """Планировщик проверки Garmin (каждые 15 минут — только чтобы подхватить новую тренировку)"""
     global bot_running
     
-    check_interval = 300  # 5 минут
+    check_interval = 900  # 15 минут
     
     while bot_running:
         try:
@@ -10530,7 +10581,7 @@ async def passport_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pass_data = user_passport_data.get(target_user_id) or {}
     photo_file_id = (pass_data.get("photo_file_id") or "").strip() if isinstance(pass_data.get("photo_file_id"), str) else ""
     if photo_file_id:
-        caption = build_passport_card_caption(target_user_id, target_name)
+        caption = text
         if len(caption) > 1024:
             caption = caption[:1020] + "…"
         try:
@@ -10540,7 +10591,6 @@ async def passport_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=caption,
                 parse_mode="HTML",
             )
-            await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
             return
         except Exception as e:
             logger.warning(f"[PASSPORT] send_photo failed (file_id=%s...): %s", photo_file_id[:20] if photo_file_id else "", e)
