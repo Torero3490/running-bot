@@ -10110,6 +10110,7 @@ BOT_HELP_TEXT = (
     "• /levels — участники по уровням\n"
     "• /passport — паспорт \\(карточка с фото\\); заполнить: имя \\| город \\| личники\n"
     "• /passport\\_photo — добавить фото в паспорт \\(отправь фото или ответь на фото\\)\n"
+    "• /passport\\_edit — \\(админ\\) ответь на сообщение и введи данные для правки паспорта\n"
     "• /running — рейтинг бегунов за месяц\n"
     "• /weekly — еженедельная сводка (можно вызывать много раз!)\n"
     "• /monthly — итоги месяца (можно вызывать много раз!)\n\n"
@@ -10539,6 +10540,7 @@ async def passport_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=caption,
                 parse_mode="HTML",
             )
+            await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
             return
         except Exception as e:
             logger.warning(f"[PASSPORT] send_photo failed (file_id=%s...): %s", photo_file_id[:20] if photo_file_id else "", e)
@@ -10599,6 +10601,62 @@ async def passport_photo_from_caption_handler(update: Update, context: ContextTy
             text="✅ Фото добавлено в паспорт. Теперь /passport будет показывать карточку с фото.",
             parse_mode="HTML",
         )
+
+
+async def passport_edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для админов: редактировать паспорт участника. Ответь на сообщение участника и напиши /passport_edit Имя | Город | 5к 22:30"""
+    global user_passport_data
+    if not update.message or not update.message.from_user:
+        return
+    chat_id = update.effective_chat.id
+    user_id = update.message.from_user.id
+    if not await is_user_admin(user_id, chat_id, context.bot):
+        await context.bot.send_message(chat_id=chat_id, text="❌ Только для администраторов.")
+        return
+    if not update.message.reply_to_message or not update.message.reply_to_message.from_user:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Ответь на сообщение участника и напиши:\n<code>/passport_edit Имя | Город | 5к 22:30</code>",
+            parse_mode="HTML",
+        )
+        return
+    target_user_id = update.message.reply_to_message.from_user.id
+    target_name = update.message.reply_to_message.from_user.full_name or "Участник"
+    raw_args = " ".join(context.args or []).strip()
+    raw_text = (update.message.text or "").strip()
+    if raw_text.startswith("/"):
+        first_word = raw_text.split(None, 1)[0] if raw_text else ""
+        raw_text = raw_text[len(first_word):].strip() if first_word else raw_text
+    raw = raw_args or raw_text
+    if not raw or "|" not in raw:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Укажи новые данные: <code>/passport_edit Имя | Город | 5к 22:30 10к 45:00</code>",
+            parse_mode="HTML",
+        )
+        return
+    parts = [p.strip() for p in raw.split("|", 2)]
+    if len(parts) < 2:
+        await context.bot.send_message(chat_id=chat_id, text="Нужны минимум имя и город через |")
+        return
+    name = (parts[0] or "")[:80]
+    city = (parts[1] or "")[:100] if len(parts) > 1 else ""
+    if target_user_id not in user_passport_data:
+        user_passport_data[target_user_id] = {}
+    if name:
+        user_passport_data[target_user_id]["name"] = name
+    if city:
+        user_passport_data[target_user_id]["city"] = city
+    if len(parts) > 2 and parts[2]:
+        pbs = _parse_passport_pbs(parts[2])
+        for k, v in pbs.items():
+            user_passport_data[target_user_id][k] = v
+    save_passport_data()
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"✅ Паспорт участника <b>{html_escape(target_name)}</b> обновлён: {html_escape(name or '—')} | {html_escape(city or '—')}",
+        parse_mode="HTML",
+    )
 
 
 async def running_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -11056,6 +11114,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("levels", levels_cmd))
     app.add_handler(CommandHandler("passport", passport_cmd))
     app.add_handler(CommandHandler("passport_photo", passport_photo_cmd))
+    app.add_handler(CommandHandler("passport_edit", passport_edit_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, passport_photo_from_caption_handler))
     app.add_handler(CommandHandler("running", running_cmd))
     app.add_handler(CommandHandler("weekly", weekly_cmd))
