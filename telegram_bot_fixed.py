@@ -5483,6 +5483,8 @@ async def check_garmin_activities():
 
             last_id = user_data.get("last_activity_id", "")
             max_days = 60
+            # Публикуем только тренировки за последние 36 часов — по сути только после новой тренировки, не старые
+            max_hours_recent = 36
             new_running = []
             for activity, activity_date_dt, activity_id, activity_date_str in running_with_dates:
                 if activity_id == last_id:
@@ -5490,6 +5492,9 @@ async def check_garmin_activities():
                 if f"{user_id}:{activity_id}" in processed_activities:
                     continue
                 if (now - activity_date_dt).days > max_days:
+                    continue
+                hours_ago = (now - activity_date_dt).total_seconds() / 3600
+                if hours_ago > max_hours_recent:
                     continue
                 new_running.append((activity, activity_date_dt, activity_id, activity_date_str))
 
@@ -10473,20 +10478,27 @@ async def passport_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     chat_id = update.effective_chat.id
     user_id = update.message.from_user.id
-    raw = " ".join(context.args or []).strip()
+    # Берём данные из аргументов или из текста сообщения (после команды)
+    raw_args = " ".join(context.args or []).strip()
+    raw_text = (update.message.text or "").strip()
+    if raw_text and raw_text.startswith("/"):
+        first_word = raw_text.split(None, 1)[0] if raw_text else ""
+        raw_text = raw_text[len(first_word):].strip() if first_word else raw_text
+    raw = raw_args or raw_text
 
-    if raw and " | " in raw:
-        parts = [p.strip() for p in raw.split(" | ", 2)]
+    # Разделитель — «|» с пробелами или без: Имя | Город или Имя|Город
+    if raw and "|" in raw:
+        parts = [p.strip() for p in raw.split("|", 2)]
         if len(parts) < 2:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="Формат: <code>/passport Имя | Город | 5к 22:30 10к 45:00</code>\n"
-                "Можно без личников: <code>/passport Имя | Город</code>",
+                text="Формат: <code>/passport Имя | Город | 5к 22:30</code>\n"
+                "Или: <code>/passport Имя | Город</code> (без личников)",
                 parse_mode="HTML",
             )
             return
-        name = parts[0][:80] if parts[0] else ""
-        city = parts[1][:100] if len(parts) > 1 else ""
+        name = (parts[0] or "")[:80]
+        city = (parts[1] or "")[:100] if len(parts) > 1 else ""
         if user_id not in user_passport_data:
             user_passport_data[user_id] = {}
         if name:
@@ -10514,9 +10526,12 @@ async def passport_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text="Не удалось определить участника.")
         return
     text = build_passport_text(target_user_id, target_name)
-    photo_file_id = (user_passport_data.get(target_user_id) or {}).get("photo_file_id", "").strip()
+    pass_data = user_passport_data.get(target_user_id) or {}
+    photo_file_id = (pass_data.get("photo_file_id") or "").strip() if isinstance(pass_data.get("photo_file_id"), str) else ""
     if photo_file_id:
         caption = build_passport_card_caption(target_user_id, target_name)
+        if len(caption) > 1024:
+            caption = caption[:1020] + "…"
         try:
             await context.bot.send_photo(
                 chat_id=chat_id,
@@ -10526,13 +10541,27 @@ async def passport_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         except Exception as e:
-            logger.warning(f"[PASSPORT] Не удалось отправить фото, отправляю текст: {e}")
+            logger.warning(f"[PASSPORT] send_photo failed (file_id=%s...): %s", photo_file_id[:20] if photo_file_id else "", e)
+            await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+        return
     await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+
+
+async def _save_passport_photo(update: Update, context: ContextTypes.DEFAULT_TYPE, photo) -> bool:
+    """Сохраняет фото в паспорт пользователя. Возвращает True если успешно."""
+    global user_passport_data
+    if not update.message or not update.message.from_user or not photo:
+        return False
+    user_id = update.message.from_user.id
+    if user_id not in user_passport_data:
+        user_passport_data[user_id] = {}
+    user_passport_data[user_id]["photo_file_id"] = photo.file_id
+    save_passport_data()
+    return True
 
 
 async def passport_photo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Добавить фото в паспорт: отправь фото с подписью /passport_photo или ответь /passport_photo на фото."""
-    global user_passport_data
     if not update.message or not update.message.from_user:
         return
     user_id = update.message.from_user.id
@@ -10548,15 +10577,28 @@ async def passport_photo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode="HTML",
         )
         return
-    if user_id not in user_passport_data:
-        user_passport_data[user_id] = {}
-    user_passport_data[user_id]["photo_file_id"] = photo.file_id
-    save_passport_data()
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="✅ Фото добавлено в паспорт. Теперь /passport будет показывать карточку с фото.",
-        parse_mode="HTML",
-    )
+    if await _save_passport_photo(update, context, photo):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="✅ Фото добавлено в паспорт. Теперь /passport будет показывать карточку с фото.",
+            parse_mode="HTML",
+        )
+
+
+async def passport_photo_from_caption_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка фото с подписью /passport_photo (команда в подписи не вызывает CommandHandler)."""
+    if not update.message or not update.message.photo or not update.message.from_user:
+        return
+    caption = (update.message.caption or "").strip()
+    if "/passport_photo" not in caption and "passport_photo" not in caption.lower():
+        return
+    photo = update.message.photo[-1]
+    if await _save_passport_photo(update, context, photo):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="✅ Фото добавлено в паспорт. Теперь /passport будет показывать карточку с фото.",
+            parse_mode="HTML",
+        )
 
 
 async def running_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -11014,6 +11056,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("levels", levels_cmd))
     app.add_handler(CommandHandler("passport", passport_cmd))
     app.add_handler(CommandHandler("passport_photo", passport_photo_cmd))
+    app.add_handler(MessageHandler(filters.PHOTO, passport_photo_from_caption_handler))
     app.add_handler(CommandHandler("running", running_cmd))
     app.add_handler(CommandHandler("weekly", weekly_cmd))
     app.add_handler(CommandHandler("monthly", monthly_cmd))
