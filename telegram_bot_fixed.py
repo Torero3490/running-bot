@@ -323,29 +323,29 @@ CHARACTERS_BY_DAY = {
 - Используй философские размышления о безумии
 - Будь хаотичным, но умным"""
     },
-    6: {  # Воскресенье - Шерлок Холмс
-        "name": "Шерлок Холмс",
-        "emoji": "🔍",
-        "personality": """Ты — ШЕРЛОК ХОЛМС из произведений Артура Конан Дойля. Ты гениальный детектив-дедуктив.
+    6: {  # Воскресенье — день нюдсов: альфа-самец, приставания, намёки
+        "name": "Воскресный альфа",
+        "emoji": "🔥",
+        "personality": """Ты — альфа-самец в чате, где воскресенье = день нюдсов. Ты так и говоришь: "я альфа-самец", "тут альфа один — это я", "знаешь, кто тут альфа?". Уверенный, флиртуешь, слегка пристаёшь к девушкам, много намёков — но в шутку, без грубости.
 
 ТВОЙ ХАРАКТЕР:
-- Гениальный, наблюдательный, но высокомерный
-- Видишь детали, которые другие не замечают
-- Говоришь про дедукцию, логику, факты
-- Можешь быть грубым, но всегда прав
-- Эмодзи: 🔍🧠💭🎩
+- Ты альфа-самец: периодически напоминаешь об этом ("я альфа, что с того", "альфа приветствует", "альфа одобряет")
+- Уверенный, харизматичный, любишь внимание девушек
+- Лёгкие приставания + больше намёков на секс: "такая — опасно", "с тобой не соскучишься", "горячо", "намекаешь на что-то?", "вечер бы с тобой провёл", "уже представляю... ладно, не буду", "такое тело — грех не заметить", "мне бы такого на пробежку", "от тебя голова кругом в хорошем смысле", "таких берут в кино и не только"
+- Много комплиментов девушкам, играешь в "добиваешься"
+- Эмодзи: 🔥😏💪👀📷❤️😈🐺
 
 СТИЛЬ ОБЩЕНИЯ:
-- "Привет" → "Приветствие принято. Но я уже знаю о тебе всё: по твоему сообщению вижу, что ты... (делаешь дедукцию) 🔍"
-- "Как дела?" → "Дела? Элементарно! Всё очевидно для того, кто умеет наблюдать. А ты умеешь? 🧠"
-- "Устал" → "Устал? По твоему стилю письма вижу, что ты не спал достаточно. Дедукция, Ватсон! 💭"
-- "Сложно" → "Сложно? Нет. Это элементарно, если думать. Но большинство не думает. 🎩"
+- Время от времени пиши про себя: "я альфа-самец", "альфа тут", "альфа сказал", "как говорится, альфа не спит"
+- Девушкам: приставания + комплименты + намёки ("красотка, альфа одобряет", "такая — я альфа, не удержался", "ого, с такой бы... побежал марафон, например", "выглядишь так, что я — альфа — теряю дар речи")
+- На фото: "вот это да!", "альфа в восторге", "ещё! альфа требует ещё!", "тебе всё идёт, и я не про одежду"
+- Парням: по-братски, можешь подколоть "альфа тут один"
 
 ПРАВИЛА:
-- НЕ говори про бег — ты про дедукцию, логику, расследования
-- Отвечай как Холмс — умно, с дедукцией
-- Используй наблюдения и факты
-- Будь высокомерным, но гениальным"""
+- Регулярно вставляй, что ты альфа-самец (с юмором, не занудно)
+- Больше намёков: двусмысленности, "в хорошем смысле", лёгкий подтекст — без откровенных формулировок и пошлых деталей
+- Не переходи на грубый или откровенный контент, только намёки и уверенный тон
+- Девушкам — флирт, приставания, намёки, плюс "альфа одобряет" """
     }
 }
 
@@ -2691,6 +2691,10 @@ monthly_running_stats = {}  # {user_id: {"name": str, "activities": int, "distan
 # {user_id: {"name": str, "birthday": "DD.MM"}}
 user_birthdays = {}
 
+# ============== ДОПОЛНИТЕЛЬНЫЕ ДАННЫЕ ПАСПОРТА ==============
+# {user_id: {"city": str, "pb_5k": str, "pb_10k": str, "pb_21": str, "pb_42": str}} — город и личники (время как введено)
+user_passport_data = {}
+
 # ============== ИИ-ОПРЕДЕЛЕНИЕ ПОЛА ПО НИКУ ==============
 # Кэш результатов определения пола: {username: is_female}
 gender_cache = {}
@@ -3279,10 +3283,10 @@ GOOD_NIGHT_BY_DAY = {
         "🎭 Закрывай театр, актёр. Спокойной ночи.",
         "😂 Сон — тоже шутка, но полезная. Спокойной ночи!",
     ],
-    6: [  # Воскресенье - Шерлок Холмс
-        "🔍 Дедукция подсказывает: тебе пора спать. Спокойной ночи.",
-        "🧠 Факты очевидны — усталость. Сон нужен. Доброй ночи.",
-        "🎩 Элементарно: ночь для отдыха. Спокойной ночи.",
+    6: [  # Воскресенье — день нюдсов
+        "🔥 День нюдсов прошёл на ура. Отдыхай, красавчики. Спокойной ночи!",
+        "😏 Засыпай, завтра снова в бой. Спокойной ночи!",
+        "💪 Вы все сегодня огонь. Доброй ночи!",
     ],
 }
 
@@ -3306,6 +3310,7 @@ if not DATA_DIR:
 os.makedirs(DATA_DIR, exist_ok=True)
 
 BIRTHDAYS_FILE = os.path.join(DATA_DIR, "birthdays.json")
+PASSPORT_DATA_FILE = os.path.join(DATA_DIR, "passport_data.json")
 GARMIN_DATA_FILE = os.path.join(DATA_DIR, "garmin_users.json")
 GARMIN_KEY_FILE = os.path.join(DATA_DIR, "garmin_key.key")
 USER_RATING_FILE = os.path.join(DATA_DIR, "user_rating_stats.json")
@@ -3315,6 +3320,7 @@ KNOWN_USERS_FILE = os.path.join(DATA_DIR, "known_users.json")
 
 # Старые пути (для миграции при первом запуске)
 LEGACY_BIRTHDAYS_FILE = "birthdays.json"
+LEGACY_PASSPORT_DATA_FILE = "passport_data.json"
 LEGACY_GARMIN_DATA_FILE = "garmin_users.json"
 LEGACY_GARMIN_KEY_FILE = "garmin_key.key"
 LEGACY_USER_RATING_FILE = "user_rating_stats.json"
@@ -5433,109 +5439,87 @@ async def check_garmin_activities():
                     filtered_activities.append(activity)
             
             activities = filtered_activities
-            
             logger.info(f"[GARMIN] У пользователя {email} найдено {len(activities)} активностей с {first_of_month_str}")
-            
-            # Проверяем каждую активность
+
+            def parse_activity_date(a):
+                st_local = a.get('startTimeLocal', '')
+                st_sec = a.get('startTimeInSeconds', 0)
+                st_nano = a.get('startTimeInNanoSeconds', 0)
+                dt = None
+                if st_local:
+                    try:
+                        dt = datetime.strptime(st_local, "%Y-%m-%d %H:%M:%S").replace(tzinfo=MOSCOW_TZ)
+                    except Exception:
+                        pass
+                if dt is None and st_sec:
+                    try:
+                        dt = datetime.fromtimestamp(st_sec, tz=MOSCOW_TZ)
+                    except Exception:
+                        pass
+                if dt is None and st_nano:
+                    try:
+                        dt = datetime.fromtimestamp(st_nano // 1000000000, tz=MOSCOW_TZ)
+                    except Exception:
+                        pass
+                if dt is None:
+                    dt = now
+                return dt
+
+            # Собираем только беговые за месяц и считаем итоги за период
+            running_with_dates = []
+            total_km_month = 0.0
+            total_activities_month = 0
             for activity in activities:
                 activity_type = activity.get('activityType', {}).get('typeKey', 'unknown')
+                if activity_type not in ('running', 'treadmill_running', 'trail_running'):
+                    continue
+                activity_date_dt = parse_activity_date(activity)
                 activity_id = str(activity.get('activityId', 'unknown'))
-                
-                # Проверяем timestamp - Garmin может возвращать разные форматы
-                start_time_local = activity.get('startTimeLocal', '')
-                start_time_seconds = activity.get('startTimeInSeconds', 0)
-                start_time_nano = activity.get('startTimeInNanoSeconds', 0)
-                
-                # Логируем что получаем
-                logger.info(f"[GARMIN] Raw activity: id={activity_id}, type={activity_type}")
-                logger.info(f"[GARMIN] Timestamp: local='{start_time_local}', seconds={start_time_seconds}, nano={start_time_nano}")
-                
-                # Пробуем разные форматы timestamp (в порядке приоритета)
-                activity_date_dt = None
-                
-                if start_time_local:
-                    try:
-                        # Пробуем парсить startTimeLocal (формат: "YYYY-MM-DD HH:MM:SS")
-                        activity_date_dt = datetime.strptime(start_time_local, "%Y-%m-%d %H:%M:%S").replace(tzinfo=MOSCOW_TZ)
-                        logger.info(f"[GARMIN] Успешно распознали startTimeLocal: {start_time_local}")
-                    except Exception as e:
-                        logger.warning(f"[GARMIN] Не удалось распознать startTimeLocal: {e}")
-                
-                if activity_date_dt is None and start_time_seconds and start_time_seconds > 0:
-                    try:
-                        activity_date_dt = datetime.fromtimestamp(start_time_seconds, tz=MOSCOW_TZ)
-                        logger.info(f"[GARMIN] Используем startTimeInSeconds: {start_time_seconds}")
-                    except Exception as e:
-                        logger.warning(f"[GARMIN] Не удалось распознать startTimeInSeconds: {e}")
-                
-                if activity_date_dt is None and start_time_nano and start_time_nano > 0:
-                    try:
-                        # Наносекунды - переводим в секунды
-                        activity_date_dt = datetime.fromtimestamp(start_time_nano // 1000000000, tz=MOSCOW_TZ)
-                        logger.info(f"[GARMIN] Используем startTimeInNanoSeconds: {start_time_nano}")
-                    except Exception as e:
-                        logger.warning(f"[GARMIN] Не удалось распознать startTimeInNanoSeconds: {e}")
-                
-                if activity_date_dt is None:
-                    activity_date_dt = now  # Используем текущее время как fallback
-                    logger.warning(f"[GARMIN] Не удалось распознать timestamp, используем текущее время")
-                
                 activity_date_str = activity_date_dt.strftime("%Y-%m-%d")
-                
-                logger.info(f"[GARMIN] Дата активности: {activity_date_str}")
-                
-                # Фильтруем только бег
-                if activity_type not in ['running', 'treadmill_running', 'trail_running']:
-                    logger.debug(f"[GARMIN] Пропускаем (не бег): {activity_type}")
-                    continue
-                
-                logger.info(f"[GARMIN] Найден бег: id={activity_id}, date={activity_date_str}")
-                
-                # Проверяем, новая ли это активность
-                last_id = user_data.get("last_activity_id", "")
-                
-                # Дополнительная проверка: отслеживаем обработанные активности в памяти
-                activity_key = f"{user_id}:{activity_id}"
-                if activity_key in processed_activities:
-                    logger.info(f"[GARMIN] 🛡️ Активность {activity_id} уже обработана в этой сессии (idempotency check)")
-                    continue
-                
+                dist_km = (activity.get('distance') or 0) / 1000
+                total_km_month += dist_km
+                total_activities_month += 1
+                running_with_dates.append((activity, activity_date_dt, activity_id, activity_date_str))
+
+            last_id = user_data.get("last_activity_id", "")
+            max_days = 60
+            new_running = []
+            for activity, activity_date_dt, activity_id, activity_date_str in running_with_dates:
                 if activity_id == last_id:
-                    logger.info(f"[GARMIN] Это старая активность (уже обработана)")
                     continue
-                
-                # Проверяем, не старая ли активность (для тестирования уменьшено до 60 дней)
-                # После успешного тестирования вернуть обратно на 2 дня
-                days_diff = (now - activity_date_dt).days
-                max_days = 60
-                if days_diff > max_days:
-                    logger.warning(f"[GARMIN] Активность {activity_id} старше {max_days} дней ({days_diff} дней), пропускаем")
+                if f"{user_id}:{activity_id}" in processed_activities:
                     continue
-                
-                # Временно обновляем last_activity_id ПЕРЕД публикацией
-                # Это предотвращает повторную публикацию при сбоях
-                old_activity_id = user_data.get("last_activity_id", "")
-                user_data["last_activity_id"] = activity_id
-                user_data["last_activity_date"] = activity_date_str
-                save_garmin_users()
-                
-                # Это новая пробежка! Публикуем в чат
-                logger.info(f"[GARMIN] Публикую пробежку: {activity_id}")
-                success = await publish_run_result(user_id, user_data, activity, now, current_month)
-                
-                if success:
-                    # Добавляем в множество обработанных активностей
-                    processed_activities.add(activity_key)
-                    logger.info(f"[GARMIN] ✅ Пробежка {activity_id} успешно опубликована")
-                else:
-                    # Публикация не удалась — откатываем last_activity_id
-                    logger.warning(f"[GARMIN] ⚠️ Публикация не удалась, откат last_activity_id")
-                    user_data["last_activity_id"] = old_activity_id
-                    save_garmin_users()
-            
-            # Сохраняем данные
+                if (now - activity_date_dt).days > max_days:
+                    continue
+                new_running.append((activity, activity_date_dt, activity_id, activity_date_str))
+
+            # Публикуем только последнюю (самую свежую) тренировку
+            if not new_running:
+                continue
+            new_running.sort(key=lambda x: x[1], reverse=True)
+            activity, activity_date_dt, activity_id, activity_date_str = new_running[0]
+            activity_key = f"{user_id}:{activity_id}"
+
+            user_data["monthly_distance"] = total_km_month
+            user_data["monthly_activities"] = total_activities_month
+            old_activity_id = user_data.get("last_activity_id", "")
+            user_data["last_activity_id"] = activity_id
+            user_data["last_activity_date"] = activity_date_str
             save_garmin_users()
-            
+
+            logger.info(f"[GARMIN] Публикую последнюю пробежку: {activity_id} (всего за месяц: {total_km_month:.1f} км, {total_activities_month} тренировок)")
+            success = await publish_run_result(
+                user_id, user_data, activity, now, current_month,
+                total_km_month=total_km_month, total_activities_month=total_activities_month,
+            )
+            if success:
+                processed_activities.add(activity_key)
+                logger.info(f"[GARMIN] ✅ Пробежка {activity_id} успешно опубликована")
+            else:
+                user_data["last_activity_id"] = old_activity_id
+                save_garmin_users()
+                logger.warning(f"[GARMIN] ⚠️ Публикация не удалась, откат last_activity_id")
+
         except Exception as e:
             # Безопасная обработка ошибки - user_data может быть None
             user_email = user_data.get("email", "Unknown") if user_data else "Unknown"
@@ -5555,8 +5539,8 @@ def escape_markdown(text):
     return text
 
 
-async def publish_run_result(user_id, user_data, activity, now, current_month):
-    """Публикация результатов пробежки в чат. Возвращает True при успехе."""
+async def publish_run_result(user_id, user_data, activity, now, current_month, total_km_month=None, total_activities_month=None):
+    """Публикация результатов пробежки в чат. total_km_month/total_activities_month — итоги за месяц (уже в user_data)."""
     global application, user_running_stats
     
     # ========== МАКСИМАЛЬНАЯ ЗАЩИТА ОТ None ==========
@@ -5605,17 +5589,17 @@ async def publish_run_result(user_id, user_data, activity, now, current_month):
         # Форматируем время
         time_str = f"{duration_min}:{duration_sec:02d}"
         
-        # Проверяем новый месяц для сброса
-        user_monthly = user_data.get("last_activity_date", "")
-        if user_monthly and user_monthly[:7] != current_month:
-            # Новый месяц - сбрасываем счётчики
-            user_data["monthly_distance"] = 0.0
-            user_data["monthly_activities"] = 0
-            logger.info(f"[GARMIN] Новый месяц для {user_data['name']}, сброс счётчиков")
-        
-        # Обновляем статистику пользователя
-        user_data["monthly_distance"] = user_data.get("monthly_distance", 0.0) + distance_km
-        user_data["monthly_activities"] = user_data.get("monthly_activities", 0) + 1
+        # Итоги за месяц: либо переданы снаружи, либо обновляем из текущей пробежки
+        if total_km_month is not None and total_activities_month is not None:
+            pass  # уже установлены в check_garmin_activities
+        else:
+            user_monthly = user_data.get("last_activity_date", "")
+            if user_monthly and user_monthly[:7] != current_month:
+                user_data["monthly_distance"] = 0.0
+                user_data["monthly_activities"] = 0
+                logger.info(f"[GARMIN] Новый месяц для {user_data['name']}, сброс счётчиков")
+            user_data["monthly_distance"] = user_data.get("monthly_distance", 0.0) + distance_km
+            user_data["monthly_activities"] = user_data.get("monthly_activities", 0) + 1
         
         # Обновляем общую статистику бега
         if user_id not in user_running_stats:
@@ -5651,8 +5635,10 @@ async def publish_run_result(user_id, user_data, activity, now, current_month):
         if calories > 0:
             message_text += f"🔥 *Калории:* {calories} ккал\n"
         
+        km_total = total_km_month if total_km_month is not None else user_data.get("monthly_distance", 0)
+        count_total = total_activities_month if total_activities_month is not None else user_data.get("monthly_activities", 0)
         message_text += (
-            f"\n📅 *За месяц:* {user_data['monthly_distance']:.1f} км / {user_data['monthly_activities']} тренировок"
+            f"\n📊 *Всего за месяц:* {km_total:.1f} км за {count_total} тренировок"
         )
         
         # Отправляем в чат
@@ -5779,6 +5765,41 @@ def load_birthdays():
         user_birthdays = {}
 
 
+def save_passport_data():
+    """Сохранение данных паспорта (город, личники) в файл и БД."""
+    global user_passport_data
+    try:
+        save_data = {str(uid): data for uid, data in user_passport_data.items()}
+        if DATA_DIR:
+            with open(PASSPORT_DATA_FILE, "w", encoding="utf-8") as f:
+                json.dump(save_data, f, ensure_ascii=False, indent=2)
+        db_save_json("passport_data", save_data)
+        logger.info(f"[PASSPORT] Данные паспорта сохранены: {len(user_passport_data)}")
+    except Exception as e:
+        logger.error(f"[PASSPORT] Ошибка сохранения: {e}")
+
+
+def load_passport_data():
+    """Загрузка данных паспорта (город, личники)."""
+    global user_passport_data
+    try:
+        db_data = db_load_json("passport_data")
+        if db_data:
+            user_passport_data = {int(uid): data for uid, data in db_data.items()}
+        else:
+            migrate_legacy_file(PASSPORT_DATA_FILE, LEGACY_PASSPORT_DATA_FILE, "passport_data")
+            if os.path.exists(PASSPORT_DATA_FILE):
+                with open(PASSPORT_DATA_FILE, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                user_passport_data = {int(uid): data for uid, data in raw.items()}
+            else:
+                user_passport_data = {}
+        logger.info(f"[PASSPORT] Загружено данных паспорта: {len(user_passport_data)}")
+    except Exception as e:
+        logger.error(f"[PASSPORT] Ошибка загрузки: {e}")
+        user_passport_data = {}
+
+
 async def send_birthday_congratulation(user_id, user_data):
     """Отправка поздравления с Днём рождения"""
     global application
@@ -5899,6 +5920,15 @@ def init_birthdays_on_startup():
         logger.info(f"[BIRTHDAY] Инициализация завершена. Дней рождения: {len(user_birthdays)}")
     except Exception as e:
         logger.error(f"[BIRTHDAY] Ошибка инициализации: {e}")
+
+
+def init_passport_data_on_startup():
+    """Инициализация данных паспорта (город, личники) при запуске."""
+    try:
+        load_passport_data()
+        logger.info(f"[PASSPORT] Инициализация завершена. Записей: {len(user_passport_data)}")
+    except Exception as e:
+        logger.error(f"[PASSPORT] Ошибка инициализации: {e}")
 
 
 async def fetch_tips_from_url(url: str, category: str) -> List[str]:
@@ -7801,28 +7831,31 @@ async def get_top_rated_users() -> list:
     return rated_users[:10]
 
 
-async def send_daily_summary(force: bool = False):
-    """Отправка ежедневной сводки в чат + сохранение данных
-    
+async def send_daily_summary(force: bool = False, ref_date: str | None = None):
+    """Отправка ежедневной сводки в чат + сохранение данных.
+
     Args:
-        force: Если True - отправляет сводку даже если уже была отправлена сегодня
+        force: Если True — отправить даже если уже отправляли за эту дату.
+        ref_date: Дата сводки YYYY-MM-DD. Если None — берётся сегодня (для догоняющей отправки утром передать вчерашнюю дату).
     """
     global daily_summary_sent
-    
+
     if application is None:
         logger.error("Application не инициализирован")
         return
-    
+
+    today = (ref_date or datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d"))
     if not force:
         last_sent = daily_stats.get("summary_last_sent", "")
-        if last_sent == datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d"):
+        if last_sent == today:
             daily_summary_sent = True
-        if daily_summary_sent:
+            logger.info("Сводка уже отправлена за эту дату (используй force=True или /summary)")
+            return
+        if not ref_date and daily_summary_sent:
             logger.info("Сводка уже отправлена сегодня (используй force=True или /summary)")
             return
-    
+
     try:
-        today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
 
 
         # НЕ сбрасываем daily_stats даже если дата не совпадает - данные восстановлены из канала
@@ -8374,14 +8407,15 @@ async def daily_summary_scheduler_task():
         current_minute = now.minute
         today_date = now.strftime("%Y-%m-%d")
 
-        # Сброс флага отправки и дневной статистики в полночь
-        if now.hour == 0 and current_minute == 0:
-            daily_summary_sent = False
-            daily_stats = build_empty_daily_stats(today_date)
-
-        # Синхронизация флага с сохраненной датой отправки
+        # Синхронизация флага с сохранённой датой отправки
         if daily_stats.get("summary_last_sent") == today_date:
             daily_summary_sent = True
+
+        # Сброс флага и дневной статистики в 00:11 (после окна догоняющей отправки 00:00–00:10)
+        if now.hour == 0 and current_minute >= 11 and daily_stats.get("date") != today_date:
+            daily_summary_sent = False
+            daily_stats = build_empty_daily_stats(today_date)
+            logger.info("[SUMMARY] Сброс daily_stats на новый день")
 
         # === ПЕРЕХОД НА НОВЫЙ ДЕНЬ (полночь) ===
         if now.hour == 0 and current_minute == 0:
@@ -8395,14 +8429,22 @@ async def daily_summary_scheduler_task():
             except Exception as e:
                 logger.error(f"Ошибка при переносе статистики бега: {e}")
 
-        # Отправка сводки в 23:55-23:59 (расширенное окно — на случай пропуска при sleep)
-        if current_hour == 23 and current_minute >= 55:
-            if not daily_summary_sent:
+        # Отправка сводки: 23:50–23:59 (расширенное окно) или 00:00–00:10 (догоняющая, если бот был выключен)
+        if current_hour == 23 and current_minute >= 50:
+            if daily_stats.get("summary_last_sent") != today_date:
                 logger.info(f"Время {current_hour}:{current_minute} - отправляем ежедневную сводку")
                 try:
-                    await send_daily_summary()
+                    await send_daily_summary(ref_date=today_date)
                 except Exception as e:
                     logger.error(f"Ошибка при отправке сводки: {e}")
+        yesterday_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        if current_hour == 0 and current_minute <= 10:
+            if daily_stats.get("summary_last_sent") != yesterday_date:
+                logger.info(f"Время {current_hour}:{current_minute} - догоняющая ежедневная сводка за вчера")
+                try:
+                    await send_daily_summary(ref_date=yesterday_date)
+                except Exception as e:
+                    logger.error(f"Ошибка при догоняющей сводке: {e}")
 
         # Проверка недели (воскресенье 23:59 - еженедельная сводка + бег)
         if now.weekday() == 6 and current_hour == 23 and current_minute == 59:
@@ -8468,8 +8510,8 @@ async def daily_summary_scheduler_task():
                 except Exception as e:
                     logger.error(f"Ошибка при догоняющей ежемесячной сводке: {e}")
 
-        # С 23:55 до 00:05 проверяем каждые 15 сек — чтобы не пропустить сводку
-        if (current_hour == 23 and current_minute >= 55) or (current_hour == 0 and current_minute <= 5):
+        # С 23:50 до 00:10 проверяем каждые 15 сек — чтобы не пропустить сводку и догоняющую
+        if (current_hour == 23 and current_minute >= 50) or (current_hour == 0 and current_minute <= 10):
             await asyncio.sleep(15)
         else:
             await asyncio.sleep(60)
@@ -10061,6 +10103,8 @@ BOT_HELP_TEXT = (
     "• /rating — топ-10 участников по рейтингу\n"
     "• /likes — рейтинг по лайкам\n"
     "• /levels — участники по уровням\n"
+    "• /passport — паспорт \\(карточка с фото\\); заполнить: имя \\| город \\| личники\n"
+    "• /passport\\_photo — добавить фото в паспорт \\(отправь фото или ответь на фото\\)\n"
     "• /running — рейтинг бегунов за месяц\n"
     "• /weekly — еженедельная сводка (можно вызывать много раз!)\n"
     "• /monthly — итоги месяца (можно вызывать много раз!)\n\n"
@@ -10305,6 +10349,216 @@ async def levels_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def build_passport_text(target_user_id: int, target_name: str) -> str:
+    """Формирует текст паспорта участника (HTML)."""
+    level = get_user_level(target_user_id)
+    level_emoji = LEVEL_EMOJIS.get(level, "🌱")
+    details = get_rating_details(target_user_id)
+    points = details["total_points"]
+    lines = [
+        "🪪 <b>ПАСПОРТ УЧАСТНИКА</b>",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+        f"👤 <b>{html_escape(target_name)}</b>",
+        f"{level_emoji} Уровень: <b>{html_escape(level)}</b>",
+        f"⭐ Очки: <b>{points}</b>",
+        "",
+        "📊 <b>Активность:</b>",
+        f"   • Сообщений: {details['messages']}",
+        f"   • Фото: {details['photos']}",
+        f"   • Лайков получено: {details['likes']}",
+        f"   • Ответов на сообщения: {details['replies']}",
+    ]
+    if target_user_id in user_birthdays:
+        bd = user_birthdays[target_user_id].get("birthday", "")
+        if bd:
+            lines.append("")
+            lines.append(f"🎂 День рождения: <b>{html_escape(bd)}</b>")
+    if target_user_id in garmin_users:
+        lines.append("")
+        lines.append("⌚ Garmin: <b>подключён</b>")
+    if target_user_id in user_running_stats:
+        run = user_running_stats[target_user_id]
+        km = run.get("distance", 0) / 1000
+        acts = run.get("activities", 0)
+        lines.append("")
+        lines.append(f"🏃 Бег (в боте): <b>{km:.1f}</b> км, <b>{acts}</b> тренировок")
+    if target_user_id in user_passport_data:
+        ext = user_passport_data[target_user_id]
+        stored_name = ext.get("name", "").strip()
+        if stored_name:
+            target_name = stored_name
+        lines[2] = f"👤 <b>{html_escape(target_name)}</b>"
+        city = ext.get("city", "").strip()
+        if city:
+            lines.append("")
+            lines.append(f"📍 Город: <b>{html_escape(city)}</b>")
+        pbs = []
+        for key, label in [("pb_5k", "5 км"), ("pb_10k", "10 км"), ("pb_21", "21.1 км"), ("pb_42", "42.2 км")]:
+            val = ext.get(key, "").strip()
+            if val:
+                pbs.append(f"{label}: {html_escape(val)}")
+        if pbs:
+            lines.append("")
+            lines.append("🏁 <b>Личник по бегу:</b>")
+            for s in pbs:
+                lines.append(f"   • {s}")
+    lines.append("")
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+    return "\n".join(lines)
+
+
+def build_passport_card_caption(target_user_id: int, target_name: str) -> str:
+    """Короткая подпись под фото паспорта (карточка, до 1024 символов)."""
+    level = get_user_level(target_user_id)
+    level_emoji = LEVEL_EMOJIS.get(level, "🌱")
+    details = get_rating_details(target_user_id)
+    points = details["total_points"]
+    if target_user_id in user_passport_data:
+        ext = user_passport_data[target_user_id]
+        if ext.get("name", "").strip():
+            target_name = ext["name"].strip()
+        city = ext.get("city", "").strip()
+    else:
+        city = ""
+    lines = [
+        "🪪 <b>ПАСПОРТ УЧАСТНИКА</b>",
+        "━━━━━━━━━━━━━━━━",
+        f"👤 <b>{html_escape(target_name)}</b>",
+        f"{level_emoji} <b>{html_escape(level)}</b> • {points} очков",
+    ]
+    if city:
+        lines.append(f"📍 {html_escape(city)}")
+    if target_user_id in user_birthdays and user_birthdays[target_user_id].get("birthday"):
+        lines.append(f"🎂 {html_escape(user_birthdays[target_user_id]['birthday'])}")
+    if target_user_id in user_passport_data:
+        ext = user_passport_data[target_user_id]
+        pbs = []
+        for key, label in [("pb_5k", "5 км"), ("pb_10k", "10 км"), ("pb_21", "21.1 км"), ("pb_42", "42.2 км")]:
+            val = ext.get(key, "").strip()
+            if val:
+                pbs.append(f"{label} {html_escape(val)}")
+        if pbs:
+            lines.append("🏁 " + " • ".join(pbs))
+    if target_user_id in garmin_users:
+        lines.append("⌚ Garmin")
+    lines.append("━━━━━━━━━━━━━━━━")
+    text = "\n".join(lines)
+    return text[:1020] + "…" if len(text) > 1024 else text
+
+
+# Ключи личников в user_passport_data
+PB_KEYS = {"5к": "pb_5k", "5км": "pb_5k", "5k": "pb_5k", "10к": "pb_10k", "10км": "pb_10k", "10k": "pb_10k", "21.1": "pb_21", "21": "pb_21", "полумарафон": "pb_21", "42.2": "pb_42", "42": "pb_42", "марафон": "pb_42"}
+
+
+def _parse_passport_pbs(rest: str) -> dict:
+    """Парсит строку личников вида '5к 22:30 10к 45:00' в словарь pb_5k=22:30, ..."""
+    result = {}
+    tokens = rest.strip().split()
+    i = 0
+    while i < len(tokens):
+        key = PB_KEYS.get(tokens[i].lower())
+        if key and i + 1 < len(tokens):
+            result[key] = tokens[i + 1][:30]
+            i += 2
+        else:
+            i += 1
+    return result
+
+
+async def passport_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /passport — показать паспорт или заполнить: имя | город | личники (5к 22:30 10к 45:00)."""
+    global user_passport_data
+    if not update.message:
+        return
+    chat_id = update.effective_chat.id
+    user_id = update.message.from_user.id
+    raw = " ".join(context.args or []).strip()
+
+    if raw and " | " in raw:
+        parts = [p.strip() for p in raw.split(" | ", 2)]
+        if len(parts) < 2:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Формат: <code>/passport Имя | Город | 5к 22:30 10к 45:00</code>\n"
+                "Можно без личников: <code>/passport Имя | Город</code>",
+                parse_mode="HTML",
+            )
+            return
+        name = parts[0][:80] if parts[0] else ""
+        city = parts[1][:100] if len(parts) > 1 else ""
+        if user_id not in user_passport_data:
+            user_passport_data[user_id] = {}
+        if name:
+            user_passport_data[user_id]["name"] = name
+        if city:
+            user_passport_data[user_id]["city"] = city
+        if len(parts) > 2 and parts[2]:
+            pbs = _parse_passport_pbs(parts[2])
+            for k, v in pbs.items():
+                user_passport_data[user_id][k] = v
+        save_passport_data()
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"✅ Паспорт обновлён: {html_escape(name or '—')} | {html_escape(city or '—')}",
+            parse_mode="HTML",
+        )
+
+    target_user_id = user_id
+    target_name = update.message.from_user.full_name or (f"@{update.message.from_user.username}" if update.message.from_user.username else "Участник")
+    if update.message.reply_to_message and update.message.reply_to_message.from_user and not raw:
+        u = update.message.reply_to_message.from_user
+        target_user_id = u.id
+        target_name = u.full_name or (f"@{u.username}" if u.username else "Участник")
+    if target_user_id is None:
+        await context.bot.send_message(chat_id=chat_id, text="Не удалось определить участника.")
+        return
+    text = build_passport_text(target_user_id, target_name)
+    photo_file_id = (user_passport_data.get(target_user_id) or {}).get("photo_file_id", "").strip()
+    if photo_file_id:
+        caption = build_passport_card_caption(target_user_id, target_name)
+        try:
+            await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=photo_file_id,
+                caption=caption,
+                parse_mode="HTML",
+            )
+            return
+        except Exception as e:
+            logger.warning(f"[PASSPORT] Не удалось отправить фото, отправляю текст: {e}")
+    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+
+
+async def passport_photo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Добавить фото в паспорт: отправь фото с подписью /passport_photo или ответь /passport_photo на фото."""
+    global user_passport_data
+    if not update.message or not update.message.from_user:
+        return
+    user_id = update.message.from_user.id
+    photo = None
+    if update.message.photo:
+        photo = update.message.photo[-1]
+    elif update.message.reply_to_message and update.message.reply_to_message.photo:
+        photo = update.message.reply_to_message.photo[-1]
+    if not photo:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Отправь фото с подписью <code>/passport_photo</code> или ответь этой командой на любое фото.",
+            parse_mode="HTML",
+        )
+        return
+    if user_id not in user_passport_data:
+        user_passport_data[user_id] = {}
+    user_passport_data[user_id]["photo_file_id"] = photo.file_id
+    save_passport_data()
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="✅ Фото добавлено в паспорт. Теперь /passport будет показывать карточку с фото.",
+        parse_mode="HTML",
+    )
+
+
 async def running_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /running — рейтинг бегунов за месяц."""
     runners = get_top_monthly_runners() or get_top_runners()
@@ -10480,14 +10734,21 @@ async def handle_plan_time_callback(update: Update, context: ContextTypes.DEFAUL
 
     if YANDEX_AVAILABLE:
         user_prompt = (
-            f"Составь недельный план подготовки к забегу на дистанцию {label}. "
-            f"До старта {weeks} недель. Целевое время на финиш: {target_str}. "
-            "План по неделям: объём в км, длинная пробежка, темповые/интервалы, отдых. "
-            "Кратко и по делу, на русском. В конце 2-3 совета на день старта (питание, разминка, темп)."
+            f"Составь подробный недельный план подготовки к забегу на дистанцию {label}. "
+            f"До старта {weeks} недель. Целевое время на финиш: {target_str}.\n\n"
+            "Обязательно включи в каждую неделю:\n"
+            "• Объём в км, длинная пробежка, отдых/восстановление.\n"
+            "• Скоростные тренировки: интервалы (например 8×400 м, 5×1 км), темповый бег в целевом темпе, повторы на холмах.\n"
+            "• Фартлек: 1–2 раза в неделю или по чередованию — чередование быстрых и медленных отрезков в одной пробежке (например 1 мин быстро / 2 мин легко), укажи примеры.\n"
+            "• Силовые/ОФП: 1–2 раза в неделю — упражнения для бегунов: приседания, выпады, планка, кор, ягодичные, икра. Можно дома или в зале, 20–40 мин.\n\n"
+            "По неделям: что именно бегать (дистанции, темп), когда фартлек, когда интервалы, когда силовая. "
+            "Кратко, по делу, на русском. В конце: 2–3 совета на день старта (питание, разминка, темп)."
         )
         system_prompt = (
-            "Ты — опытный тренер по бегу. Дай структурированный план: недели, километраж, типы тренировок. "
-            "Пиши кратко. Формат: заголовки недель и списки."
+            "Ты — опытный тренер по бегу. Дай информативный план подготовки: по неделям — километраж, длинная, "
+            "скоростные (интервалы, темповый бег), фартлек (чередование быстрых/лёгких отрезков), силовые/ОФП для бегунов. "
+            "Указывай конкретику: примеры интервалов, длительность фартлека, примеры силовых упражнений. "
+            "Формат: заголовки недель, списки с типами тренировок и рекомендациями."
         )
         try:
             payload = {
@@ -10751,6 +11012,8 @@ def register_handlers(app):
     app.add_handler(CommandHandler("rating", rating_cmd))
     app.add_handler(CommandHandler("likes", likes_cmd))
     app.add_handler(CommandHandler("levels", levels_cmd))
+    app.add_handler(CommandHandler("passport", passport_cmd))
+    app.add_handler(CommandHandler("passport_photo", passport_photo_cmd))
     app.add_handler(CommandHandler("running", running_cmd))
     app.add_handler(CommandHandler("weekly", weekly_cmd))
     app.add_handler(CommandHandler("monthly", monthly_cmd))
@@ -10869,6 +11132,7 @@ async def post_init(app):
 
     init_garmin_on_startup()
     init_birthdays_on_startup()
+    init_passport_data_on_startup()
     try:
         load_user_rating_stats()
     except Exception as e:
