@@ -2374,6 +2374,7 @@ known_users = set()
 # Метаданные сводок (для устойчивости при рестартах)
 summary_state = {
     "monthly_last_sent": "",
+    "weekly_last_sent_week": "",  # "YYYY-Wnn" — последняя отправленная еженедельная сводка
 }
 
 
@@ -3726,8 +3727,9 @@ def load_daily_stats() -> None:
             "message_likes": message_likes,
             "first_photo_user_id": data.get("first_photo_user_id"),
             "first_photo_user_name": data.get("first_photo_user_name"),
+            "summary_last_sent": str(data.get("summary_last_sent", "") or ""),
         }
-        logger.info(f"[PERSIST] ✅ Загружено daily_stats: {daily_stats.get('total_messages', 0)} сообщений")
+        logger.info(f"[PERSIST] ✅ Загружено daily_stats: {daily_stats.get('total_messages', 0)} сообщений, summary_last_sent={daily_stats.get('summary_last_sent', '')}")
     except Exception as e:
         logger.warning(f"[PERSIST] Не удалось загрузить daily_stats: {e}")
 
@@ -7082,14 +7084,22 @@ async def send_weekly_running_summary():
         weekly_text += f"{quote}\n"
         weekly_text += "="*40 + "\n"
 
-        # Отправляем в чат (в топик "Новости")
+        # Отправляем в чат (в топик "Новости"); при ошибке топика — в основной чат
         if application and CHAT_ID:
-            await application.bot.send_message(
-                chat_id=CHAT_ID,
-                message_thread_id=NEWS_TOPIC_ID,
-                text=weekly_text,
-                parse_mode="Markdown"
-            )
+            try:
+                await application.bot.send_message(
+                    chat_id=CHAT_ID,
+                    message_thread_id=NEWS_TOPIC_ID,
+                    text=weekly_text,
+                    parse_mode="Markdown"
+                )
+            except Exception as send_err:
+                logger.warning(f"[RUNNING WEEKLY] Отправка в топик не удалась: {send_err}, пробуем в основной чат")
+                await application.bot.send_message(
+                    chat_id=CHAT_ID,
+                    text=weekly_text,
+                    parse_mode="Markdown"
+                )
 
         # Сбрасываем недельную статистику после отправки
         weekly_running_stats.clear()
@@ -8119,14 +8129,25 @@ async def send_daily_summary(force: bool = False, ref_date: str | None = None):
         if unescaped_parens:
             logger.error(f"[SUMMARY] Найдены неэкранированные скобки: {unescaped_parens[:3]}")
 
-        # Отправляем в чат (в топик "Новости")
-        # Используем Markdown (не MarkdownV2) для совместимости
-        await application.bot.send_message(
-            chat_id=CHAT_ID,
-            message_thread_id=NEWS_TOPIC_ID,
-            text=summary_text,
-            parse_mode="Markdown",
-        )
+        # Отправляем в чат (в топик "Новости"); при ошибке топика — в основной чат
+        try:
+            await application.bot.send_message(
+                chat_id=CHAT_ID,
+                message_thread_id=NEWS_TOPIC_ID,
+                text=summary_text,
+                parse_mode="Markdown",
+            )
+        except Exception as send_err:
+            logger.warning(f"[SUMMARY] Отправка в топик не удалась: {send_err}, пробуем в основной чат")
+            try:
+                await application.bot.send_message(
+                    chat_id=CHAT_ID,
+                    text=summary_text,
+                    parse_mode="Markdown",
+                )
+            except Exception as fallback_err:
+                logger.error(f"[SUMMARY] Отправка ежедневной сводки не удалась: {fallback_err}", exc_info=True)
+                raise
         
         # Пытаемся отправить топ фото с 4+ лайками (в топик "Новости")
         try:
@@ -8264,13 +8285,21 @@ async def send_weekly_summary():
         weekly_text += f"⭐ → 👑 (Активный → Лидер): **{USER_LEVELS['Лидер']}** очков\n"
         weekly_text += f"👑 → 🏆 (Лидер → Легенда): **{USER_LEVELS['Легенда чата']}** очков\n"
         
-        # Отправляем в чат (в топик "Новости")
-        await application.bot.send_message(
-            chat_id=CHAT_ID,
-            message_thread_id=NEWS_TOPIC_ID,
-            text=weekly_text,
-            parse_mode="Markdown",
-        )
+        # Отправляем в чат (в топик "Новости"); при ошибке топика — в основной чат
+        try:
+            await application.bot.send_message(
+                chat_id=CHAT_ID,
+                message_thread_id=NEWS_TOPIC_ID,
+                text=weekly_text,
+                parse_mode="Markdown",
+            )
+        except Exception as send_err:
+            logger.warning(f"[WEEKLY] Отправка в топик не удалась: {send_err}, пробуем в основной чат")
+            await application.bot.send_message(
+                chat_id=CHAT_ID,
+                text=weekly_text,
+                parse_mode="Markdown",
+            )
         
         # Сохраняем данные в историю (СКРЫТО)
         await save_daily_stats()
@@ -8455,7 +8484,7 @@ async def send_monthly_summary(ref_date: datetime | None = None):
 
 async def daily_summary_scheduler_task():
     """Планировщик ежедневной, еженедельной и ежемесячной сводок + трекинг бега"""
-    global daily_summary_sent, current_week, user_running_stats
+    global daily_summary_sent, user_running_stats
 
     while bot_running:
         now = datetime.now(MOSCOW_TZ)
@@ -8502,23 +8531,23 @@ async def daily_summary_scheduler_task():
                 except Exception as e:
                     logger.error(f"Ошибка при догоняющей сводке: {e}")
 
-        # Проверка недели (воскресенье 23:59 - еженедельная сводка + бег)
-        if now.weekday() == 6 and current_hour == 23 and current_minute == 59:
-            week_num = now.isocalendar()[1]
-            if week_num != current_week:
-                logger.info(f"Время воскресенье 23:59 - отправляем еженедельную сводку")
+        # Проверка недели (воскресенье 23:55–23:59 — еженедельная сводка, состояние в summary_state)
+        iso_year, week_num, _ = now.isocalendar()
+        week_key = f"{iso_year}-W{week_num:02d}"
+        if now.weekday() == 6 and current_hour == 23 and current_minute >= 55:
+            if summary_state.get("weekly_last_sent_week") != week_key:
+                logger.info(f"Воскресенье 23:55+ — отправляем еженедельную сводку (неделя {week_key})")
                 try:
                     await send_weekly_summary()
+                    summary_state["weekly_last_sent_week"] = week_key
+                    save_summary_state()
                 except Exception as e:
                     logger.error(f"Ошибка при отправке еженедельной сводки: {e}")
 
-                # Также отправляем сводку по бегу
                 try:
                     await send_weekly_running_summary()
                 except Exception as e:
                     logger.error(f"Ошибка при отправке еженедельной сводки по бегу: {e}")
-
-                current_week = week_num
 
         # Проверка конца месяца (последний день месяца в 23:55-23:59)
         last_day_of_month = calendar.monthrange(now.year, now.month)[1]
