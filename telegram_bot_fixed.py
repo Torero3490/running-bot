@@ -3323,6 +3323,7 @@ USER_RATING_FILE = os.path.join(DATA_DIR, "user_rating_stats.json")
 DAILY_STATS_FILE = os.path.join(DATA_DIR, "daily_stats.json")
 DB_PATH = os.path.join(DATA_DIR, "bot.db")
 KNOWN_USERS_FILE = os.path.join(DATA_DIR, "known_users.json")
+BOT_STICKERS_FILE = os.path.join(DATA_DIR, "bot_stickers.json")
 
 # Старые пути (для миграции при первом запуске)
 LEGACY_BIRTHDAYS_FILE = "birthdays.json"
@@ -4214,6 +4215,59 @@ DAY_THEMES = {
     "Saturday": "😩 Суббота — день нытья! Расскажи, что сегодня было тяжело!",
     "Sunday": "📷 Воскресенье — день нюдсов! Покажи красивые виды с пробежки!",
 }
+
+# Включить ли поздравления с праздниками (можно отключить: False или переменная окружения HOLIDAY_CONGRATS_ENABLED=0)
+HOLIDAY_CONGRATS_ENABLED = os.environ.get("HOLIDAY_CONGRATS_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
+
+# Праздники: (месяц, день) -> (название, список поздравлений)
+HOLIDAYS = {
+    (1, 1): ("Новый год", [
+        "🎄 С Новым годом, бегуны! Пусть каждый километр в новом году будет в радость!",
+        "🎉 С Новым годом! Новые цели, новые рекорды — вперёд!",
+        "✨ С Новым годом! Загадывайте желания на финише первого забега года!",
+    ]),
+    (1, 7): ("Рождество", [
+        "⭐ С Рождеством! Мира, добра и лёгких километров!",
+    ]),
+    (2, 14): ("День святого Валентина", [
+        "❤️ С Днём святого Валентина! Бегайте вместе — и сердце, и ноги будут в тонусе!",
+        "💕 С Днём влюблённых! Пусть ваша вторая половинка поддерживает вас на каждой пробежке!",
+        "💝 День святого Валентина! Самая долгая дистанция — до сердца друг друга. Поздравляем!",
+    ]),
+    (2, 23): ("День защитника Отечества", [
+        "🎖️ С 23 февраля! Сила духа и выносливость — ваши главные награды. Поздравляем защитников!",
+        "💪 С Днём защитника Отечества! Настоящие мужчины не только стоят на страже, но и бегают по утрам!",
+        "🪖 С 23 февраля! Крепкого здоровья и новых побед на трассах!",
+    ]),
+    (3, 8): ("Международный женский день", [
+        "🌸 С 8 марта, наши прекрасные бегуньи! Вы вдохновляете весь чат!",
+        "💐 С 8 марта! Красота, сила и грация — всё про вас. Поздравляем!",
+        "✨ С Международным женским днём! Пусть каждая пробежка приносит радость!",
+    ]),
+    (5, 1): ("Праздник весны и труда", [
+        "🌷 С 1 мая! Отдыхайте или бежите — главное с настроением!",
+        "☀️ С Праздником весны и труда! Отличный день для пробежки в парке!",
+    ]),
+    (5, 9): ("День Победы", [
+        "🎖️ С Днём Победы! Вечная память героям. Мира и здоровья всем!",
+        "🇷🇺 С 9 мая! Бежим в честь тех, кто подарил нам мирное небо!",
+    ]),
+    (6, 12): ("День России", [
+        "🇷🇺 С Днём России! Гордимся страной и нашими бегунами!",
+    ]),
+    (9, 1): ("День знаний", [
+        "📚 С Днём знаний! Новые цели в беге — как новый учебный год. Вперёд!",
+    ]),
+    (11, 4): ("День народного единства", [
+        "🤝 С Днём народного единства! Вместе мы сильнее — и на забегах тоже!",
+    ]),
+    (12, 31): ("Канун Нового года", [
+        "🎆 Последний день года! Готовьтесь к первому забегу нового года. С наступающим!",
+    ]),
+}
+
+# Дата последней отправки поздравления с праздником (чтобы не дублировать)
+holiday_congrats_sent_date = ""
 
 WELCOME_MESSAGES = [
     "Добро пожаловать в наш беговой муравейник! Ты уже выбрал свою дистанцию: 5 км для разминки, полумарафон для души или сразу ультрамарафон — чтобы проверить, на что способен? Расскажи, какой у тебя уровень: «ещё дышу», «уже потею» или «я — машина»?",
@@ -6521,6 +6575,60 @@ girl_flirt_cache = {}
 # Минимальный интервал между флиртами от бота (в секундах)
 FLIRT_COOLDOWN = 1800  # 30 минут
 
+# GIF и стикеры для ответов бота (больше общения через медиа)
+BOT_GIF_URLS = [
+    "https://media.tenor.com/2FgB2LbqN_cAAAAC/running-run.gif",
+    "https://media.tenor.com/4B2P2FQnL5sAAAAC/good-morning-sunshine.gif",
+    "https://media.tenor.com/3fLtYJP_2EgAAAAC/thumbs-up-approve.gif",
+    "https://media.tenor.com/1Vz9nD0Dv_cAAAAC/motivation-running.gif",
+    "https://media.tenor.com/5HxNnB1u0MAAAAAC/high-five-celebrate.gif",
+    "https://media.tenor.com/8BvB2VvR8EAAAAAC/runner-running.gif",
+    "https://media.tenor.com/6fJzlO8e0AAAAAC/coffee-morning.gif",
+    "https://media.tenor.com/9gS4QKbbQAAAAAC/clap-applause.gif",
+    "https://media.tenor.com/7VlD1bCN1AAAAAC/wink-flirt.gif",
+]
+# file_id стикеров загружаются из bot_stickers.json (добавить через /add_sticker)
+bot_sticker_ids = []
+
+
+def load_bot_stickers():
+    """Загрузить список file_id стикеров из файла."""
+    global bot_sticker_ids
+    try:
+        if os.path.exists(BOT_STICKERS_FILE):
+            with open(BOT_STICKERS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            bot_sticker_ids = list(data) if isinstance(data, list) else []
+        else:
+            bot_sticker_ids = []
+    except Exception as e:
+        logger.warning(f"[STICKERS] Ошибка загрузки: {e}")
+        bot_sticker_ids = []
+
+
+def save_bot_stickers():
+    """Сохранить список file_id стикеров в файл."""
+    try:
+        with open(BOT_STICKERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(bot_sticker_ids, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"[STICKERS] Ошибка сохранения: {e}")
+
+
+async def send_random_sticker_or_gif(bot, chat_id: int, chance: float = 0.4):
+    """С вероятностью chance отправить случайный стикер или GIF в чат. Ничего не делает при ошибке."""
+    if not bot or random.random() >= chance:
+        return
+    try:
+        if bot_sticker_ids and random.random() < 0.5:
+            sticker_id = random.choice(bot_sticker_ids)
+            await bot.send_sticker(chat_id=chat_id, sticker=sticker_id)
+        elif BOT_GIF_URLS:
+            gif_url = random.choice(BOT_GIF_URLS)
+            await bot.send_animation(chat_id=chat_id, animation=gif_url)
+    except Exception as e:
+        logger.debug(f"[STICKERS/GIF] Не удалось отправить медиа: {e}")
+
 
 def get_random_flirt() -> str:
     """Получить случайное игривое сообщение для команды /flirt"""
@@ -7084,22 +7192,21 @@ async def send_weekly_running_summary():
         weekly_text += f"{quote}\n"
         weekly_text += "="*40 + "\n"
 
-        # Отправляем в чат (в топик "Новости"); при ошибке топика — в основной чат
+        # Отправляем в чат; при ошибке — без топика, при ошибке Markdown — без разметки
         if application and CHAT_ID:
+            send_kw = {"chat_id": CHAT_ID, "text": weekly_text, "parse_mode": "Markdown"}
+            if NEWS_TOPIC_ID:
+                send_kw["message_thread_id"] = NEWS_TOPIC_ID
             try:
-                await application.bot.send_message(
-                    chat_id=CHAT_ID,
-                    message_thread_id=NEWS_TOPIC_ID,
-                    text=weekly_text,
-                    parse_mode="Markdown"
-                )
-            except Exception as send_err:
-                logger.warning(f"[RUNNING WEEKLY] Отправка в топик не удалась: {send_err}, пробуем в основной чат")
-                await application.bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=weekly_text,
-                    parse_mode="Markdown"
-                )
+                await application.bot.send_message(**send_kw)
+            except Exception as e1:
+                logger.warning(f"[RUNNING WEEKLY] Отправка не удалась: {e1}, пробуем в основной чат")
+                send_kw.pop("message_thread_id", None)
+                try:
+                    await application.bot.send_message(**send_kw)
+                except Exception as e2:
+                    logger.warning(f"[RUNNING WEEKLY] Markdown не прошёл: {e2}, без разметки")
+                    await application.bot.send_message(chat_id=CHAT_ID, text=weekly_text)
 
         # Сбрасываем недельную статистику после отправки
         weekly_running_stats.clear()
@@ -7693,6 +7800,57 @@ async def lunch_scheduler_task():
             logger.error(f"[LUNCH] Ошибка в планировщике: {e}")
 
 
+# ============== ПОЗДРАВЛЕНИЯ С ПРАЗДНИКАМИ ==============
+async def send_holiday_congrats():
+    """Отправить поздравление с праздником в чат, если сегодня праздник из HOLIDAYS."""
+    global application, holiday_congrats_sent_date
+    if not HOLIDAY_CONGRATS_ENABLED or application is None or not CHAT_ID:
+        return
+    now = datetime.now(MOSCOW_TZ)
+    key = (now.month, now.day)
+    if key not in HOLIDAYS:
+        return
+    today_str = now.strftime("%Y-%m-%d")
+    if holiday_congrats_sent_date == today_str:
+        return
+    name, messages = HOLIDAYS[key]
+    text = random.choice(messages)
+    try:
+        await application.bot.send_message(
+            chat_id=CHAT_ID,
+            text=f"🎉 **{name}!**\n\n{text}",
+            parse_mode="Markdown",
+        )
+        holiday_congrats_sent_date = today_str
+        logger.info(f"[HOLIDAY] Поздравление с {name} отправлено")
+    except Exception as e:
+        try:
+            await application.bot.send_message(chat_id=CHAT_ID, text=f"🎉 {name}!\n\n{text}")
+            holiday_congrats_sent_date = today_str
+        except Exception as e2:
+            logger.error(f"[HOLIDAY] Ошибка отправки поздравления: {e2}")
+
+
+async def holiday_scheduler_task():
+    """Планировщик поздравлений с праздниками — в 12:15 по Москве."""
+    global holiday_congrats_sent_date
+    while bot_running:
+        try:
+            await asyncio.sleep(60)
+            now = datetime.now(MOSCOW_TZ)
+            if now.hour == 0 and now.minute == 1:
+                holiday_congrats_sent_date = ""
+            if now.hour == 12 and now.minute == 15:
+                try:
+                    await send_holiday_congrats()
+                except Exception as e:
+                    logger.error(f"[HOLIDAY] Ошибка: {e}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"[HOLIDAY] Ошибка в планировщике: {e}")
+
+
 # ============== МОТИВАЦИОННЫЕ СООБЩЕНИЯ ==============
 async def send_motivation():
     """Отправка мотивационного сообщения"""
@@ -8129,25 +8287,29 @@ async def send_daily_summary(force: bool = False, ref_date: str | None = None):
         if unescaped_parens:
             logger.error(f"[SUMMARY] Найдены неэкранированные скобки: {unescaped_parens[:3]}")
 
-        # Отправляем в чат (в топик "Новости"); при ошибке топика — в основной чат
+        # Отправляем в чат (в топик при наличии); при ошибке — в основной чат; при ошибке Markdown — без разметки
+        send_kw = {"chat_id": CHAT_ID, "text": summary_text, "parse_mode": "Markdown"}
+        if NEWS_TOPIC_ID:
+            send_kw["message_thread_id"] = NEWS_TOPIC_ID
+        sent_ok = False
         try:
-            await application.bot.send_message(
-                chat_id=CHAT_ID,
-                message_thread_id=NEWS_TOPIC_ID,
-                text=summary_text,
-                parse_mode="Markdown",
-            )
+            await application.bot.send_message(**send_kw)
+            sent_ok = True
         except Exception as send_err:
             logger.warning(f"[SUMMARY] Отправка в топик не удалась: {send_err}, пробуем в основной чат")
             try:
-                await application.bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=summary_text,
-                    parse_mode="Markdown",
-                )
+                await application.bot.send_message(chat_id=CHAT_ID, text=summary_text, parse_mode="Markdown")
+                sent_ok = True
             except Exception as fallback_err:
-                logger.error(f"[SUMMARY] Отправка ежедневной сводки не удалась: {fallback_err}", exc_info=True)
-                raise
+                logger.warning(f"[SUMMARY] Markdown не прошёл: {fallback_err}, отправляем без разметки")
+                try:
+                    await application.bot.send_message(chat_id=CHAT_ID, text=summary_text)
+                    sent_ok = True
+                except Exception as plain_err:
+                    logger.error(f"[SUMMARY] Отправка ежедневной сводки не удалась: {plain_err}", exc_info=True)
+                    raise
+        if not sent_ok:
+            raise RuntimeError("Ежедневная сводка не была отправлена")
         
         # Пытаемся отправить топ фото с 4+ лайками (в топик "Новости")
         try:
@@ -8285,21 +8447,30 @@ async def send_weekly_summary():
         weekly_text += f"⭐ → 👑 (Активный → Лидер): **{USER_LEVELS['Лидер']}** очков\n"
         weekly_text += f"👑 → 🏆 (Лидер → Легенда): **{USER_LEVELS['Легенда чата']}** очков\n"
         
-        # Отправляем в чат (в топик "Новости"); при ошибке топика — в основной чат
+        # Отправляем в чат; при ошибке топика — в основной чат; при ошибке Markdown — без разметки
+        send_kw = {"chat_id": CHAT_ID, "text": weekly_text, "parse_mode": "Markdown"}
+        if NEWS_TOPIC_ID:
+            send_kw["message_thread_id"] = NEWS_TOPIC_ID
+        sent = False
         try:
-            await application.bot.send_message(
-                chat_id=CHAT_ID,
-                message_thread_id=NEWS_TOPIC_ID,
-                text=weekly_text,
-                parse_mode="Markdown",
-            )
-        except Exception as send_err:
-            logger.warning(f"[WEEKLY] Отправка в топик не удалась: {send_err}, пробуем в основной чат")
-            await application.bot.send_message(
-                chat_id=CHAT_ID,
-                text=weekly_text,
-                parse_mode="Markdown",
-            )
+            await application.bot.send_message(**send_kw)
+            sent = True
+        except Exception as e1:
+            logger.warning(f"[WEEKLY] Отправка не удалась: {e1}, пробуем в основной чат")
+            send_kw.pop("message_thread_id", None)
+            try:
+                await application.bot.send_message(**send_kw)
+                sent = True
+            except Exception as e2:
+                logger.warning(f"[WEEKLY] Markdown не прошёл: {e2}, без разметки")
+                try:
+                    await application.bot.send_message(chat_id=CHAT_ID, text=weekly_text)
+                    sent = True
+                except Exception as e3:
+                    logger.error(f"[WEEKLY] Отправка еженедельной сводки не удалась: {e3}", exc_info=True)
+                    raise
+        if not sent:
+            await application.bot.send_message(chat_id=CHAT_ID, text=weekly_text)
         
         # Сохраняем данные в историю (СКРЫТО)
         await save_daily_stats()
@@ -8486,119 +8657,110 @@ async def daily_summary_scheduler_task():
     """Планировщик ежедневной, еженедельной и ежемесячной сводок + трекинг бега"""
     global daily_summary_sent, user_running_stats
 
+    logger.info("[SUMMARY] Планировщик сводок запущен (ежедневно 23:45–00:10 МСК, еженедельно вс 23:55)")
     while bot_running:
-        now = datetime.now(MOSCOW_TZ)
-        current_hour = now.hour
-        current_minute = now.minute
-        today_date = now.strftime("%Y-%m-%d")
+        try:
+            now = datetime.now(MOSCOW_TZ)
+            current_hour = now.hour
+            current_minute = now.minute
+            today_date = now.strftime("%Y-%m-%d")
 
-        # Синхронизация флага с сохранённой датой отправки
-        if daily_stats.get("summary_last_sent") == today_date:
-            daily_summary_sent = True
+            # Синхронизация флага с сохранённой датой отправки
+            if daily_stats.get("summary_last_sent") == today_date:
+                daily_summary_sent = True
 
-        # Сброс флага и дневной статистики в 00:11 (после окна догоняющей отправки 00:00–00:10)
-        if now.hour == 0 and current_minute >= 11 and daily_stats.get("date") != today_date:
-            daily_summary_sent = False
-            daily_stats = build_empty_daily_stats(today_date)
-            logger.info("[SUMMARY] Сброс daily_stats на новый день")
+            # Сброс флага и дневной статистики в 00:11 (после окна догоняющей отправки 00:00–00:10)
+            if now.hour == 0 and current_minute >= 11 and daily_stats.get("date") != today_date:
+                daily_summary_sent = False
+                daily_stats = build_empty_daily_stats(today_date)
+                logger.info("[SUMMARY] Сброс daily_stats на новый день")
 
-        # === ПЕРЕХОД НА НОВЫЙ ДЕНЬ (полночь) ===
-        if now.hour == 0 and current_minute == 0:
-            logger.info("[RUNNING] Новый день - перенос статистики бега в недельную/месячную")
-            try:
-                # Сохраняем daily в weekly и monthly
-                save_daily_running_to_weekly()
-                save_daily_running_to_monthly()
-                # Сбрасываем daily
-                reset_daily_running_stats()
-            except Exception as e:
-                logger.error(f"Ошибка при переносе статистики бега: {e}")
-
-        # Отправка сводки: 23:50–23:59 (расширенное окно) или 00:00–00:10 (догоняющая, если бот был выключен)
-        if current_hour == 23 and current_minute >= 50:
-            if daily_stats.get("summary_last_sent") != today_date:
-                logger.info(f"Время {current_hour}:{current_minute} - отправляем ежедневную сводку")
+            # === ПЕРЕХОД НА НОВЫЙ ДЕНЬ (полночь) ===
+            if now.hour == 0 and current_minute == 0:
+                logger.info("[RUNNING] Новый день - перенос статистики бега в недельную/месячную")
                 try:
-                    await send_daily_summary(ref_date=today_date)
+                    save_daily_running_to_weekly()
+                    save_daily_running_to_monthly()
+                    reset_daily_running_stats()
                 except Exception as e:
-                    logger.error(f"Ошибка при отправке сводки: {e}")
-        yesterday_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-        if current_hour == 0 and current_minute <= 10:
-            if daily_stats.get("summary_last_sent") != yesterday_date:
-                logger.info(f"Время {current_hour}:{current_minute} - догоняющая ежедневная сводка за вчера")
+                    logger.error(f"Ошибка при переносе статистики бега: {e}")
+
+            # Отправка сводки: 23:45–23:59 или 00:00–00:10 (догоняющая)
+            if current_hour == 23 and current_minute >= 45:
+                if daily_stats.get("summary_last_sent") != today_date:
+                    logger.info(f"[SUMMARY] Время {current_hour}:{current_minute} — отправляем ежедневную сводку")
+                    try:
+                        await send_daily_summary(ref_date=today_date)
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке сводки: {e}", exc_info=True)
+            yesterday_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+            if current_hour == 0 and current_minute <= 10:
+                if daily_stats.get("summary_last_sent") != yesterday_date:
+                    logger.info(f"[SUMMARY] Время {current_hour}:{current_minute} — догоняющая сводка за вчера")
+                    try:
+                        await send_daily_summary(ref_date=yesterday_date)
+                    except Exception as e:
+                        logger.error(f"Ошибка при догоняющей сводке: {e}", exc_info=True)
+
+            # Еженедельная сводка: воскресенье 23:55–23:59
+            iso_year, week_num, _ = now.isocalendar()
+            week_key = f"{iso_year}-W{week_num:02d}"
+            if now.weekday() == 6 and current_hour == 23 and current_minute >= 55:
+                if summary_state.get("weekly_last_sent_week") != week_key:
+                    logger.info(f"[SUMMARY] Воскресенье 23:55+ — еженедельная сводка (неделя {week_key})")
+                    try:
+                        await send_weekly_summary()
+                        summary_state["weekly_last_sent_week"] = week_key
+                        save_summary_state()
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке еженедельной сводки: {e}", exc_info=True)
+                    try:
+                        await send_weekly_running_summary()
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке еженедельной сводки по бегу: {e}", exc_info=True)
+
+            # Ежемесячная сводка: последний день месяца 23:55+
+            last_day_of_month = calendar.monthrange(now.year, now.month)[1]
+            month_key = now.strftime("%Y-%m")
+            if (
+                now.day == last_day_of_month
+                and current_hour == 23
+                and current_minute >= 55
+                and summary_state.get("monthly_last_sent") != month_key
+            ):
+                logger.info(f"Последний день месяца - отправляем ежемесячную сводку")
                 try:
-                    await send_daily_summary(ref_date=yesterday_date)
+                    await send_monthly_summary(ref_date=now)
                 except Exception as e:
-                    logger.error(f"Ошибка при догоняющей сводке: {e}")
-
-        # Проверка недели (воскресенье 23:55–23:59 — еженедельная сводка, состояние в summary_state)
-        iso_year, week_num, _ = now.isocalendar()
-        week_key = f"{iso_year}-W{week_num:02d}"
-        if now.weekday() == 6 and current_hour == 23 and current_minute >= 55:
-            if summary_state.get("weekly_last_sent_week") != week_key:
-                logger.info(f"Воскресенье 23:55+ — отправляем еженедельную сводку (неделя {week_key})")
+                    logger.error(f"Ошибка при отправке ежемесячной сводки: {e}", exc_info=True)
                 try:
-                    await send_weekly_summary()
-                    summary_state["weekly_last_sent_week"] = week_key
-                    save_summary_state()
+                    await send_monthly_running_summary()
                 except Exception as e:
-                    logger.error(f"Ошибка при отправке еженедельной сводки: {e}")
-
+                    logger.error(f"Ошибка при отправке ежемесячной сводки по бегу: {e}", exc_info=True)
                 try:
-                    await send_weekly_running_summary()
+                    global user_rating_stats
+                    user_rating_stats = {}
+                    reset_monthly_running_stats()
+                    logger.info("[SUMMARY] Статистика рейтинга и бега сброшена для нового месяца")
                 except Exception as e:
-                    logger.error(f"Ошибка при отправке еженедельной сводки по бегу: {e}")
+                    logger.error(f"Ошибка при сбросе статистики: {e}")
 
-        # Проверка конца месяца (последний день месяца в 23:55-23:59)
-        last_day_of_month = calendar.monthrange(now.year, now.month)[1]
-        month_key = now.strftime("%Y-%m")
-        if (
-            now.day == last_day_of_month
-            and current_hour == 23
-            and current_minute >= 55
-            and summary_state.get("monthly_last_sent") != month_key
-        ):
-            logger.info(f"Последний день месяца - отправляем ежемесячную сводку")
-            try:
-                await send_monthly_summary(ref_date=now)
-            except Exception as e:
-                logger.error(f"Ошибка при отправке ежемесячной сводки: {e}")
+            if now.day == 1 and current_hour == 0 and current_minute <= 5:
+                prev_date = now - timedelta(days=1)
+                prev_month_key = prev_date.strftime("%Y-%m")
+                if summary_state.get("monthly_last_sent") != prev_month_key:
+                    logger.info("Догоняем ежемесячную сводку за прошлый месяц")
+                    try:
+                        await send_monthly_summary(ref_date=prev_date)
+                    except Exception as e:
+                        logger.error(f"Ошибка при догоняющей ежемесячной сводке: {e}", exc_info=True)
 
-            # Также отправляем сводку по бегу за месяц
-            try:
-                await send_monthly_running_summary()
-            except Exception as e:
-                logger.error(f"Ошибка при отправке ежемесячной сводки по бегу: {e}")
-
-            # Сбрасываем статистику для нового месяца ПОСЛЕ отправки
-            try:
-                global user_rating_stats
-                user_rating_stats = {}
-                logger.info("[SUMMARY] Статистика рейтинга сброшена для нового месяца")
-            except Exception as e:
-                logger.error(f"Ошибка при сбросе статистики: {e}")
-
-            # Сбрасываем статистику бега для нового месяца
-            try:
-                reset_monthly_running_stats()
-            except Exception as e:
-                logger.error(f"Ошибка при сбросе статистики бега: {e}")
-
-        # Догоняем ежемесячную сводку в первые 5 минут нового месяца
-        if now.day == 1 and current_hour == 0 and current_minute <= 5:
-            prev_date = now - timedelta(days=1)
-            prev_month_key = prev_date.strftime("%Y-%m")
-            if summary_state.get("monthly_last_sent") != prev_month_key:
-                logger.info("Догоняем ежемесячную сводку за прошлый месяц")
-                try:
-                    await send_monthly_summary(ref_date=prev_date)
-                except Exception as e:
-                    logger.error(f"Ошибка при догоняющей ежемесячной сводке: {e}")
-
-        # С 23:50 до 00:10 проверяем каждые 15 сек — чтобы не пропустить сводку и догоняющую
-        if (current_hour == 23 and current_minute >= 50) or (current_hour == 0 and current_minute <= 10):
-            await asyncio.sleep(15)
-        else:
+            in_summary_window = (current_hour == 23 and current_minute >= 45) or (current_hour == 0 and current_minute <= 10)
+            await asyncio.sleep(15 if in_summary_window else 60)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"[SUMMARY] Ошибка в планировщике сводок: {e}", exc_info=True)
             await asyncio.sleep(60)
 
 
@@ -9957,6 +10119,7 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                         logger.warning(f"[MORNING] Не удалось определить пол для {user_name}: {gender_err}")
                     reply_text = get_random_good_morning_flirt() if is_female else get_random_good_morning()
                     await message.reply_text(reply_text)
+                    await send_random_sticker_or_gif(context.bot, update.effective_chat.id, chance=0.45)
                     logger.info(f"[MORNING] Ответ на приветствие от {user_name}")
                     return
                 except Exception as e:
@@ -10191,6 +10354,7 @@ BOT_HELP_TEXT = (
     "• /passport — паспорт \\(карточка с фото\\); заполнить: имя \\| город \\| личники\n"
     "• /passport\\_photo — добавить фото в паспорт \\(отправь фото или ответь на фото\\)\n"
     "• /passport\\_edit — \\(админ\\) ответь на сообщение и введи данные для правки паспорта\n"
+    "• /passport\\_delete — удалить свой паспорт; админ: ответь на сообщение и /passport\\_delete\n"
     "• /running — рейтинг бегунов за месяц\n"
     "• /weekly — еженедельная сводка (можно вызывать много раз!)\n"
     "• /monthly — итоги месяца (можно вызывать много раз!)\n\n"
@@ -10307,6 +10471,7 @@ async def remen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id,
         text=random.choice(TIRED_RESPONSES).format(user_name=user_name),
     )
+    await send_random_sticker_or_gif(context.bot, update.effective_chat.id, chance=0.4)
 
 
 async def antiremen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -10315,6 +10480,7 @@ async def antiremen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id,
         text=get_random_compliment(),
     )
+    await send_random_sticker_or_gif(context.bot, update.effective_chat.id, chance=0.4)
 
 
 async def roast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -10324,6 +10490,7 @@ async def roast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id,
         text=f"🎯 {target}, {get_random_roast()}",
     )
+    await send_random_sticker_or_gif(context.bot, update.effective_chat.id, chance=0.4)
 
 
 async def flirt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -10332,6 +10499,7 @@ async def flirt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id,
         text=get_random_flirt(),
     )
+    await send_random_sticker_or_gif(context.bot, update.effective_chat.id, chance=0.45)
 
 
 async def mam_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -10365,6 +10533,31 @@ async def motivation_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id,
         text=f"💪 {get_random_motivation()}",
     )
+    await send_random_sticker_or_gif(context.bot, update.effective_chat.id, chance=0.45)
+
+
+async def add_sticker_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для админов: ответь на стикер и напиши /add_sticker — стикер попадёт в пул ответов бота."""
+    global bot_sticker_ids
+    if not update.message or not update.message.from_user:
+        return
+    chat_id = update.effective_chat.id
+    user_id = update.message.from_user.id
+    if not await is_user_admin(user_id, chat_id, context.bot):
+        await context.bot.send_message(chat_id=chat_id, text="❌ Только для администраторов.")
+        return
+    reply = update.message.reply_to_message
+    if not reply or not reply.sticker:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Ответь на сообщение со стикером и напиши /add_sticker — стикер будет использоваться в ответах бота.",
+        )
+        return
+    fid = reply.sticker.file_id
+    if fid not in bot_sticker_ids:
+        bot_sticker_ids.append(fid)
+        save_bot_stickers()
+    await context.bot.send_message(chat_id=chat_id, text=f"✅ Стикер добавлен в пул (всего {len(bot_sticker_ids)}).")
 
 
 async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -10734,6 +10927,38 @@ async def passport_edit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=chat_id,
         text=f"✅ Паспорт участника <b>{html_escape(target_name)}</b> обновлён: {html_escape(name or '—')} | {html_escape(city or '—')}",
+        parse_mode="HTML",
+    )
+
+
+async def passport_delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Удалить паспорт: свой — просто /passport_delete; админ может ответить на сообщение участника и /passport_delete — удалит паспорт того участника."""
+    global user_passport_data
+    if not update.message or not update.message.from_user:
+        return
+    chat_id = update.effective_chat.id
+    user_id = update.message.from_user.id
+    target_user_id = user_id
+    target_name = update.message.from_user.full_name or "Вы"
+
+    if update.message.reply_to_message and update.message.reply_to_message.from_user:
+        if not await is_user_admin(user_id, chat_id, context.bot):
+            await context.bot.send_message(chat_id=chat_id, text="❌ Удалить чужой паспорт могут только администраторы.")
+            return
+        target_user_id = update.message.reply_to_message.from_user.id
+        target_name = update.message.reply_to_message.from_user.full_name or "Участник"
+
+    if target_user_id not in user_passport_data or not user_passport_data[target_user_id]:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"У {target_name} нет сохранённого паспорта." if target_user_id != user_id else "У вас нет сохранённого паспорта.",
+        )
+        return
+    user_passport_data.pop(target_user_id, None)
+    save_passport_data()
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"✅ Паспорт участника <b>{html_escape(target_name)}</b> удалён." if target_user_id != user_id else "✅ Ваш паспорт удалён.",
         parse_mode="HTML",
     )
 
@@ -11186,6 +11411,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("mam", mam_cmd))
     app.add_handler(CommandHandler("joke", joke_cmd))
     app.add_handler(CommandHandler("motivation", motivation_cmd))
+    app.add_handler(CommandHandler("add_sticker", add_sticker_cmd))
 
     app.add_handler(CommandHandler("summary", summary_cmd))
     app.add_handler(CommandHandler("rating", rating_cmd))
@@ -11194,6 +11420,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("passport", passport_cmd))
     app.add_handler(CommandHandler("passport_photo", passport_photo_cmd))
     app.add_handler(CommandHandler("passport_edit", passport_edit_cmd))
+    app.add_handler(CommandHandler("passport_delete", passport_delete_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, passport_photo_from_caption_handler))
     app.add_handler(CommandHandler("running", running_cmd))
     app.add_handler(CommandHandler("weekly", weekly_cmd))
@@ -11314,6 +11541,7 @@ async def post_init(app):
     init_garmin_on_startup()
     init_birthdays_on_startup()
     init_passport_data_on_startup()
+    load_bot_stickers()
     try:
         load_user_rating_stats()
     except Exception as e:
@@ -11335,6 +11563,7 @@ async def post_init(app):
     add_background_task(app, advice_scheduler_task())
     add_background_task(app, daily_summary_scheduler_task())
     add_background_task(app, garmin_scheduler_task())
+    add_background_task(app, holiday_scheduler_task())
 
 
 async def post_shutdown(app):
