@@ -2811,22 +2811,21 @@ def get_random_good_morning_flirt():
 
 # ============== МУЗЫКА ДНЯ ==============
 MUSIC_OF_DAY = [
-    {
-        "title": "🎧 Плейлист для бега — Яндекс Музыка",
-        "url": "https://music.yandex.ru/landing/tag_run",
-    },
-    {
-        "title": "⚡ EDM для бега — Яндекс Музыка",
-        "url": "https://music.yandex.ru/landing/tag_edm",
-    },
-    {
-        "title": "🎵 Rock для тренировки — Яндекс Музыка",
-        "url": "https://music.yandex.ru/landing/tag_rock",
-    },
-    {
-        "title": "🚀 Поп для тренировки — Яндекс Музыка",
-        "url": "https://music.yandex.ru/landing/tag_pop",
-    },
+    {"title": "🎧 Плейлист для бега", "url": "https://music.yandex.ru/landing/tag_run", "hint": "Универсальный беговой подбор"},
+    {"title": "⚡ EDM для бега", "url": "https://music.yandex.ru/landing/tag_edm", "hint": "Для темпового бега и интервалов"},
+    {"title": "🎵 Rock для тренировки", "url": "https://music.yandex.ru/landing/tag_rock", "hint": "Когда нужен драйв на последних км"},
+    {"title": "🚀 Поп для тренировки", "url": "https://music.yandex.ru/landing/tag_pop", "hint": "Лёгкий бег под знакомые хиты"},
+    {"title": "🎤 Hip-Hop для бега", "url": "https://music.yandex.ru/landing/tag_hiphop", "hint": "Ритм под шаг — идеальный каденс"},
+    {"title": "🌿 Indie и альтернатива", "url": "https://music.yandex.ru/landing/tag_indie", "hint": "Для длинных расслабленных пробежек"},
+    {"title": "🔊 Электроника и хаус", "url": "https://music.yandex.ru/landing/tag_electronic", "hint": "Монотонный ритм — держит темп"},
+    {"title": "🎹 Джаз и фанк", "url": "https://music.yandex.ru/landing/tag_jazz", "hint": "Утренняя пробежка в хорошем настроении"},
+    {"title": "🪕 Акустика и фолк", "url": "https://music.yandex.ru/landing/tag_acoustic", "hint": "Восстановительный бег без гонки"},
+    {"title": "💪 Workout и мотивация", "url": "https://music.yandex.ru/landing/tag_workout", "hint": "Когда нужен пинок под пятую точку"},
+    {"title": "🌅 Лёгкий поп и чилл", "url": "https://music.yandex.ru/landing/tag_chill", "hint": "Разминка и заминка"},
+    {"title": "🔥 Танцевальная музыка", "url": "https://music.yandex.ru/landing/tag_dance", "hint": "Высокий BPM — для скоростных отрезков"},
+    {"title": "🎸 Панк и альтернативный рок", "url": "https://music.yandex.ru/landing/tag_punk", "hint": "Короткий жёсткий бег"},
+    {"title": "🌙 Лоу-фай и атмосфера", "url": "https://music.yandex.ru/landing/tag_lo-fi", "hint": "Вечерняя пробежка в своём ритме"},
+    {"title": "🏃 Подкасты и аудио", "url": "https://music.yandex.ru/genre/podkasty", "hint": "Длинный бег — совмещай с обучением"},
 ]
 
 
@@ -2853,10 +2852,14 @@ def get_music_of_day() -> dict:
 def format_music_message(music: dict) -> str:
     title = html_escape(music.get("title", "🎧 Музыка дня"))
     url = music.get("url", "")
+    hint = music.get("hint", "")
+    parts = [title]
+    if hint:
+        parts.append(f"💡 {html_escape(hint)}")
     if url:
         safe_url = html_escape(url)
-        return f"{title}\n🔗 <a href=\"{safe_url}\">Открыть в Яндекс Музыке</a>"
-    return title
+        parts.append(f"🔗 <a href=\"{safe_url}\">Открыть в Яндекс Музыке</a>")
+    return "\n".join(parts)
 
 
 # ============== ГОРОСКОП ДНЯ ==============
