@@ -8668,7 +8668,7 @@ async def daily_summary_scheduler_task():
     """Планировщик ежедневной, еженедельной и ежемесячной сводок + трекинг бега"""
     global daily_summary_sent, user_running_stats
 
-    logger.info("[SUMMARY] Планировщик сводок запущен (ежедневно 23:45–00:10 МСК, еженедельно вс 23:55)")
+    logger.info("[SUMMARY] Планировщик сводок запущен (ежедневно 23:30–00:10 МСК, еженедельно вс 23:55)")
     while bot_running:
         try:
             now = datetime.now(MOSCOW_TZ)
@@ -8696,8 +8696,8 @@ async def daily_summary_scheduler_task():
                 except Exception as e:
                     logger.error(f"Ошибка при переносе статистики бега: {e}")
 
-            # Отправка сводки: 23:45–23:59 или 00:00–00:10 (догоняющая)
-            if current_hour == 23 and current_minute >= 45:
+            # Отправка сводки: 23:30–23:59 или 00:00–00:10 (догоняющая)
+            if current_hour == 23 and current_minute >= 30:
                 if daily_stats.get("summary_last_sent") != today_date:
                     logger.info(f"[SUMMARY] Время {current_hour}:{current_minute} — отправляем ежедневную сводку")
                     try:
@@ -8766,7 +8766,7 @@ async def daily_summary_scheduler_task():
                     except Exception as e:
                         logger.error(f"Ошибка при догоняющей ежемесячной сводке: {e}", exc_info=True)
 
-            in_summary_window = (current_hour == 23 and current_minute >= 45) or (current_hour == 0 and current_minute <= 10)
+            in_summary_window = (current_hour == 23 and current_minute >= 30) or (current_hour == 0 and current_minute <= 10)
             await asyncio.sleep(15 if in_summary_window else 60)
         except asyncio.CancelledError:
             raise
@@ -10135,6 +10135,21 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                     return
                 except Exception as e:
                     logger.error(f"[MORNING] Ошибка отправки: {e}")
+
+        # Ежедневная сводка по первому сообщению в чате в окне 23:30–00:10 (как "доброе утро" — от активности в чате)
+        if chat_ok:
+            now = datetime.now(MOSCOW_TZ)
+            today_date = now.strftime("%Y-%m-%d")
+            yesterday_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+            in_summary_window = (now.hour == 23 and now.minute >= 30) or (now.hour == 0 and now.minute <= 10)
+            # 23:30–23:59 — сводка за сегодня; 00:00–00:10 — догоняющая за вчера
+            ref_date = yesterday_date if now.hour == 0 else today_date
+            if in_summary_window and daily_stats.get("summary_last_sent") != ref_date:
+                logger.info(f"[SUMMARY] Сообщение в чате в окне сводки — отправляем ежедневную сводку за {ref_date}")
+                try:
+                    await send_daily_summary(ref_date=ref_date)
+                except Exception as e:
+                    logger.error(f"[SUMMARY] Ошибка отправки сводки по триггеру чата: {e}")
 
         # Определяем тип сообщения
         message_type = "text"
