@@ -11,6 +11,7 @@ import asyncio
 import logging
 import threading
 import time
+import re
 import random
 import httpx
 import json
@@ -107,7 +108,102 @@ TOXIC_GIFS = {
         "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
         "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
         "https://media.giphy.com/media/3o6ZtaO9BZHrOJVLEQ/giphy.gif",
-    ]
+    ],
+    # Ниже — те же пулы по смыслу (разные URL внутри темы, не один «смех» на всё)
+    "thanks": [
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",
+        "https://media.giphy.com/media/3o7TKsQ8MJHyTASOry/giphy.gif",
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+    ],
+    "question": [
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",
+    ],
+    "celebrate": [
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",
+        "https://media.giphy.com/media/3o6ZtaO9BZHrOJVLEQ/giphy.gif",
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",
+    ],
+    "running": [
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",
+        "https://media.giphy.com/media/3o7TKsQ8MJHyTASOry/giphy.gif",
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+        "https://media.giphy.com/media/J1tWmcMuMuZu1yKmhn/giphy.gif",
+    ],
+    "injury": [
+        "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",
+        "https://media.giphy.com/media/3o7btPCcdwiiqM0nOg/giphy.gif",
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",
+    ],
+    "weather": [
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+    ],
+    "food": [
+        "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+        "https://media.giphy.com/media/3o6ZtaO9BZHrOJVLEQ/giphy.gif",
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+    ],
+    "sleep": [
+        "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",
+        "https://media.giphy.com/media/3o7btPCcdwiiqM0nOg/giphy.gif",
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
+    ],
+    "work": [
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",
+        "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif",
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",
+    ],
+    "money": [
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",
+        "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif",
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",
+    ],
+    "tech": [
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",
+    ],
+    "sport": [
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",
+        "https://media.giphy.com/media/3o7TKsQ8MJHyTASOry/giphy.gif",
+        "https://media.giphy.com/media/J1tWmcMuMuZu1yKmhn/giphy.gif",
+    ],
+    "agree": [
+        "https://media.giphy.com/media/bcKmIWkUMCjVm/giphy.gif",
+        "https://media.giphy.com/media/3o7TKsQ8MJHyTASOry/giphy.gif",
+    ],
+    "disagree": [
+        "https://media.giphy.com/media/l378giAZgxPw3eO5W/giphy.gif",
+        "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif",
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",
+    ],
+    "anger": [
+        "https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif",
+        "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif",
+    ],
+    "fear": [
+        "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",
+        "https://media.giphy.com/media/3o7btPCcdwiiqM0nOg/giphy.gif",
+        "https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif",
+    ],
+    "love": [
+        "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+        "https://media.giphy.com/media/3o7TKsQ8MJHyTASOry/giphy.gif",
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+    ],
+    "music": [
+        "https://media.giphy.com/media/O5NyCibf93upy/giphy.gif",
+        "https://media.giphy.com/media/3o6ZtaO9BZHrOJVLEQ/giphy.gif",
+        "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+    ],
+    "tired": [
+        "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",
+        "https://media.giphy.com/media/3o7btPCcdwiiqM0nOg/giphy.gif",
+        "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
+    ],
 }
 
 
@@ -121,8 +217,8 @@ def get_static_gif(message_type: str, is_female: bool = False) -> str | None:
     Старается не возвращать ту же GIF, что и в прошлый раз.
     """
     global _last_sent_gif_url
-    # Для девушек — особые GIF-ки для флирта
-    if is_female and message_type in ["greeting", "flirt", "praise"]:
+    # Для девушек — более тёплые GIF там, где уместно
+    if is_female and message_type in ("greeting", "flirt", "praise", "thanks", "celebrate", "love"):
         collection = TOXIC_GIFS.get("flirt", TOXIC_GIFS["default"])
     else:
         collection = TOXIC_GIFS.get(message_type, TOXIC_GIFS["default"])
@@ -1242,19 +1338,25 @@ def format_fact_message(fact: dict) -> str:
 def get_sticker_for_context(message_text: str, message_type: str, is_female: bool = False) -> str:
     """
     Возвращает подходящий стикер на основе контекста сообщения.
+    Подмешивает file_id из bot_stickers.json (/add_sticker), чтобы не был один и тот же стикер.
     """
     if not STICKER_COLLECTIONS:
         return None
-    
-    # Для девушек — особая коллекция флирта
-    if is_female and message_type in ["greeting", "flirt", "praise"]:
-        collection = STICKER_COLLECTIONS.get("flirt", STICKER_COLLECTIONS["default"])
+
+    if is_female and message_type in ["greeting", "flirt", "praise", "thanks", "celebrate", "love"]:
+        collection = list(STICKER_COLLECTIONS.get("flirt", STICKER_COLLECTIONS["default"]))
     else:
-        collection = STICKER_COLLECTIONS.get(message_type, STICKER_COLLECTIONS["default"])
-    
-    if collection:
-        return random.choice(collection)
-    return None
+        collection = list(STICKER_COLLECTIONS.get(message_type, STICKER_COLLECTIONS["default"]))
+
+    if not collection:
+        return None
+
+    pool = list(collection)
+    if bot_sticker_ids:
+        k = min(6, len(bot_sticker_ids))
+        pool.extend(random.sample(bot_sticker_ids, k=k))
+
+    return random.choice(pool) if pool else None
 
 
 # ============== FACTS COMMAND ==============
@@ -1270,12 +1372,11 @@ def get_gif_for_context(message_text: str, message_type: str, is_female: bool = 
     if not GIF_COLLECTIONS:
         return None
     
-    # Для девушек — особая коллекция флирта
-    if is_female and message_type in ["greeting", "flirt", "praise"]:
+    if is_female and message_type in ("greeting", "flirt", "praise", "thanks", "celebrate", "love"):
         collection = GIF_COLLECTIONS.get("flirt", GIF_COLLECTIONS["default"])
     else:
         collection = GIF_COLLECTIONS.get(message_type, GIF_COLLECTIONS["default"])
-    
+
     if collection:
         return random.choice(collection)
     return None
@@ -1288,6 +1389,7 @@ async def send_toxic_response(
     sticker: str = None,
     gif: str = None,
     message_thread_id: int | None = None,
+    reply_to_message_id: int | None = None,
 ):
     """
     Отправляет ответ: текст + опционально стикер/гифку.
@@ -1295,6 +1397,8 @@ async def send_toxic_response(
     extra_kwargs = {}
     if message_thread_id:
         extra_kwargs["message_thread_id"] = message_thread_id
+    if reply_to_message_id is not None:
+        extra_kwargs["reply_to_message_id"] = reply_to_message_id
 
     # Сначала отправляем стикер если есть
     if sticker:
@@ -1356,61 +1460,246 @@ async def voice_test_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def detect_message_type_for_media(message_text: str) -> str:
     """
-    Определяет тип сообщения для выбора подходящего стикера/гифки.
-    Использует границы слов, чтобы не путать «привет» в «неприветливый» и т.п.
+    Определяет тему диалога для стикера/GIF: слова по токенам + фразы + смайлы.
+    Порядок важен: сначала узкие темы (спасибо, вопрос, бег…), потом общий смех/привет.
     """
     if not message_text:
         return "default"
-    
+
     text_lower = message_text.lower().strip()
-    # Слова по отдельности — чтобы не матчить «привет» внутри «неприветливый»
     words = set(re.findall(r"\w+", text_lower))
-    
-    # Фразы из нескольких слов — проверяем по тексту
-    def has_phrase(*phrases):
+
+    def has_phrase(*phrases: str) -> bool:
         return any(p in text_lower for p in phrases)
-    
-    # Приветствия: отдельные слова или фразы
+
+    # Благодарность
+    if (
+        words & {"спасибо", "благодарю", "мерси", "thanks", "thx", "респект"}
+        or has_phrase("большое спасиб", "большое спасибо", "спасибо больш")
+    ):
+        return "thanks"
+
+    # Вопрос / просьба о совете
+    if (
+        "?" in message_text
+        or has_phrase(
+            "подскажи",
+            "подскажите",
+            "расскажи",
+            "как думаешь",
+            "как считаешь",
+            "что делать",
+            "можно ли",
+            "стоит ли",
+            "почему так",
+            "зачем мне",
+        )
+        or (words & {"как", "почему", "зачем"} and len(message_text) < 160)
+    ):
+        return "question"
+
+    # Поздравление / успех
+    if words & {"ура", "победа", "поздравляю", "рекорд", "сдал", "сдала"} or has_phrase(
+        "получилось", "новый рекорд", "молодец что", "красава", "красота как"
+    ):
+        return "celebrate"
+
+    # Травмы / боль (раньше «бег», чтобы «болит колено на пробежке» → injury)
+    injury_words = {
+        "травма",
+        "травмиров",
+        "больно",
+        "болит",
+        "колено",
+        "голеностоп",
+        "растяжен",
+        "перелом",
+        "врач",
+        "мрт",
+        "рентген",
+        "восстановлени",
+    }
+    if words & injury_words or has_phrase("не могу бежать", "не бегаю из-за"):
+        return "injury"
+
+    # Бег и тренировки
+    if (
+        words
+        & {
+            "бег",
+            "бегу",
+            "бега",
+            "бежал",
+            "бежала",
+            "бежит",
+            "бегун",
+            "runner",
+            "марафон",
+            "полумарафон",
+            "ультра",
+            "забег",
+            "темп",
+            "интервал",
+            "фартлек",
+            "кросс",
+            "гармин",
+            "strava",
+            "страйд",
+            "дистанция",
+            "пробежка",
+            "пробежал",
+            "тренировк",
+            "забегал",
+            "пульс",
+            "зона",
+        }
+        or has_phrase(
+            "на бег",
+            "про бег",
+            "после пробеж",
+            "лёгкий бег",
+            "длинная дистанция",
+            "восстановительн",
+            "сколько км",
+            "км пробеж",
+        )
+        or re.search(r"\d{1,3}\s*км", text_lower)
+    ):
+        return "running"
+
+    # Погода
+    if words & {"дождь", "снег", "жара", "мороз", "ветер", "гроза", "солнце"} or has_phrase(
+        "на улице", "погода", "прогноз"
+    ):
+        return "weather"
+
+    # Еда / питьё
+    if words & {"еда", "поел", "поела", "ужин", "завтрак", "обед", "кофе", "воды", "углевод", "белок"} or has_phrase(
+        "питани", "перекус", "пить до бег"
+    ):
+        return "food"
+
+    # Сон
+    if words & {"сплю", "спать", "сон", "бессонниц", "засыпаю", "проснулся", "проснулась"} or has_phrase(
+        "не спал", "не спала", "мало сплю"
+    ):
+        return "sleep"
+
+    # Работа / стресс
+    if words & {"работа", "офис", "начальник", "дедлайн", "увольнен"} or has_phrase("на работе", "после смены"):
+        return "work"
+
+    # Деньги
+    if words & {"деньги", "зарплат", "дорого", "дешёво", "кредит", "цена"} or has_phrase("сколько стоит"):
+        return "money"
+
+    # Техника / приложения
+    if words & {"телефон", "интернет", "приложение", "обновлени", "чат", "телеграм"} or has_phrase(
+        "не работает", "сломался", "айфон", "андроид"
+    ):
+        return "tech"
+
+    # Другой спорт (не бег)
+    if has_phrase("плаван", "бассейн", "лыжи", "велосипед", "велопробег", "силовая", "качалк", "футбол", "теннис"):
+        return "sport"
+
+    # Согласие / несогласие
+    if words & {"согласен", "согласна", "поддерживаю", "точно", "именно", "дада"} or has_phrase("полностью соглас"):
+        return "agree"
+    if words & {"несогласен", "несогласна", "бред", "фигня", "ерунда", "неправда"} or has_phrase("не согласен"):
+        return "disagree"
+
+    # Злость / раздражение
+    anger_words = {"бесит", "достало", "злой", "злая", "ярость", "раздражает", "ненавижу"}
+    if words & anger_words or has_phrase("бесит уже", "заебал", "заебала"):
+        return "anger"
+
+    # Страх / тревога
+    if words & {"боюсь", "страшно", "тревож", "волнуюсь", "переживаю"} or has_phrase("не знаю боюсь"):
+        return "fear"
+
+    # Любовь / тепло (отдельно от флирта)
+    if "❤" in message_text or "💕" in message_text or words & {"люблю", "обожаю"}:
+        return "love"
+
+    # Музыка / плейлист
+    if words & {"музык", "плейлист", "трек", "песня"} or has_phrase("под музыку"):
+        return "music"
+
+    # Усталость без явной грусти
+    if words & {"вымотан", "выжат", "разбит"} or has_phrase("нет сил", "нет силы", "выгорел", "выгорела"):
+        return "tired"
+
+    # Токсичные слова (ругань)
+    toxic_words = {"дурак", "идиот", "тупой", "бесишь", "надоел", "отстань", "заткнись", "козёл", "гад", "бесить"}
+    if words & toxic_words:
+        return "toxic"
+
+    # Приветствия
     greeting_words = {"привет", "здравствуй", "hello", "hi", "hey", "приветик", "здарова", "хай"}
     if words & greeting_words or has_phrase("доброе утро", "добрый день", "добрый вечер"):
         return "greeting"
-    
-    # Смех (целые слова/токены)
-    laugh_words = {"хаха", "ахах", "лол", "ржу", "смешно", "хах", "хех", "кек"}
+
+    # Смех
+    laugh_words = {"хаха", "ахах", "лол", "ржу", "смешно", "хах", "хех", "кек", "лолкек"}
     if words & laugh_words or "😂" in message_text or "🤣" in message_text:
         return "laugh"
-    
+
     # Грусть / жалобы
     sad_words = {"грустно", "печально", "обидно", "жаль", "устал", "устала", "плохо", "скучно", "грусть", "плачу"}
     if words & sad_words:
         return "sad"
-    
+
     # Флирт / комплименты
-    flirt_words = {"красавица", "красивый", "красивая", "люблю", "милый", "милая", "очаровательн"}
+    flirt_words = {"красавица", "красивый", "красивая", "милый", "милая", "очаровательн"}
     if words & flirt_words or has_phrase("ты красив", "ты красива", "какая красот"):
         return "flirt"
-    
-    # Токсичные слова (ругань, душнила)
-    toxic_words = {"дурак", "идиот", "тупой", "бесишь", "надоел", "отстань", "заткнись", "козёл", "гад", "бесить"}
-    if words & toxic_words:
-        return "toxic"
-    
+
     # Похвала
     praise_words = {"молодец", "классный", "крутой", "супер", "отлично", "лучший", "умничка", "красавчик"}
     if words & praise_words:
         return "praise"
-    
-    # Удивление (без «ничего» отдельно — часто нейтральное)
+
+    # Удивление
     wow_words = {"ого", "вау", "серьёзно", "нифига", "офигеть", "обалдеть"}
     if words & wow_words or has_phrase("ничего себе", "чё за", "как так"):
         return "wow"
-    
+
     # Подколы / шутки
     roast_words = {"шутка", "прикол", "рофл", "смешной", "смешная", "подкол"}
     if words & roast_words:
         return "roast"
-    
+
     return "default"
+
+
+def pick_sticker_or_gif_for_dialogue(
+    user_message: str,
+    bot_reply: str | None,
+    is_female: bool,
+) -> tuple[str | None, str | None]:
+    """
+    Подбирает стикер или GIF по смыслу всего диалога (сообщение пользователя + ответ бота).
+    Возвращает (sticker_file_id_or_None, gif_url_or_None) — заполнено только одно из двух.
+    """
+    combined = f"{(user_message or '').strip()}\n{(bot_reply or '').strip()}".strip()
+    message_type = detect_message_type_for_media(combined)
+    prefer_sticker = random.random() < STICKER_OVER_GIF_CHANCE
+    sticker_id: str | None = None
+    gif_url: str | None = None
+    if prefer_sticker:
+        sticker_id = get_sticker_for_context(combined, message_type, is_female)
+        if not sticker_id:
+            sticker_id = GLOBAL_STICKER_ID
+        logger.info(f"[MEDIA] Стикер, тип диалога='{message_type}'")
+    else:
+        gif_url = get_static_gif(message_type, is_female)
+        if gif_url:
+            logger.info(f"[MEDIA] GIF, тип диалога='{message_type}'")
+        else:
+            sticker_id = get_sticker_for_context(combined, message_type, is_female) or GLOBAL_STICKER_ID
+            logger.info(f"[MEDIA] Стикер (fallback GIF), тип='{message_type}'")
+    return sticker_id, gif_url
 
 
 async def synthesize_voice(text: str) -> BytesIO | None:
@@ -1864,30 +2153,90 @@ async def generate_toxic_response_with_media(
             f"🙄 О, {user_name} решил(а) написать. Удивительно.",
         ])
     
-    # Добавляем медиа если нужно
+    # Медиа по смыслу всего диалога (вопрос пользователя + сгенерированный ответ)
     if include_media:
-        message_type = detect_message_type_for_media(user_message)
+        st, gf = pick_sticker_or_gif_for_dialogue(user_message, result.get("text"), is_female)
+        result["sticker"] = st
+        result["gif"] = gf
 
-        # Выбираем между стикером и GIF
-        prefer_sticker = random.random() < STICKER_OVER_GIF_CHANCE
-        if prefer_sticker:
-            sticker_id = get_sticker_for_context(user_message, message_type, is_female)
-            if not sticker_id:
-                sticker_id = GLOBAL_STICKER_ID
-            result["sticker"] = sticker_id
-            logger.info(f"[MEDIA] Выбран стикер для типа='{message_type}'")
-        else:
-            gif_url = get_static_gif(message_type, is_female)
-            if gif_url:
-                result["gif"] = gif_url
-                logger.info(f"[MEDIA] Выбрана GIF для типа='{message_type}'")
-            else:
-                sticker_id = get_sticker_for_context(user_message, message_type, is_female)
-                if not sticker_id:
-                    sticker_id = GLOBAL_STICKER_ID
-                result["sticker"] = sticker_id
-                logger.info(f"[MEDIA] Выбран стикер для типа='{message_type}' (fallback)")
-    
+    return result
+
+
+async def generate_bot_keyword_ai_reply(
+    user_message: str,
+    user_name: str,
+    is_female: bool = False,
+    reply_context: str | None = None,
+    include_media: bool = True,
+) -> dict:
+    """
+    Осмысленный ответ, когда в чате написали слово «бот» (отдельное слово).
+    Опционально стикер/GIF по теме диалога (как при @mention).
+    """
+    result: dict = {"text": None, "sticker": None, "gif": None}
+    user_block = user_message.strip()
+    if reply_context and reply_context.strip():
+        user_block = (
+            "[Пользователь отвечает на это сообщение]\n"
+            f"{reply_context.strip()[:2000]}\n\n"
+            "[Его сообщение]\n"
+            f"{user_message.strip()}"
+        )
+    if YANDEX_AVAILABLE:
+        try:
+            base_personality = get_ai_personality_by_day()
+            try:
+                system_prompt = base_personality.format(user_name=user_name)
+            except KeyError:
+                system_prompt = base_personality
+            system_prompt += (
+                "\n\nК тебе обратились по слову «бот» в сообщении. Прочитай весь текст, пойми смысл и намерение "
+                "и ответь по сути: по-русски, дружелюбно, кратко (2–5 предложений, без воды). "
+                "Если спрашивают факт или совет — помоги в рамках чата бегового сообщества. "
+                "Не повторяй формальности вроде «как языковая модель»."
+            )
+            if is_female:
+                system_prompt += "\n\nВАЖНО: Это сообщение от ДЕВУШКИ. Можно одну короткую тёплую ноту в тоне, без панибратства."
+
+            payload = {
+                "modelUri": f"gpt://{YANDEX_FOLDER_ID}/{YANDEX_MODEL}",
+                "completionOptions": {"stream": False, "temperature": 0.65, "maxTokens": "512"},
+                "messages": [
+                    {"role": "system", "text": system_prompt},
+                    {"role": "user", "text": user_block},
+                ],
+            }
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                response = await client.post(
+                    "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+                    json=payload,
+                    headers={
+                        "Authorization": f"Api-Key {YANDEX_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                if data and "result" in data and "alternatives" in data["result"]:
+                    result["text"] = data["result"]["alternatives"][0]["message"]["text"]
+                    logger.info(f"[BOT-KW] Ответ для {user_name}: {result['text'][:60]!r}...")
+        except Exception as e:
+            logger.error(f"[BOT-KW] Ошибка Yandex: {e}")
+            result["text"] = (
+                f"Сейчас не вышло сгенерировать ответ, {user_name}. Напиши ещё раз чуть позже "
+                "или обратись через @упоминание бота в сообщении."
+            )
+    else:
+        result["text"] = random.choice(
+            [
+                f"Я тут, {user_name}. Задай YANDEX_API_KEY и YANDEX_FOLDER_ID — тогда смогу разбирать смысл сообщений.",
+                f"Слышу, {user_name}. Пока без облачного ИИ отвечаю коротко: напиши через @бота в тексте, когда ключи настроены.",
+            ]
+        )
+    if include_media and result.get("text"):
+        st, gf = pick_sticker_or_gif_for_dialogue(user_block, result["text"], is_female)
+        result["sticker"] = st
+        result["gif"] = gf
     return result
 
 
@@ -1920,6 +2269,19 @@ try:
     CHAT_ID = int(CHAT_ID)
 except ValueError:
     raise ValueError("CHAT_ID должен быть числом!")
+
+# Ответ по слову «бот» в основном чате (пауза на пользователя, сек.)
+BOT_KEYWORD_COOLDOWN_SEC = int(os.environ.get("BOT_KEYWORD_COOLDOWN_SEC", "90"))
+_bot_keyword_last_reply: dict[int, float] = {}
+
+
+def text_has_bot_keyword(message_text: str) -> bool:
+    """True, если «бот» или латинское «bot» — отдельное слово (не срабатывает на «робот»)."""
+    if not message_text:
+        return False
+    words = set(re.findall(r"\w+", message_text.lower().strip()))
+    return "бот" in words or "bot" in words
+
 
 # GENERAL_CHAT_ID для Events Tracker
 GENERAL_CHAT_ID = os.environ.get("GENERAL_CHAT_ID")
@@ -4286,7 +4648,6 @@ WELCOME_MESSAGES = [
 ]
 
 # ============== СОВЕТЫ ДНЯ (ИЗ ИНТЕРНЕТА) ==============
-import re
 from bs4 import BeautifulSoup  # type: ignore[import-untyped]
 from typing import List, Dict, Optional
 
@@ -9431,7 +9792,8 @@ async def challenge_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ============== ОБРАБОТЧИК ЛИЧНЫХ ОБРАЩЕНИЙ ==============
 async def handle_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка сообщений когда обращаются к боту через @mention"""
+    """Обработка обращений через @бота или слово «бот» (отдельным словом) в основном чате."""
+    global _bot_keyword_last_reply
     try:
         if not update.message or not update.message.text:
             return
@@ -9439,63 +9801,88 @@ async def handle_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_name = update.message.from_user.full_name or update.message.from_user.username or "Пользователь"
         user_id = update.message.from_user.id
         message_text = update.message.text
+        chat_id = update.effective_chat.id
         
-        # Проверяем пол пользователя для комплиментов
-        is_female = await check_is_female_by_ai(user_name)
-        
-        # Получаем информацию о боте
         bot_info = await context.bot.get_me()
         bot_username = bot_info.username.lower()
         
-        logger.info(f"[MENTION] Проверка сообщения от {user_name}: '{message_text[:50]}...' (ищем @{bot_username})")
+        logger.info(
+            f"[MENTION] Проверка от {user_name}: '{message_text[:50]}...' (@{bot_username}, CHAT_ID={CHAT_ID})"
+        )
         
-        # Проверяем, что сообщение содержит @mention бота
         mention_patterns = [
             f"@{bot_username}",
             f"@{bot_username}:",
             f"@{bot_username}.",
         ]
-        
         message_lower = message_text.lower()
         is_mention = any(pattern in message_lower for pattern in mention_patterns)
         
-        logger.info(f"[MENTION] is_mention={is_mention}, паттерны={mention_patterns}")
+        is_bot_keyword = (
+            (not is_mention)
+            and chat_id == CHAT_ID
+            and text_has_bot_keyword(message_text)
+        )
         
-        if not is_mention:
+        logger.info(f"[MENTION] is_mention={is_mention}, is_bot_keyword={is_bot_keyword}")
+        
+        if not is_mention and not is_bot_keyword:
             return
         
-        # Убираем @mention из сообщения для обработки
-        clean_text = message_text
-        for pattern in mention_patterns:
-            clean_text = clean_text.replace(pattern, "").strip()
-            clean_text = clean_text.replace(pattern.capitalize(), "").strip()
+        if is_bot_keyword:
+            now = time.monotonic()
+            last = _bot_keyword_last_reply.get(user_id, 0.0)
+            if now - last < BOT_KEYWORD_COOLDOWN_SEC:
+                logger.info(f"[BOT-KW] Пропуск из-за cooldown ({BOT_KEYWORD_COOLDOWN_SEC}s), user_id={user_id}")
+                return
+            _bot_keyword_last_reply[user_id] = now
         
-        # Убираем лишние символы в начале
-        clean_text = clean_text.strip(" ,:!-\n")
+        is_female = await check_is_female_by_ai(user_name)
         
-        logger.info(f"[MENTION] Пользователь {user_name} обратился к боту: '{clean_text}'")
+        if is_mention:
+            clean_text = message_text
+            for pattern in mention_patterns:
+                clean_text = clean_text.replace(pattern, "").strip()
+                clean_text = clean_text.replace(pattern.capitalize(), "").strip()
+            clean_text = clean_text.strip(" ,:!-\n")
+            logger.info(f"[MENTION] Обращение через @: '{clean_text}'")
+        else:
+            clean_text = message_text.strip()
+            logger.info(f"[BOT-KW] Обращение по слову «бот»: '{clean_text[:120]}...'")
         
-        # Отправляем "печатает" статус
         thread_id = getattr(update.message, "message_thread_id", None)
-        action_kwargs = {"chat_id": update.effective_chat.id, "action": "typing"}
+        action_kwargs = {"chat_id": chat_id, "action": "typing"}
         if thread_id:
             action_kwargs["message_thread_id"] = thread_id
         await context.bot.send_chat_action(**action_kwargs)
         
-        # Получаем ответ с медиа
-        response_data = await generate_toxic_response_with_media(clean_text, user_name, is_female, include_media=True)
+        reply_context = None
+        rtm = update.message.reply_to_message
+        if rtm:
+            reply_context = (getattr(rtm, "text", None) or getattr(rtm, "caption", None) or "").strip() or None
         
-        # Отправляем ответ с медиа
+        if is_mention:
+            response_data = await generate_toxic_response_with_media(
+                clean_text, user_name, is_female, include_media=True
+            )
+            reply_to_id = None
+        else:
+            response_data = await generate_bot_keyword_ai_reply(
+                clean_text, user_name, is_female, reply_context=reply_context
+            )
+            reply_to_id = update.message.message_id
+        
         await send_toxic_response(
             context=context,
-            chat_id=update.effective_chat.id,
-            text=response_data['text'],
-            sticker=response_data['sticker'],
-            gif=response_data['gif'],
+            chat_id=chat_id,
+            text=response_data["text"],
+            sticker=response_data["sticker"],
+            gif=response_data["gif"],
             message_thread_id=thread_id,
+            reply_to_message_id=reply_to_id,
         )
         
-        logger.info(f"[MENTION] Ответ с медиа отправлен пользователю {user_name}")
+        logger.info(f"[MENTION] Ответ отправлен пользователю {user_name} (mention={is_mention}, bot_kw={is_bot_keyword})")
         
     except Exception as e:
         logger.error(f"[MENTION] Ошибка обработки обращения: {e}")
