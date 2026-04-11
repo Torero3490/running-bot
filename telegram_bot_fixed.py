@@ -5773,10 +5773,16 @@ async def publish_run_result(user_id, user_data, activity, now, current_month, t
 
 
 async def garmin_scheduler_task():
-    """Планировщик проверки Garmin (каждые 15 минут — только чтобы подхватить новую тренировку)"""
+    """Планировщик проверки Garmin. Интервал по умолчанию 30 мин (меньше запросов к Garmin). Переменная GARMIN_CHECK_INTERVAL_SEC."""
     global bot_running
     
-    check_interval = 900  # 15 минут
+    try:
+        check_interval = int(os.environ.get("GARMIN_CHECK_INTERVAL_SEC", "1800"))
+    except ValueError:
+        check_interval = 1800
+    if check_interval < 300:
+        check_interval = 300  # не чаще чем раз в 5 минут
+    logger.info(f"[GARMIN] Интервал проверки: {check_interval} сек (~{check_interval // 60} мин)")
     
     while bot_running:
         try:
@@ -6817,6 +6823,10 @@ def update_daily_stats(user_id: int, user_name: str, message_type: str, photo_in
     global daily_stats
     
     today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+    # Смена календарного дня без перезапуска бота (иначе счётчик «залипает» на вчера)
+    if daily_stats.get("date") != today:
+        logger.info(f"[STATS] Новый день: date было {daily_stats.get('date')}, сброс daily_stats на {today}")
+        daily_stats = build_empty_daily_stats(today)
     
     # Гарантируем наличие всех ключей (на случай загрузки из канала без части полей)
     for key, default in _DAILY_STATS_DEFAULTS.items():
@@ -10113,8 +10123,42 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Обновляем время последней активности
         user_last_active[user_id] = datetime.now(MOSCOW_TZ)
 
-        # Ответ на "доброе утро" от участников в чате (без @mention и reply)
         chat_ok = str(update.effective_chat.id) == str(CHAT_ID)
+
+        # Сначала учитываем сообщение в daily_stats и рейтинге (до «доброго утра» и return, иначе приветствие не попадало в сводку)
+        message_type = "text"
+        photo_info = None
+        if message.photo:
+            message_type = "photo"
+            photo_info = {
+                "user_id": user_id,
+                "user_name": user_name,
+                "message_id": message.message_id,
+                "file_id": message.photo[-1].file_id if message.photo else None,
+                "timestamp": datetime.now(MOSCOW_TZ).isoformat()
+            }
+
+        update_daily_stats(user_id, user_name, message_type, photo_info, message.message_id if message else None)
+
+        if user_id not in user_rating_stats:
+            user_rating_stats[user_id] = {
+                "name": user_name,
+                "messages": 0,
+                "photos": 0,
+                "likes": 0,
+                "replies": 0,
+                "bonus_points": 0,
+                "days_active": set()
+            }
+
+        user_rating_stats[user_id]["messages"] += 1
+        today_str = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+        user_rating_stats[user_id]["days_active"].add(today_str)
+
+        if message_type == "photo":
+            user_rating_stats[user_id]["photos"] += 1
+
+        # Ответ на "доброе утро" от участников в чате (без @mention и reply)
         if message.text and chat_ok:
             text_lower = message.text.lower().strip()
             morning_phrases = ("доброе утро", "добрый день", "добрый вечер", "доброго утра", "доброго дня", "доброго вечера")
@@ -10136,13 +10180,12 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 except Exception as e:
                     logger.error(f"[MORNING] Ошибка отправки: {e}")
 
-        # Ежедневная сводка по первому сообщению в чате в окне 23:30–00:10 (как "доброе утро" — от активности в чате)
+        # Ежедневная сводка по первому сообщению в чате в окне 23:30–00:10
         if chat_ok:
             now = datetime.now(MOSCOW_TZ)
             today_date = now.strftime("%Y-%m-%d")
             yesterday_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
             in_summary_window = (now.hour == 23 and now.minute >= 30) or (now.hour == 0 and now.minute <= 10)
-            # 23:30–23:59 — сводка за сегодня; 00:00–00:10 — догоняющая за вчера
             ref_date = yesterday_date if now.hour == 0 else today_date
             if in_summary_window and daily_stats.get("summary_last_sent") != ref_date:
                 logger.info(f"[SUMMARY] Сообщение в чате в окне сводки — отправляем ежедневную сводку за {ref_date}")
@@ -10150,42 +10193,6 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await send_daily_summary(ref_date=ref_date)
                 except Exception as e:
                     logger.error(f"[SUMMARY] Ошибка отправки сводки по триггеру чата: {e}")
-
-        # Определяем тип сообщения
-        message_type = "text"
-        photo_info = None
-
-        if message.photo:
-            message_type = "photo"
-            photo_info = {
-                "user_id": user_id,
-                "user_name": user_name,
-                "message_id": message.message_id,
-                "file_id": message.photo[-1].file_id if message.photo else None,
-                "timestamp": datetime.now(MOSCOW_TZ).isoformat()
-            }
-
-        # Обновляем ежедневную статистику
-        update_daily_stats(user_id, user_name, message_type, photo_info, message.message_id if message else None)
-
-        # Обновляем рейтинг пользователя (сообщения)
-        if user_id not in user_rating_stats:
-            user_rating_stats[user_id] = {
-                "name": user_name,
-                "messages": 0,
-                "photos": 0,
-                "likes": 0,
-                "replies": 0,
-                "bonus_points": 0,
-                "days_active": set()
-            }
-
-        user_rating_stats[user_id]["messages"] += 1
-        today_str = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
-        user_rating_stats[user_id]["days_active"].add(today_str)
-
-        if message_type == "photo":
-            user_rating_stats[user_id]["photos"] += 1
 
         # Обработка ночного режима (22:00 - 06:00)
         now = datetime.now(MOSCOW_TZ)

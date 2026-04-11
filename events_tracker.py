@@ -51,6 +51,20 @@ import re
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+
+try:
+    from zoneinfo import ZoneInfo
+
+    _EVENTS_TZ = ZoneInfo("Europe/Moscow")
+except Exception:  # pragma: no cover
+    _EVENTS_TZ = None
+
+
+def _events_now() -> datetime:
+    """Текущее время для расписания мероприятий (Москва, иначе локальное сервера)."""
+    if _EVENTS_TZ is not None:
+        return datetime.now(_EVENTS_TZ)
+    return datetime.now()
 import httpx
 from bs4 import BeautifulSoup  # type: ignore[import-untyped]
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -2695,14 +2709,16 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
 
         # Отправляем в чат
         try:
-            await bot.send_message(
-                chat_id=CHAT_ID,
-                message_thread_id=target_thread_id,
-                text=text,
-                parse_mode="Markdown",
-                reply_markup=reply_markup,
-                disable_web_page_preview=True
-            )
+            send_kw = {
+                "chat_id": CHAT_ID,
+                "text": text,
+                "parse_mode": "Markdown",
+                "reply_markup": reply_markup,
+                "disable_web_page_preview": True,
+            }
+            if target_thread_id is not None:
+                send_kw["message_thread_id"] = target_thread_id
+            await bot.send_message(**send_kw)
         except Exception as pub_error:
             error_str = str(pub_error).lower()
             # Если топик не найден - пробуем без топика (в основной чат)
@@ -2713,7 +2729,7 @@ async def publish_event(context: ContextTypes.DEFAULT_TYPE, event: Dict, message
                     text=text,
                     parse_mode="Markdown",
                     reply_markup=reply_markup,
-                    disable_web_page_preview=True
+                    disable_web_page_preview=True,
                 )
             else:
                 raise  # Другие ошибки - пробрасываем
@@ -2917,9 +2933,11 @@ async def check_and_publish_new_slots_only(context: ContextTypes.DEFAULT_TYPE, m
     """Проверяет слоты и публикует в чат только те, что открылись с прошлой проверки (для запуска в 15:00)."""
     logger.info("[EVENTS] Запуск проверки новых слотов (15:00)...")
     target_thread_id = message_thread_id if message_thread_id is not None else EVENTS_TOPIC_ID
-    if not target_thread_id:
-        logger.warning("[EVENTS] EVENTS_TOPIC_ID не задан, новые слоты не публикуем")
+    if not CHAT_ID:
+        logger.error("[EVENTS] CHAT_ID не задан, новые слоты не публикуем")
         return
+    if target_thread_id is None:
+        logger.info("[EVENTS] EVENTS_TOPIC_ID не задан — публикуем новые слоты в основной чат (без топика)")
 
     last_known = load_last_events_snapshot()
     events = await get_all_events()
@@ -2943,12 +2961,10 @@ async def check_and_publish_new_slots_only(context: ContextTypes.DEFAULT_TYPE, m
         return
 
     try:
-        await bot.send_message(
-            chat_id=CHAT_ID,
-            message_thread_id=target_thread_id,
-            text="🔔 **Открылись новые слоты:**",
-            parse_mode="Markdown",
-        )
+        send_kw = {"chat_id": CHAT_ID, "text": "🔔 **Открылись новые слоты:**", "parse_mode": "Markdown"}
+        if target_thread_id is not None:
+            send_kw["message_thread_id"] = target_thread_id
+        await bot.send_message(**send_kw)
     except Exception as e:
         logger.warning(f"[EVENTS] Не удалось отправить заголовок новых слотов: {e}")
 
@@ -3058,27 +3074,49 @@ async def handle_event_reminder_callback(update: Update, context: ContextTypes.D
     await query.answer(text="🔔 Напоминание установлено! Напишу за 3 дня до мероприятия.", show_alert=False)
 
 
+def _schedule_events_coro(coro):
+    """Ставит корутину в loop основного бота и логирует исключения."""
+    if loop is None:
+        logger.error("[EVENTS] asyncio loop не задан (set_config не вызван?) — задача не запланирована")
+        return
+    try:
+        fut = asyncio.run_coroutine_threadsafe(coro, loop)
+
+        def _on_done(f):
+            try:
+                f.result()
+            except Exception as e:
+                logger.error(f"[EVENTS] Ошибка в запланированной задаче: {e}", exc_info=True)
+
+        fut.add_done_callback(_on_done)
+    except Exception as e:
+        logger.error(f"[EVENTS] run_coroutine_threadsafe: {e}", exc_info=True)
+
+
 def events_scheduler_task():
-    """Планировщик: 10:00 — полный список слотов, 15:00 — только новые открывшиеся слоты."""
+    """Планировщик по Москве: 10:00–10:04 — снимок слотов; 15:00–15:04 — новые слоты в чат."""
     import time as time_module
 
-    logger.info("[EVENTS] Планировщик слотов запущен (10:00 — все слоты, 15:00 — только новые)")
+    logger.info("[EVENTS] Планировщик слотов (Europe/Moscow: 10:00 снимок, 15:00 новые в чат)")
     last_run_10 = ""
     last_run_15 = ""
 
     while True:
-        now = datetime.now()
+        now = _events_now()
         today = now.strftime("%Y-%m-%d")
 
-        if now.hour == 10 and now.minute == 0 and last_run_10 != today:
+        # Окно 5 минут, чтобы не промахнуться при sleep(60)
+        if now.hour == 10 and now.minute <= 4 and last_run_10 != today:
             last_run_10 = today
-            asyncio.run_coroutine_threadsafe(update_events_snapshot_only(), loop)
+            logger.info("[EVENTS] Расписание: обновление снимка слотов (10:xx МСК)")
+            _schedule_events_coro(update_events_snapshot_only())
             time_module.sleep(120)
             continue
 
-        if now.hour == 15 and now.minute == 0 and last_run_15 != today:
+        if now.hour == 15 and now.minute <= 4 and last_run_15 != today:
             last_run_15 = today
-            asyncio.run_coroutine_threadsafe(check_and_publish_new_slots_only(None, None), loop)
+            logger.info("[EVENTS] Расписание: проверка новых слотов (15:xx МСК)")
+            _schedule_events_coro(check_and_publish_new_slots_only(None, None))
             time_module.sleep(120)
             continue
 
