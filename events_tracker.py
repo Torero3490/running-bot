@@ -52,6 +52,11 @@ from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
+import httpx
+from bs4 import BeautifulSoup  # type: ignore[import-untyped]
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler, filters
+
 try:
     from zoneinfo import ZoneInfo
 
@@ -65,10 +70,7 @@ def _events_now() -> datetime:
     if _EVENTS_TZ is not None:
         return datetime.now(_EVENTS_TZ)
     return datetime.now()
-import httpx
-from bs4 import BeautifulSoup  # type: ignore[import-untyped]
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler, filters
+
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,31 @@ published_events_db = set()
 
 # Файл снимка "последних известных слотов" для публикации только новых в 15:00
 LAST_EVENTS_SNAPSHOT_FILE = "last_events_snapshot.json"
+
+# Ключевые слова регионов для фильтрации "Центральная Россия + СПб + Ижевск/Удмуртия".
+MOSCOW_REGION_KEYWORDS = [
+    'москва', 'moscow', 'московск', 'подмосков', 'подмосковье',
+    'химки', 'мытищи', 'королев', 'балашиха', 'красногорск',
+    'одинцово', 'люберцы', 'электросталь', 'коломна', 'серпухов',
+    'подольск', 'домодедово', 'зеленоград', 'раменск', 'жуковск',
+    'бронниц', 'чулков', 'ильинск', 'быково', 'лыткарино',
+    'дзержинск', 'вельяминово', 'яхрома',
+]
+SPB_REGION_KEYWORDS = [
+    'санкт-петербург', 'saint petersburg', 'st. petersburg',
+    'петербург', 'питер', 'спб', 'spb',
+    'ленинградск', 'гатчина', 'выборг', 'всеволожск', 'тосно',
+]
+IZHEVSK_REGION_KEYWORDS = [
+    'ижевск', 'izhevsk', 'удмурт', 'удмуртия', 'udmurt', 'udmurtia',
+]
+CENTRAL_RUSSIA_KEYWORDS = [
+    'центральн', 'цфо',
+    'твер', 'ярослав', 'костром', 'иванов', 'владимир',
+    'калуг', 'тул', 'рязан', 'смолен', 'брянск',
+    'орел', 'орёл', 'курск', 'белгород', 'воронеж',
+    'липецк', 'тамбов',
+]
 
 
 def is_registration_open(page_text: str, url: str) -> bool:
@@ -299,11 +326,13 @@ async def parse_russia_running_events() -> List[Dict]:
 
                     # Расширенный фильтр городов
                     city_lower = city.lower()
-                    moscow_region = ['москва', 'moscow', 'московская', 'подмосковье', 'московской']
-                    spb_region = ['санкт-петербург', 'st. petersburg', 'спб', 'saint petersburg', 'питер', 'петербург', 'ленинградская', 'ленинградской']
-                    izhevsk_region = ['ижевск', 'izhevsk', 'удмурт', 'удмуртия', 'udmurt']
-
-                    if not any(x in city_lower for x in moscow_region + spb_region + izhevsk_region):
+                    target_regions = (
+                        MOSCOW_REGION_KEYWORDS
+                        + SPB_REGION_KEYWORDS
+                        + IZHEVSK_REGION_KEYWORDS
+                        + CENTRAL_RUSSIA_KEYWORDS
+                    )
+                    if not any(x in city_lower for x in target_regions):
                         continue
                     
                     events.append({
@@ -364,11 +393,13 @@ async def parse_marathonec_events() -> List[Dict]:
 
                         # Расширенный фильтр городов
                         city_lower = city.lower()
-                        moscow_region = ['москва', 'moscow', 'московская', 'подмосковье', 'московской']
-                        spb_region = ['санкт-петербург', 'st. petersburg', 'спб', 'saint petersburg', 'питер', 'петербург', 'ленинградская', 'ленинградской']
-                        izhevsk_region = ['ижевск', 'izhevsk', 'удмурт', 'удмуртия', 'udmurt']
-
-                        if not any(x in city_lower for x in moscow_region + spb_region + izhevsk_region):
+                        target_regions = (
+                            MOSCOW_REGION_KEYWORDS
+                            + SPB_REGION_KEYWORDS
+                            + IZHEVSK_REGION_KEYWORDS
+                            + CENTRAL_RUSSIA_KEYWORDS
+                        )
+                        if not any(x in city_lower for x in target_regions):
                             continue
                         
                         # Ссылка
@@ -2359,7 +2390,7 @@ def extract_date_from_text(text: str) -> str:
 
 
 def filter_event_by_year_and_city(event: Dict) -> bool:
-    """Фильтрует мероприятие по году (текущий+), региону (Москва/МО, СПб/ЛО, Ижевск/Удмуртия)"""
+    """Фильтрует мероприятие по году (текущий+) и региону (Центральная Россия, СПб/ЛО, Ижевск/Удмуртия)."""
 
     # Проверка года - текущий и дальше
     date_str = event.get('date', '')
@@ -2384,32 +2415,11 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
     title_lower = (event.get('title') or '').lower()
     city = event.get('city', '').lower()
 
-    moscow_region_keywords = [
-        'москва', 'moscow', 'московск', 'подмосков', 'подмосковье',
-        'московской', 'химки', 'мытищи', 'королев', 'балашиха',
-        'красногорск', 'одинцово', 'люберцы', 'электросталь',
-        'коломна', 'серпухов', 'подольск', 'домодедово',
-        'зеленоград', 'раменск', 'жуковск', 'бронниц',
-        'чулков', 'ильинск', 'быково', 'лыткарино',
-        'дзержинск', 'вельяминово', 'яхрома'
-    ]
-
-    spb_region_keywords = [
-        'санкт-петербург', 'saint petersburg', 'st. petersburg',
-        'петербург', 'питер', 'спб', 'spb',
-        'ленинградск', 'ленинградской', 'ленинградская',
-        'гатчина', 'выборг', 'всеволожск', 'тосно'
-    ]
-
-    izhevsk_region_keywords = [
-        'ижевск', 'izhevsk',
-        'удмурт', 'удмуртия', 'udmurt', 'udmurtia'
-    ]
-
     # Проверяем, относится ли мероприятие к целевому региону
-    is_moscow = any(x in city for x in moscow_region_keywords)
-    is_spb = any(x in city for x in spb_region_keywords)
-    is_izhevsk = any(x in city for x in izhevsk_region_keywords)
+    is_moscow = any(x in city for x in MOSCOW_REGION_KEYWORDS)
+    is_spb = any(x in city for x in SPB_REGION_KEYWORDS)
+    is_izhevsk = any(x in city for x in IZHEVSK_REGION_KEYWORDS)
+    is_central = any(x in city for x in CENTRAL_RUSSIA_KEYWORDS)
 
     # Если город не определён (пустой или "Россия") - показываем только для российских источников
     if not city or city.lower() in ['', 'россия', 'russia']:
@@ -2432,7 +2442,7 @@ def filter_event_by_year_and_city(event: Dict) -> bool:
         if not city or city in ['', 'россия', 'russia']:
             return True
 
-    if not (is_moscow or is_spb or is_izhevsk):
+    if not (is_moscow or is_spb or is_izhevsk or is_central):
         logger.info(f"[EVENTS] Пропуск мероприятия (регион не подходит): {event.get('title', 'Без названия')} - {event.get('city', '')}")
         return False
 
@@ -2443,26 +2453,6 @@ def filter_event_by_city_only(event: Dict) -> bool:
     """Фильтрует мероприятие только по региону (без проверки года)."""
     title_lower = (event.get('title') or '').lower()
     city = event.get('city', '').lower()
-
-    moscow_region_keywords = [
-        'москва', 'moscow', 'московск', 'подмосков', 'подмосковье',
-        'московской', 'химки', 'мытищи', 'королев', 'балашиха',
-        'красногорск', 'одинцово', 'люберцы', 'электросталь',
-        'коломна', 'серпухов', 'подольск', 'домодедово',
-        'зеленоград'
-    ]
-
-    spb_region_keywords = [
-        'санкт-петербург', 'saint petersburg', 'st. petersburg',
-        'петербург', 'питер', 'спб', 'spb',
-        'ленинградск', 'ленинградской', 'ленинградская',
-        'гатчина', 'выборг', 'всеволожск', 'тосно'
-    ]
-
-    izhevsk_region_keywords = [
-        'ижевск', 'izhevsk',
-        'удмурт', 'удмуртия', 'udmurt', 'udmurtia'
-    ]
 
     # Если город не определён (пустой или "Россия") — показываем только для российских источников
     if not city or city in ['', 'россия', 'russia']:
@@ -2481,11 +2471,12 @@ def filter_event_by_city_only(event: Dict) -> bool:
         if not city or city in ['', 'россия', 'russia']:
             return True
 
-    is_moscow = any(x in city for x in moscow_region_keywords)
-    is_spb = any(x in city for x in spb_region_keywords)
-    is_izhevsk = any(x in city for x in izhevsk_region_keywords)
+    is_moscow = any(x in city for x in MOSCOW_REGION_KEYWORDS)
+    is_spb = any(x in city for x in SPB_REGION_KEYWORDS)
+    is_izhevsk = any(x in city for x in IZHEVSK_REGION_KEYWORDS)
+    is_central = any(x in city for x in CENTRAL_RUSSIA_KEYWORDS)
 
-    return is_moscow or is_spb or is_izhevsk
+    return is_moscow or is_spb or is_izhevsk or is_central
 
 
 async def get_all_events() -> List[Dict]:
