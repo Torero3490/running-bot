@@ -2303,6 +2303,45 @@ if not BOT_TOKEN:
     print("ОШИБКА: Задайте TELEGRAM_BOT_TOKEN или API_TOKEN в переменных окружения.")
     raise ValueError("Токен бота не найден! Задайте TELEGRAM_BOT_TOKEN или API_TOKEN.")
 
+
+def _mask_sensitive_text(value: object) -> str:
+    """Маскирует чувствительные данные (токены Telegram) в логах."""
+    text = str(value)
+    # Маскируем URL формата .../bot<TOKEN>/...
+    text = re.sub(r"/bot\d+:[A-Za-z0-9_-]+", "/bot***REDACTED***", text)
+    # Маскируем token=<TOKEN> в query/body
+    text = re.sub(r"(token=)\d+:[A-Za-z0-9_-]+", r"\1***REDACTED***", text, flags=re.IGNORECASE)
+    # Маскируем точное значение токена (если попало в лог напрямую)
+    if BOT_TOKEN:
+        text = text.replace(BOT_TOKEN, "***REDACTED***")
+    return text
+
+
+class SensitiveDataFilter(logging.Filter):
+    """Фильтр логов, который скрывает токены Telegram."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            record.msg = _mask_sensitive_text(record.msg)
+            if record.args:
+                if isinstance(record.args, dict):
+                    record.args = {k: _mask_sensitive_text(v) for k, v in record.args.items()}
+                elif isinstance(record.args, tuple):
+                    record.args = tuple(_mask_sensitive_text(a) for a in record.args)
+                else:
+                    record.args = _mask_sensitive_text(record.args)
+        except Exception:
+            # Никогда не ломаем логирование из-за маскирования.
+            pass
+        return True
+
+
+_sensitive_filter = SensitiveDataFilter()
+root_logger = logging.getLogger()
+for _handler in root_logger.handlers:
+    _handler.addFilter(_sensitive_filter)
+logging.getLogger("httpx").addFilter(_sensitive_filter)
+
 RENDER_URL = os.environ.get("RENDER_URL", "")
 
 # CHAT_ID: из переменной окружения или запасное значение (если на хостинге не удаётся добавить переменную)
@@ -5825,6 +5864,10 @@ async def generate_ai_response(user_message: str, user_name: str, is_female: boo
 async def check_garmin_activities():
     """Проверка новых пробежек у всех зарегистрированных пользователей"""
     global garmin_users, user_running_stats, garmin_published_ids, garmin_published_order
+
+    if BLOCK_GARMIN_REQUESTS:
+        logger.info("[GARMIN] Проверка пропущена: Garmin временно отключен (BLOCK_GARMIN_REQUESTS=1)")
+        return
     
     if not GARMIN_AVAILABLE:
         logger.warning("[GARMIN] Библиотека недоступна")
@@ -9079,7 +9122,7 @@ async def send_monthly_summary(ref_date: datetime | None = None):
 
 async def daily_summary_scheduler_task():
     """Планировщик ежедневной, еженедельной и ежемесячной сводок + трекинг бега"""
-    global daily_summary_sent, user_running_stats
+    global daily_summary_sent, user_running_stats, daily_stats
 
     logger.info("[SUMMARY] Планировщик сводок запущен (ежедневно 23:30–00:10 МСК, еженедельно вс 23:55)")
     while bot_running:
@@ -11762,6 +11805,13 @@ async def handle_deals_category_callback(update: Update, context: ContextTypes.D
 
 async def garmin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /garmin — привязка аккаунта Garmin."""
+    if BLOCK_GARMIN_REQUESTS:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="⚠️ Garmin временно отключен для безопасности аккаунтов. Попробуйте позже.",
+        )
+        return
+
     if not GARMIN_AVAILABLE:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Garmin интеграция недоступна.")
         return
@@ -12024,7 +12074,10 @@ async def post_init(app):
     add_background_task(app, motivation_scheduler_task())
     add_background_task(app, advice_scheduler_task())
     add_background_task(app, daily_summary_scheduler_task())
-    add_background_task(app, garmin_scheduler_task())
+    if BLOCK_GARMIN_REQUESTS:
+        logger.warning("[GARMIN] Планировщик Garmin не запущен (BLOCK_GARMIN_REQUESTS=1)")
+    else:
+        add_background_task(app, garmin_scheduler_task())
     add_background_task(app, holiday_scheduler_task())
 
 
