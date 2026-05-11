@@ -17,6 +17,7 @@ import httpx
 import json
 import calendar
 import base64
+from urllib.parse import urlparse
 from io import BytesIO
 from datetime import datetime, timedelta
 import sqlite3
@@ -42,6 +43,47 @@ logging.basicConfig(
     encoding="utf-8",
 )
 logger = logging.getLogger(__name__)
+
+# ============== GARMIN SAFETY GUARD ==============
+# Экстренная защита: блокируем исходящие запросы к Garmin из этого процесса,
+# чтобы исключить массовые триггеры сброса пароля у пользователей.
+BLOCK_GARMIN_REQUESTS = os.environ.get("BLOCK_GARMIN_REQUESTS", "1").strip().lower() not in ("0", "false", "no")
+_GARMIN_BLOCKED_HOSTS = (
+    "garmin.com",
+    "garminconnect.com",
+    "connect.garmin.com",
+    "sso.garmin.com",
+)
+
+
+def _is_garmin_host(host: str | None) -> bool:
+    if not host:
+        return False
+    host = host.lower()
+    return any(host == blocked or host.endswith(f".{blocked}") for blocked in _GARMIN_BLOCKED_HOSTS)
+
+
+if BLOCK_GARMIN_REQUESTS:
+    _orig_async_request = httpx.AsyncClient.request
+    _orig_sync_request = httpx.Client.request
+
+    async def _guarded_async_request(self, method, url, *args, **kwargs):
+        parsed = urlparse(str(url))
+        if _is_garmin_host(parsed.hostname):
+            logger.warning(f"[SAFETY] Blocked outbound Garmin request: method={method}, host={parsed.hostname}")
+            raise RuntimeError("Garmin requests are temporarily disabled for account safety")
+        return await _orig_async_request(self, method, url, *args, **kwargs)
+
+    def _guarded_sync_request(self, method, url, *args, **kwargs):
+        parsed = urlparse(str(url))
+        if _is_garmin_host(parsed.hostname):
+            logger.warning(f"[SAFETY] Blocked outbound Garmin request: method={method}, host={parsed.hostname}")
+            raise RuntimeError("Garmin requests are temporarily disabled for account safety")
+        return _orig_sync_request(self, method, url, *args, **kwargs)
+
+    httpx.AsyncClient.request = _guarded_async_request
+    httpx.Client.request = _guarded_sync_request
+    logger.warning("[SAFETY] Garmin outbound requests are blocked (BLOCK_GARMIN_REQUESTS=1)")
 
 # ============== EVENTS TRACKER INTEGRATION ==============
 from events_tracker import set_config, get_handlers, events_scheduler_task, get_all_events, get_last_events_errors
