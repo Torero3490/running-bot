@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 from io import BytesIO
 from datetime import datetime, timedelta
 import sqlite3
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -2777,6 +2777,9 @@ horoscope_sent_date = ""
 horoscope_cache_date = None
 horoscope_cache_text = None
 deals_sent_week = None
+morning_streaks = {}  # {user_id: {"streak": int, "last_date": "YYYY-MM-DD"}}
+morning_today_checkins = set()
+morning_checkins_date = ""
 
 # ============== КОМАНДА /MAM ==============
 # ID сообщения "Не зли маму..."
@@ -3134,6 +3137,12 @@ weekly_running_stats = {}  # {user_id: {"name": str, "activities": int, "distanc
 
 # Месячный трекинг бега (сбрасывается 1-го числа)
 monthly_running_stats = {}  # {user_id: {"name": str, "activities": int, "distance": float, "duration": int, "calories": int, "month": "YYYY-MM"}}
+
+# ============== ПОДПИСКИ НА ЗАБЕГИ (WATCH) ==============
+# {user_id: [{"id": int, "region": str, "kind": str, "distance": str, "created_at": str}]}
+watch_subscriptions = {}
+# {"user_id:subscription_id:event_hash", ...}
+watch_notified_ids = set()
 
 # ============== ДНИ РОЖДЕНИЯ ==============
 # {user_id: {"name": str, "birthday": "DD.MM"}}
@@ -4211,6 +4220,92 @@ def save_known_users() -> None:
         db_save_json("known_users", data)
     except Exception as e:
         logger.warning(f"[PERSIST] Не удалось сохранить known_users: {e}")
+
+
+def load_watch_subscriptions() -> None:
+    """Загружает подписки на забеги и историю уведомлений."""
+    global watch_subscriptions, watch_notified_ids
+    try:
+        raw_subs = db_load_json("watch_subscriptions") or {}
+        loaded_subs = {}
+        if isinstance(raw_subs, dict):
+            for user_id_str, subs in raw_subs.items():
+                if not str(user_id_str).isdigit() or not isinstance(subs, list):
+                    continue
+                user_id = int(user_id_str)
+                normalized = []
+                for item in subs:
+                    if not isinstance(item, dict):
+                        continue
+                    normalized.append({
+                        "id": int(item.get("id", 0)),
+                        "region": str(item.get("region", "any")),
+                        "kind": str(item.get("kind", "any")),
+                        "distance": str(item.get("distance", "any")),
+                        "created_at": str(item.get("created_at", "")),
+                    })
+                if normalized:
+                    loaded_subs[user_id] = normalized
+        watch_subscriptions = loaded_subs
+
+        raw_notified = db_load_json("watch_notified_ids") or []
+        if isinstance(raw_notified, list):
+            watch_notified_ids = set(str(x) for x in raw_notified)
+        else:
+            watch_notified_ids = set()
+
+        logger.info(
+            f"[WATCH] Загружено подписок: {sum(len(v) for v in watch_subscriptions.values())}, "
+            f"пользователей: {len(watch_subscriptions)}"
+        )
+    except Exception as e:
+        logger.warning(f"[WATCH] Не удалось загрузить подписки: {e}")
+        watch_subscriptions = {}
+        watch_notified_ids = set()
+
+
+def save_watch_subscriptions() -> None:
+    """Сохраняет подписки на забеги и историю уведомлений."""
+    try:
+        payload = {str(user_id): subs for user_id, subs in watch_subscriptions.items()}
+        db_save_json("watch_subscriptions", payload)
+        # Ограничиваем историю, чтобы не разрасталась бесконечно.
+        max_items = 10000
+        notified_list = list(watch_notified_ids)
+        if len(notified_list) > max_items:
+            notified_list = notified_list[-max_items:]
+        db_save_json("watch_notified_ids", notified_list)
+    except Exception as e:
+        logger.warning(f"[WATCH] Не удалось сохранить подписки: {e}")
+
+
+def load_morning_streaks() -> None:
+    """Загружает серии утренних отметок."""
+    global morning_streaks
+    try:
+        raw = db_load_json("morning_streaks") or {}
+        loaded = {}
+        if isinstance(raw, dict):
+            for user_id_str, data in raw.items():
+                if not str(user_id_str).isdigit() or not isinstance(data, dict):
+                    continue
+                loaded[int(user_id_str)] = {
+                    "streak": int(data.get("streak", 0)),
+                    "last_date": str(data.get("last_date", "")),
+                }
+        morning_streaks = loaded
+    except Exception as e:
+        logger.warning(f"[MORNING] Не удалось загрузить streak: {e}")
+        morning_streaks = {}
+
+
+def save_morning_streaks() -> None:
+    """Сохраняет серии утренних отметок."""
+    try:
+        payload = {str(user_id): data for user_id, data in morning_streaks.items()}
+        db_save_json("morning_streaks", payload)
+    except Exception as e:
+        logger.warning(f"[MORNING] Не удалось сохранить streak: {e}")
 
 
 async def save_user_rating_stats():
@@ -7135,6 +7230,44 @@ RETURN_GREETINGS = [
 async def get_weather() -> str:
     try:
         async with httpx.AsyncClient() as client:
+            def weather_code_text(code: int | None) -> str:
+                mapping = {
+                    0: "ясно",
+                    1: "преимущественно ясно",
+                    2: "переменная облачность",
+                    3: "пасмурно",
+                    45: "туман",
+                    48: "изморозь",
+                    51: "морось",
+                    53: "морось",
+                    55: "сильная морось",
+                    61: "небольшой дождь",
+                    63: "дождь",
+                    65: "сильный дождь",
+                    71: "слабый снег",
+                    73: "снег",
+                    75: "сильный снег",
+                    80: "ливневый дождь",
+                    81: "ливень",
+                    82: "сильный ливень",
+                    95: "гроза",
+                }
+                return mapping.get(code, "переменная погода")
+
+            def gear_tip(temp_c: float, wind_kmh: float, precip_mm: float) -> str:
+                wind_ms = wind_kmh / 3.6
+                if precip_mm >= 0.4:
+                    return "ветровка + кепка, лучше взять сухую сменку"
+                if temp_c <= 2:
+                    return "термолонгслив, перчатки и бафф"
+                if temp_c <= 8:
+                    return "лонгслив/ветровка, на старте не стой долго"
+                if wind_ms >= 7:
+                    return "ветровка обязательна, держи ровный темп против ветра"
+                if temp_c >= 20:
+                    return "легкая форма и вода до выхода"
+                return "комфортно для easy run"
+
             async def fetch_city_weather(city_label: str, lat: float, lon: float) -> str:
                 """Всегда возвращает строку, даже если API не отвечает"""
                 try:
@@ -7143,17 +7276,29 @@ async def get_weather() -> str:
                         params={
                             "latitude": lat,
                             "longitude": lon,
-                            "current_weather": "true",
+                            "timezone": "Europe/Moscow",
+                            "current": "temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m",
                         },
                         timeout=10.0,
                     )
                     data = resp.json()
-                    current = data.get("current_weather") or {}
-                    temp = current.get("temperature")
-                    wind = current.get("windspeed")
-                    if temp is None or wind is None:
+                    current = data.get("current") or {}
+                    temp = current.get("temperature_2m")
+                    feels_like = current.get("apparent_temperature")
+                    precip = current.get("precipitation")
+                    weather_code = current.get("weather_code")
+                    wind = current.get("wind_speed_10m")
+                    if temp is None or wind is None or feels_like is None or precip is None:
                         return f"{city_label}: *данные недоступны*"
-                    return f"{city_label}: **{temp}°C**, ветер {wind} км/ч"
+
+                    weather_text = weather_code_text(int(weather_code) if weather_code is not None else None)
+                    tip = gear_tip(float(temp), float(wind), float(precip))
+                    wind_ms = float(wind) / 3.6
+                    return (
+                        f"{city_label}: **{temp:.0f}°C** (ощущается как {feels_like:.0f}°C)\n"
+                        f"   • {weather_text}, осадки {precip:.1f} мм/ч, ветер {wind_ms:.1f} м/с\n"
+                        f"   • 👟 {tip}"
+                    )
                 except Exception as e:
                     logger.warning(f"[WEATHER] Не удалось получить погоду для {city_label}: {e}")
                     return f"{city_label}: *данные недоступны*"
@@ -7165,11 +7310,16 @@ async def get_weather() -> str:
             lines.append(await fetch_city_weather("🌇 Ижевск", 56.8498, 53.2045))
 
             # Теперь lines всегда содержит 3 элемента (даже если "данные недоступны")
-            return "🌤 **Погода утром:**\n" + "\n".join(lines)
+            return "🌤 **Подробная погода для пробежки (06:00 МСК):**\n" + "\n".join(lines)
     except Exception as e:
         logger.error(f"Ошибка получения погоды: {e}")
         # В случае критической ошибки всё равно показываем все города
-        return "🌤 **Погода утром:**\n🏙 Москва: *данные недоступны*\n🌆 СПб: *данные недоступны*\n🌇 Ижевск: *данные недоступны*"
+        return (
+            "🌤 **Подробная погода для пробежки (06:00 МСК):**\n"
+            "🏙 Москва: *данные недоступны*\n"
+            "🌆 СПб: *данные недоступны*\n"
+            "🌇 Ижевск: *данные недоступны*"
+        )
 
 
 # ============== УТРЕННЕЕ ПРИВЕТСТВИЕ ==============
@@ -7236,6 +7386,123 @@ def get_marathon_training_plan() -> str:
     except Exception as e:
         logger.error(f"[TRAINING] Ошибка генерации плана: {e}")
         return ""
+
+
+MORNING_TITLES = [
+    "Лорд финишного спурта",
+    "Король каденса",
+    "Мастер ровного темпа",
+    "Охотник за личником",
+    "Легенда раннего старта",
+]
+
+MORNING_MISSIONS = [
+    "25 минут easy + 4 ускорения по 20 сек",
+    "6-8 км в спокойном темпе + 5 минут заминки",
+    "3 км easy + 6 х 200 м бодро + 2 км заминка",
+    "40 минут комфортного бега и планка 60 сек",
+    "5 км прогрессией: каждый км чуть быстрее",
+]
+
+
+def get_morning_title() -> str:
+    return random.choice(MORNING_TITLES)
+
+
+def get_morning_mission() -> str:
+    return random.choice(MORNING_MISSIONS)
+
+
+async def _send_later_reminder(chat_id: int, user_id: int, user_name: str, delay_sec: int = 1800):
+    """Отправляет мягкое напоминание после кнопки 'Позже'."""
+    try:
+        await asyncio.sleep(delay_sec)
+        if user_id in morning_today_checkins:
+            return
+        safe_name = html_escape(user_name or "друг")
+        await application.bot.send_message(
+            chat_id=chat_id,
+            text=f"⏰ <b>{safe_name}</b>, время победить диван. Утренняя миссия ждет тебя!",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning(f"[MORNING] Не удалось отправить reminder: {e}")
+
+
+async def handle_morning_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопок утреннего сообщения."""
+    global morning_checkins_date, morning_today_checkins
+    query = update.callback_query
+    if not query or not query.data.startswith("morning_"):
+        return
+
+    action = query.data.replace("morning_", "", 1)
+    user = query.from_user
+    user_id = user.id
+    user_name = user.full_name or user.username or "Участник"
+    safe_name = html_escape(user_name)
+    today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+    if morning_checkins_date != today:
+        morning_checkins_date = today
+        morning_today_checkins = set()
+
+    if action == "run":
+        if user_id in morning_today_checkins:
+            await query.answer("Ты уже отметил пробежку сегодня ✅", show_alert=False)
+            return
+        stats = morning_streaks.get(user_id, {"streak": 0, "last_date": ""})
+        last_date = stats.get("last_date", "")
+        yesterday = (datetime.now(MOSCOW_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+        if last_date == yesterday:
+            streak = int(stats.get("streak", 0)) + 1
+        elif last_date == today:
+            streak = int(stats.get("streak", 0))
+        else:
+            streak = 1
+        morning_streaks[user_id] = {"streak": streak, "last_date": today}
+        morning_today_checkins.add(user_id)
+        save_morning_streaks()
+        await query.answer("Отметка принята! 🔥", show_alert=False)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"🔥 <b>{safe_name}</b>, красавчик! Серия утренних отметок: <b>{streak}</b> дн.",
+            parse_mode="HTML",
+        )
+        return
+
+    if action == "later":
+        await query.answer("Ок, мягкий пинок через 30 минут ⏰", show_alert=False)
+        context.application.create_task(_send_later_reminder(update.effective_chat.id, user_id, user_name, 1800))
+        return
+
+    if action == "mission":
+        new_mission = get_morning_mission()
+        await query.answer("Новая миссия готова 🎯", show_alert=False)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"🎯 <b>{safe_name}</b>, новая миссия: <b>{html_escape(new_mission)}</b>",
+            parse_mode="HTML",
+        )
+        return
+
+    if action == "slots":
+        await query.answer("Смотрю ближайшие слоты…", show_alert=False)
+        try:
+            events = await get_all_events()
+            if not events:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="Сейчас слотов не нашел.")
+                return
+            lines = ["📅 Ближайшие слоты:"]
+            for idx, event in enumerate(events[:3], start=1):
+                title = event.get("title", "Без названия")
+                date = event.get("date", "дата не указана")
+                city = event.get("city", "город не указан")
+                lines.append(f"{idx}. {title} — {date}, {city}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="\n".join(lines))
+        except Exception as e:
+            logger.warning(f"[MORNING] Кнопка slots: {e}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Не удалось получить слоты.")
+        return
 
 
 def get_random_insult() -> str:
@@ -7916,20 +8183,29 @@ def update_rating_stats(user_id: int, user_name: str, category: str, amount: int
 
 
 async def send_morning_greeting():
-    global morning_message_id
+    global morning_message_id, morning_checkins_date, morning_today_checkins
 
     if application is None:
         logger.error("Application не инициализирован")
         return
 
     try:
+        today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+        if morning_checkins_date != today:
+            morning_checkins_date = today
+            morning_today_checkins = set()
+
         weather = await get_weather()
         theme = get_day_theme()
         motivation = get_random_motivation()
         training_plan = get_marathon_training_plan()
+        morning_title = get_morning_title()
+        morning_mission = get_morning_mission()
 
         greeting_text = (
             f"🌅 **Доброе утро, бегуны!** 🏃‍♂️\n\n"
+            f"👑 **Титул дня:** {morning_title}\n"
+            f"🎯 **Миссия дня:** {morning_mission}\n\n"
             f"{weather}\n\n"
             f"{theme}\n\n"
         )
@@ -7939,10 +8215,22 @@ async def send_morning_greeting():
         
         greeting_text += f"{motivation}\n\n💭 *Напишите свои планы на сегодня!*"
 
+        reply_markup = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🏃 Бегу", callback_data="morning_run"),
+                InlineKeyboardButton("⏰ Позже", callback_data="morning_later"),
+            ],
+            [
+                InlineKeyboardButton("🎯 Другая миссия", callback_data="morning_mission"),
+                InlineKeyboardButton("📅 Слоты", callback_data="morning_slots"),
+            ],
+        ])
+
         message = await application.bot.send_message(
             chat_id=CHAT_ID,
             text=f"_{greeting_text}_",
             parse_mode="Markdown",
+            reply_markup=reply_markup,
         )
 
         morning_message_id = message.message_id
@@ -10756,10 +11044,15 @@ async def slots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "ижевск", "izhevsk",
                 "удмурт", "удмуртия", "udmurt", "udmurtia",
             ]
+            central_region = [
+                "твер", "ярослав", "костром", "иванов", "владимир", "калуг", "тул", "рязан",
+                "смолен", "брянск", "орел", "орёл", "курск", "белгород", "воронеж", "липецк", "тамбов",
+            ]
             return (
                 any(x in city_lower for x in moscow_region)
                 or any(x in city_lower for x in spb_region)
                 or any(x in city_lower for x in izhevsk_region)
+                or any(x in city_lower for x in central_region)
             )
         events = [e for e in events if is_allowed_city(e.get("city", ""), e.get("source", ""), e.get("title", ""))]
         if not events:
@@ -10833,6 +11126,262 @@ async def slots_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+def _parse_watch_region(value: str) -> str | None:
+    v = (value or "").strip().lower()
+    aliases = {
+        "any": "any", "all": "any", "все": "any",
+        "msk": "msk", "moscow": "msk", "москва": "msk",
+        "spb": "spb", "питер": "spb", "спб": "spb",
+        "central": "central", "центр": "central", "цр": "central", "central_ru": "central",
+    }
+    return aliases.get(v)
+
+
+def _parse_watch_kind(value: str) -> str | None:
+    v = (value or "").strip().lower()
+    aliases = {
+        "any": "any", "all": "any", "все": "any",
+        "trail": "trail", "трейл": "trail",
+        "road": "road", "шоссе": "road", "асфальт": "road",
+    }
+    return aliases.get(v)
+
+
+def _parse_watch_distance(value: str) -> str | None:
+    v = (value or "").strip().lower().replace("км", "").replace("km", "")
+    aliases = {
+        "any": "any", "all": "any", "все": "any",
+        "5": "5", "5k": "5",
+        "10": "10", "10k": "10",
+        "21": "21", "21.1": "21", "21k": "21", "hm": "21", "half": "21",
+        "42": "42", "42.2": "42", "42k": "42", "marathon": "42",
+    }
+    return aliases.get(v)
+
+
+def _watch_region_match(event: dict, region: str) -> bool:
+    if region == "any":
+        return True
+    city = (event.get("city", "") or "").lower()
+    text = f"{city} {(event.get('title', '') or '').lower()}"
+    msk = ["москв", "подмосков", "moscow", "химки", "мытищи", "королев", "балаших", "подольск"]
+    spb = ["санкт", "петербург", "спб", "питер", "leningrad", "ленинград"]
+    central = [
+        "твер", "ярослав", "костром", "иванов", "владимир", "калуг", "тул", "рязан",
+        "смолен", "брянск", "орел", "орёл", "курск", "белгород", "воронеж", "липецк", "тамбов",
+    ]
+    if region == "msk":
+        return any(x in text for x in msk)
+    if region == "spb":
+        return any(x in text for x in spb)
+    if region == "central":
+        return any(x in text for x in central)
+    return False
+
+
+def _watch_kind_match(event: dict, kind: str) -> bool:
+    if kind == "any":
+        return True
+    text = f"{event.get('title', '')} {event.get('source', '')} {event.get('distances', '')}".lower()
+    is_trail = ("trail" in text) or ("трейл" in text)
+    return is_trail if kind == "trail" else not is_trail
+
+
+def _extract_distance_tags(event: dict) -> set:
+    text = f"{event.get('title', '')} {event.get('distances', '')}".lower().replace(",", ".")
+    tags = set()
+    if re.search(r"(^|[^0-9])5(\.0)?\s*(км|km|к|k)\b", text):
+        tags.add("5")
+    if re.search(r"(^|[^0-9])10(\.0)?\s*(км|km|к|k)\b", text):
+        tags.add("10")
+    if re.search(r"(21(\.1)?)\s*(км|km|к|k)\b|полумара", text):
+        tags.add("21")
+    if re.search(r"(42(\.2)?)\s*(км|km|к|k)\b|марафон", text):
+        tags.add("42")
+    return tags
+
+
+def _watch_distance_match(event: dict, distance: str) -> bool:
+    if distance == "any":
+        return True
+    tags = _extract_distance_tags(event)
+    return distance in tags
+
+
+def _event_hash_for_watch(event: dict) -> str:
+    title = (event.get("title", "") or "").strip().lower()
+    date = (event.get("date", "") or "").strip().lower()
+    city = (event.get("city", "") or "").strip().lower()
+    source = (event.get("source", "") or "").strip().lower()
+    return f"{title}|{date}|{city}|{source}"
+
+
+async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /watch — создать подписку на интересные забеги."""
+    args = context.args or []
+    if not args:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=(
+                "Подписка на забеги:\n"
+                "Формат: /watch <регион> <тип> <дистанция>\n\n"
+                "Регионы: msk | spb | central | any\n"
+                "Тип: trail | road | any\n"
+                "Дистанция: 5 | 10 | 21 | 42 | any\n\n"
+                "Пример: /watch central trail 21"
+            ),
+        )
+        return
+
+    region = _parse_watch_region(args[0]) if len(args) >= 1 else "any"
+    kind = _parse_watch_kind(args[1]) if len(args) >= 2 else "any"
+    distance = _parse_watch_distance(args[2]) if len(args) >= 3 else "any"
+    if region is None or kind is None or distance is None:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Не понял параметры. Пример: /watch central trail 21",
+        )
+        return
+
+    user_id = update.effective_user.id
+    subs = watch_subscriptions.setdefault(user_id, [])
+    # Ищем совпадающую подписку, чтобы не плодить дубликаты.
+    for sub in subs:
+        if sub.get("region") == region and sub.get("kind") == kind and sub.get("distance") == distance:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Такая подписка уже есть.")
+            return
+
+    next_id = 1 + max((int(s.get("id", 0)) for s in subs), default=0)
+    subs.append({
+        "id": next_id,
+        "region": region,
+        "kind": kind,
+        "distance": distance,
+        "created_at": datetime.now(MOSCOW_TZ).isoformat(),
+    })
+    save_watch_subscriptions()
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"✅ Подписка #{next_id} создана: регион={region}, тип={kind}, дистанция={distance}",
+    )
+
+
+async def watch_list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /watch_list — список подписок пользователя."""
+    user_id = update.effective_user.id
+    subs = watch_subscriptions.get(user_id, [])
+    if not subs:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="У тебя пока нет подписок. Добавь: /watch central trail 21",
+        )
+        return
+    lines = ["🔔 Твои подписки:"]
+    for sub in subs:
+        lines.append(
+            f"#{sub.get('id')} — регион={sub.get('region')}, тип={sub.get('kind')}, дистанция={sub.get('distance')}"
+        )
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="\n".join(lines))
+
+
+async def watch_del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /watch_del <id> — удаление подписки."""
+    user_id = update.effective_user.id
+    subs = watch_subscriptions.get(user_id, [])
+    if not subs:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Удалять нечего: подписок нет.")
+        return
+    if not context.args or not str(context.args[0]).isdigit():
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Используй: /watch_del <id>")
+        return
+    sub_id = int(context.args[0])
+    new_subs = [s for s in subs if int(s.get("id", 0)) != sub_id]
+    if len(new_subs) == len(subs):
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Подписка #{sub_id} не найдена.")
+        return
+    if new_subs:
+        watch_subscriptions[user_id] = new_subs
+    else:
+        watch_subscriptions.pop(user_id, None)
+    save_watch_subscriptions()
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"🗑️ Подписка #{sub_id} удалена.")
+
+
+async def _dispatch_watch_notifications(events: list):
+    """Отправляет уведомления по подпискам на новые события."""
+    if not watch_subscriptions:
+        return
+    notifications_sent = 0
+    for user_id, subs in list(watch_subscriptions.items()):
+        sent_to_user = 0
+        for sub in subs:
+            for event in events:
+                if not _watch_region_match(event, sub.get("region", "any")):
+                    continue
+                if not _watch_kind_match(event, sub.get("kind", "any")):
+                    continue
+                if not _watch_distance_match(event, sub.get("distance", "any")):
+                    continue
+
+                event_hash = _event_hash_for_watch(event)
+                notify_key = f"{user_id}:{sub.get('id')}:{event_hash}"
+                if notify_key in watch_notified_ids:
+                    continue
+
+                title = html_escape(event.get("title", "Без названия"))
+                date = html_escape(event.get("date", "Дата не указана"))
+                city = html_escape(event.get("city", "Город не указан"))
+                distances = html_escape(event.get("distances", ""))
+                url = event.get("url") or event.get("link") or ""
+                url = html_escape(url) if url else ""
+                text = (
+                    f"🔔 <b>Новый забег по твоей подписке #{sub.get('id')}</b>\n"
+                    f"🏁 <b>{title}</b>\n"
+                    f"📅 {date}\n"
+                    f"📍 {city}\n"
+                )
+                if distances:
+                    text += f"📏 {distances}\n"
+                if url:
+                    text += f'🔗 <a href="{url}">Страница регистрации</a>'
+                try:
+                    await application.bot.send_message(chat_id=user_id, text=text, parse_mode="HTML", disable_web_page_preview=True)
+                    watch_notified_ids.add(notify_key)
+                    sent_to_user += 1
+                    notifications_sent += 1
+                except Exception as e:
+                    logger.warning(f"[WATCH] Не удалось отправить уведомление user_id={user_id}: {e}")
+                    # Не помечаем как отправленное, чтобы попробовать снова позже.
+                if sent_to_user >= 3:
+                    break
+            if sent_to_user >= 3:
+                break
+    if notifications_sent:
+        save_watch_subscriptions()
+        logger.info(f"[WATCH] Отправлено уведомлений: {notifications_sent}")
+
+
+async def watch_scheduler_task():
+    """Фоновая проверка забегов для персональных подписок."""
+    global bot_running
+    try:
+        check_interval = int(os.environ.get("WATCH_CHECK_INTERVAL_SEC", "1800"))
+        if check_interval < 300:
+            check_interval = 300
+    except Exception:
+        check_interval = 1800
+
+    logger.info(f"[WATCH] Планировщик подписок запущен, интервал {check_interval} сек")
+    while bot_running:
+        try:
+            if watch_subscriptions:
+                events = await get_all_events()
+                await _dispatch_watch_notifications(events)
+        except Exception as e:
+            logger.error(f"[WATCH] Ошибка планировщика подписок: {e}", exc_info=True)
+        await asyncio.sleep(check_interval)
+
+
 BOT_HELP_TEXT = (
     "**Бот для бегового чата**\n\n"
     "**📌 Основные команды:**\n"
@@ -10885,6 +11434,10 @@ BOT_HELP_TEXT = (
     "• /garmin\\_list — список пользователей Garmin\n\n"
     "**🏃 Слоты на забеги:**\n"
     "• /slots — показать открытые регистрации на беговые мероприятия\n\n"
+    "**🔔 Подписки на забеги:**\n"
+    "• /watch регион тип дистанция — подписка (пример: /watch central trail 21)\n"
+    "• /watch\\_list — твои подписки\n"
+    "• /watch\\_del ID — удалить подписку\n\n"
     "**💡 Полезное:**\n"
     "• /plan — план подготовки к забегу (выбор дистанции и целевого времени)\n"
     "• /advice — совет по бегу из интернета\n"
@@ -11945,6 +12498,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("plan", plan_cmd))
     app.add_handler(CallbackQueryHandler(handle_plan_distance_callback, pattern=r"^plan_dist_"))
     app.add_handler(CallbackQueryHandler(handle_plan_time_callback, pattern=r"^plan_time_"))
+    app.add_handler(CallbackQueryHandler(handle_morning_action_callback, pattern=r"^morning_"))
     app.add_handler(CommandHandler("advice", advice_cmd))
     app.add_handler(CommandHandler("music", music_cmd))
     app.add_handler(CommandHandler("horoscope", horoscope_cmd))
@@ -11953,6 +12507,9 @@ def register_handlers(app):
     app.add_handler(CallbackQueryHandler(handle_deals_gender_callback, pattern=r"^deals_gender_"))
     app.add_handler(CallbackQueryHandler(handle_deals_category_callback, pattern=r"^deals_cat_"))
     app.add_handler(CommandHandler("slots", slots_cmd))
+    app.add_handler(CommandHandler("watch", watch_cmd))
+    app.add_handler(CommandHandler("watch_list", watch_list_cmd))
+    app.add_handler(CommandHandler("watch_del", watch_del_cmd))
     app.add_handler(CommandHandler("anon", anon))
     app.add_handler(CommandHandler("anonphoto", anonphoto))
     app.add_handler(CommandHandler("birthday", birthday))
@@ -12048,6 +12605,8 @@ async def post_init(app):
     ensure_sqlite_db()
     load_daily_stats()
     load_known_users()
+    load_morning_streaks()
+    load_watch_subscriptions()
     load_summary_state()
 
     init_garmin_on_startup()
@@ -12074,6 +12633,7 @@ async def post_init(app):
     add_background_task(app, motivation_scheduler_task())
     add_background_task(app, advice_scheduler_task())
     add_background_task(app, daily_summary_scheduler_task())
+    add_background_task(app, watch_scheduler_task())
     if BLOCK_GARMIN_REQUESTS:
         logger.warning("[GARMIN] Планировщик Garmin не запущен (BLOCK_GARMIN_REQUESTS=1)")
     else:
