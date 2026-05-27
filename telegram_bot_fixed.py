@@ -251,6 +251,35 @@ TOXIC_GIFS = {
 
 # Последняя отправленная GIF (чтобы не повторять одну и ту же подряд)
 _last_sent_gif_url: str | None = None
+_recent_gif_urls: list[str] = []
+_recent_sticker_ids: list[str] = []
+MEDIA_HISTORY_LIMIT = 10
+
+
+def _remember_recent(items: list[str], value: str, limit: int = MEDIA_HISTORY_LIMIT) -> None:
+    """Сохраняет значение в историю последних отправок без дублей."""
+    if not value:
+        return
+    try:
+        if value in items:
+            items.remove(value)
+        items.append(value)
+        if len(items) > limit:
+            del items[:-limit]
+    except Exception:
+        pass
+
+
+def _pick_with_recent_filter(pool: list[str], recent_items: list[str]) -> str | None:
+    """Выбирает случайный элемент, стараясь не повторять последние отправленные."""
+    unique_pool = list(dict.fromkeys(pool or []))
+    if not unique_pool:
+        return None
+
+    candidates = [item for item in unique_pool if item not in recent_items]
+    if not candidates:
+        candidates = unique_pool
+    return random.choice(candidates)
 
 
 def get_static_gif(message_type: str, is_female: bool = False) -> str | None:
@@ -270,8 +299,11 @@ def get_static_gif(message_type: str, is_female: bool = False) -> str | None:
     # Если в коллекции больше одной — исключаем последнюю отправленную, чтобы не повторяться
     if len(collection) > 1 and _last_sent_gif_url and _last_sent_gif_url in collection:
         collection = [u for u in collection if u != _last_sent_gif_url]
-    chosen = random.choice(collection)
+    chosen = _pick_with_recent_filter(collection, _recent_gif_urls)
+    if not chosen:
+        return None
     _last_sent_gif_url = chosen
+    _remember_recent(_recent_gif_urls, chosen)
     return chosen
 
 # ============== AI PERSONALITY - ТОКСИЧНЫЙ МОТИВАТОР ==============
@@ -1397,8 +1429,10 @@ def get_sticker_for_context(message_text: str, message_type: str, is_female: boo
     if bot_sticker_ids:
         k = min(6, len(bot_sticker_ids))
         pool.extend(random.sample(bot_sticker_ids, k=k))
-
-    return random.choice(pool) if pool else None
+    chosen = _pick_with_recent_filter(pool, _recent_sticker_ids)
+    if chosen:
+        _remember_recent(_recent_sticker_ids, chosen)
+    return chosen
 
 
 # ============== FACTS COMMAND ==============
@@ -2785,6 +2819,7 @@ morning_checkins_date = ""
 # ID сообщения "Не зли маму..."
 mam_message_id = None
 MAM_PHOTO_PATH = "5422343903253302332.jpg"
+BELT_PHOTO_PATH = "73e8ed4f3f485ce9fefb7733bdb8d718.jpg"
 
 # ============== НОЧНОЙ РЕЖИМ ==============
 # {user_id: message_count} - персональный счётчик для каждого пользователя
@@ -4821,6 +4856,19 @@ WELCOME_MESSAGES = [
     "Привет-привет! Ты сейчас на этапе: «кто все эти бегуны?», «о, тут классные ребята» или «я знаю все трассы, но никому не скажу»? Добро пожаловать в наш забег!",
     "Новый участник? Отлично! У нас есть три уровня сложности: лёгкий (просто выйти на пробежку), средний (не сойти с дистанции) и экспертный (улыбаться на последних километрах). Какой выбираешь?",
     "Добро пожаловать в чат, где километры — это не просто цифры, а истории! Ты кто: тот, кто только мечтает о первом забеге, уже собирает медали или готов пробежать 42 км ради шутки?",
+]
+
+LEAVE_MESSAGES = [
+    "Вы самое слабое звено, прощайте! 👋",
+    "Беги-беги, пока пинка не дали! 🏃",
+    "Минус один бегун, плюс один свободный слот! 😄",
+    "Сошел с дистанции. Судья махнул флажком! 🏁",
+    "Эх, отстегнулся как шнурок на старте. Пока! 👟",
+    "Пелотон поредел, но гонка продолжается! 🚴",
+    "Выход засчитан. Возврат в чат - через допинг-контроль! 🧪",
+    "Ну все, ушел в закат... надеюсь, хотя бы с каденсом 180. 🌅",
+    "Снялся с марафона чата. Медаль почтой не отправляем! 🥇",
+    "До встречи на следующем круге, беглец! 🔁",
 ]
 
 # ============== СОВЕТЫ ДНЯ (ИЗ ИНТЕРНЕТА) ==============
@@ -7171,11 +7219,15 @@ async def send_random_sticker_or_gif(bot, chat_id: int, chance: float = 0.4):
         return
     try:
         if bot_sticker_ids and random.random() < 0.5:
-            sticker_id = random.choice(bot_sticker_ids)
-            await bot.send_sticker(chat_id=chat_id, sticker=sticker_id)
+            sticker_id = _pick_with_recent_filter(bot_sticker_ids, _recent_sticker_ids)
+            if sticker_id:
+                _remember_recent(_recent_sticker_ids, sticker_id)
+                await bot.send_sticker(chat_id=chat_id, sticker=sticker_id)
         elif BOT_GIF_URLS:
-            gif_url = random.choice(BOT_GIF_URLS)
-            await bot.send_animation(chat_id=chat_id, animation=gif_url)
+            gif_url = _pick_with_recent_filter(BOT_GIF_URLS, _recent_gif_urls)
+            if gif_url:
+                _remember_recent(_recent_gif_urls, gif_url)
+                await bot.send_animation(chat_id=chat_id, animation=gif_url)
     except Exception as e:
         logger.debug(f"[STICKERS/GIF] Не удалось отправить медиа: {e}")
 
@@ -7333,6 +7385,10 @@ def get_random_welcome() -> str:
     return random.choice(WELCOME_MESSAGES)
 
 
+def get_random_leave_message() -> str:
+    return random.choice(LEAVE_MESSAGES)
+
+
 def get_random_motivation() -> str:
     return random.choice(MOTIVATION_QUOTES)
 
@@ -7473,6 +7529,15 @@ async def handle_morning_action_callback(update: Update, context: ContextTypes.D
     if action == "later":
         await query.answer("Ок, мягкий пинок через 30 минут ⏰", show_alert=False)
         context.application.create_task(_send_later_reminder(update.effective_chat.id, user_id, user_name, 1800))
+        return
+
+    if action == "rest":
+        await query.answer("Принято. Сегодня восстановление 😴", show_alert=False)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"😴 <b>{safe_name}</b>, хороший выбор. Восстановление - тоже часть прогресса.",
+            parse_mode="HTML",
+        )
         return
 
     if action == "mission":
@@ -8199,36 +8264,58 @@ async def send_morning_greeting():
         theme = get_day_theme()
         motivation = get_random_motivation()
         training_plan = get_marathon_training_plan()
-        morning_title = get_morning_title()
         morning_mission = get_morning_mission()
+        day_names = {
+            0: "понедельник",
+            1: "вторник",
+            2: "среда",
+            3: "четверг",
+            4: "пятница",
+            5: "суббота",
+            6: "воскресенье",
+        }
+        now = datetime.now(MOSCOW_TZ)
+        weekday_name = day_names.get(now.weekday(), "день")
+        date_human = now.strftime("%d.%m")
 
-        greeting_text = (
-            f"🌅 **Доброе утро, бегуны!** 🏃‍♂️\n\n"
-            f"👑 **Титул дня:** {morning_title}\n"
-            f"🎯 **Миссия дня:** {morning_mission}\n\n"
-            f"{weather}\n\n"
-            f"{theme}\n\n"
-        )
-        
+        greeting_parts = [
+            f"🌅 **Доброе утро, команда!** {weekday_name.title()}, {date_human}",
+            "",
+            f"🌤 **Погода:** {weather}",
+            f"💡 **Фокус дня:** {theme}",
+        ]
+
         if training_plan:
-            greeting_text += f"{training_plan}\n\n"
-        
-        greeting_text += f"{motivation}\n\n💭 *Напишите свои планы на сегодня!*"
+            greeting_parts.extend(["", f"🏃 **План дня:** {training_plan}"])
+
+        greeting_parts.extend(
+            [
+                "",
+                f"🎯 **Мини-миссия:** {morning_mission}",
+                f"⚡ **Мотивация:** {motivation}",
+                "",
+                "✅ **Отметка:** нажми кнопку после пробежки",
+            ]
+        )
+        greeting_text = "\n".join(greeting_parts)
 
         reply_markup = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("🏃 Бегу", callback_data="morning_run"),
-                InlineKeyboardButton("⏰ Позже", callback_data="morning_later"),
+                InlineKeyboardButton("✅ Пробежал", callback_data="morning_run"),
+                InlineKeyboardButton("🕒 Побегу вечером", callback_data="morning_later"),
             ],
             [
-                InlineKeyboardButton("🎯 Другая миссия", callback_data="morning_mission"),
+                InlineKeyboardButton("😴 Сегодня восстановление", callback_data="morning_rest"),
+                InlineKeyboardButton("🎯 Дай другую миссию", callback_data="morning_mission"),
+            ],
+            [
                 InlineKeyboardButton("📅 Слоты", callback_data="morning_slots"),
             ],
         ])
 
         message = await application.bot.send_message(
             chat_id=CHAT_ID,
-            text=f"_{greeting_text}_",
+            text=greeting_text,
             parse_mode="Markdown",
             reply_markup=reply_markup,
         )
@@ -8903,125 +8990,25 @@ async def send_daily_summary(force: bool = False, ref_date: str | None = None):
             # Экранируем все спецсимволы MarkdownV2: _ * [ ] ( ) ~ ` > # + - . ! |
             return text.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)').replace('~', '\\~').replace('`', '\\`').replace('>', '\\>').replace('#', '\\#').replace('+', '\\+').replace('-', '\\-').replace('.', '\\.').replace('!', '\\!').replace('|', '\\|')
 
-        # Формируем текст сводки (дата уже отформатирована, но экранируем для MarkdownV2)
+        # Компактная ежедневная сводка
         escaped_today = escape_markdown(today)
         summary_text = f"📊 *Ежедневная сводка за {escaped_today}*\n\n"
-
-        # Общее количество сообщений
-        summary_text += f"💬 *Всего сообщений:* {daily_stats['total_messages']}\n\n"
-
-        # === ПОБЕДИТЕЛИ ДНЯ ===
-        summary_text += "🏆 *Победители дня \\(двойные баллы\\):*\n"
+        summary_text += f"💬 *Всего сообщений:* {daily_stats.get('total_messages', 0)}\n"
 
         if most_active_user_name:
             escaped_name = escape_markdown(most_active_user_name)
-            summary_text += f"   🥇 {escaped_name} — за активность \\({most_messages_count} сообщений\\)\n"
-
-        first_photo_name = daily_stats.get("first_photo_user_name")
-        if first_photo_name:
-            escaped_name = escape_markdown(first_photo_name)
-            summary_text += f"   📸 {escaped_name} — за первое фото дня\n"
-
-        if not most_active_user_name and not first_photo_name:
-            summary_text += "   Пока нет победителей...\n"
-
-        summary_text += "\n"
-
-        # Топ активных пользователей
-        top_users = await get_top_users()
-        if top_users:
-            summary_text += "🏃 *Топ активных бегунов:*\n"
-            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-            for i, (user_id, name, count) in enumerate(top_users):
-                escaped_name = escape_markdown(name)
-                summary_text += f"{medals[i]} {escaped_name} — {count} сообщений\n"
-            summary_text += "\n"
+            summary_text += f"🔥 *Самый активный:* {escaped_name} \\({most_messages_count} сообщений\\)\n"
         else:
-            summary_text += "🏃 *Топ активных бегунов:* Пока никого нет\n\n"
+            summary_text += "🔥 *Самый активный:* пока нет данных\n"
 
-        # Рейтинг участников
-        top_rated = await get_top_rated_users()
-        if top_rated:
-            summary_text += "⭐ *Рейтинг участников \\(топ-10\\):*\n"
-            medals_rating = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-            for i, user in enumerate(top_rated):
-                level_emoji = LEVEL_EMOJIS.get(user["level"], "")
-                bonus_tag = " \\⭐" if user.get("user_id") in double_points_users else ""
-                escaped_name = escape_markdown(user['name'])
-                summary_text += f"{medals_rating[i]} {level_emoji} {escaped_name} — {user['points']} очков{bonus_tag}"
-                # Добавляем детали
-                details = []
-                if user['messages'] > 0:
-                    msg_pts = user['messages'] // POINTS_PER_MESSAGES
-                    details.append(f"📝{msg_pts}")
-                if user['photos'] > 0:
-                    photo_pts = user['photos'] // POINTS_PER_PHOTOS
-                    details.append(f"📷{photo_pts}")
-                if user['likes'] > 0:
-                    like_pts = user['likes'] // POINTS_PER_LIKES
-                    details.append(f"❤️{like_pts}")
-                if user['replies'] > 0:
-                    details.append(f"💬{user['replies']}")
-                if details:
-                    summary_text += f" \\({', '.join(details)}\\)"
-                summary_text += "\n"
+        photos = daily_stats.get("photos", []) or []
+        top_photo = max(photos, key=lambda p: int(p.get("likes", 0) or 0), default=None)
+        if top_photo and int(top_photo.get("likes", 0) or 0) > 0:
+            top_photo_name = escape_markdown(top_photo.get("user_name", "Неизвестный"))
+            top_photo_likes = int(top_photo.get("likes", 0) or 0)
+            summary_text += f"📸 *Фото дня:* {top_photo_name} \\(❤️ {top_photo_likes}\\)"
         else:
-            summary_text += "⭐ *Рейтинг участников:* Пока никого нет\n\n"
-
-        # === Лайки ===
-        total_message_likes = sum((daily_stats.get("message_likes") or {}).values())
-        summary_text += f"❤️ *Всего лайков на сообщения:* {total_message_likes}\n\n"
-
-        # === Лайки за фото ===
-        photos_with_likes = [p for p in daily_stats.get("photos", []) if p.get("likes", 0) > 0]
-        total_likes = sum(p.get("likes", 0) for p in daily_stats.get("photos", []))
-
-        if photos_with_likes:
-            summary_text += f"❤️ *Всего лайков за фото:* {total_likes}\n\n"
-            summary_text += "❤️ *Фото с лайками:*\n"
-            # Сортируем по лайкам
-            sorted_photos = sorted(photos_with_likes, key=lambda x: x.get("likes", 0), reverse=True)
-            for photo in sorted_photos:
-                user_name = photo.get("user_name", "Неизвестный")
-                escaped_name = escape_markdown(user_name)
-                likes = photo.get("likes", 0)
-                summary_text += f"   ❤️ {likes} — {escaped_name}\n"
-            summary_text += "\n"
-        else:
-            summary_text += "❤️ *Всего лайков за фото:* 0\n"
-            summary_text += "❤️ *Фото с лайками:* Фото чат не выбрал 🤷\n\n"
-
-        # === ЕЖЕДНЕВНАЯ СТАТИСТИКА БЕГА ===
-        if daily_running_stats:
-            total_run_activities = sum(stats["activities"] for stats in daily_running_stats.values())
-            total_run_distance = sum(stats["distance"] for stats in daily_running_stats.values()) / 1000  # в км
-            total_run_calories = sum(stats["calories"] for stats in daily_running_stats.values())
-
-            if total_run_activities > 0:
-                summary_text += "🏃‍♂️ *Ежедневная статистика бега:*\n"
-                summary_text += f"🏃‍♂️ Пробежек: {total_run_activities}\n"
-                summary_text += f"📍 Дистанция: {total_run_distance:.1f} км\n"
-                summary_text += f"🔥 Калорий: {total_run_calories}\n\n"
-
-                # Топ бегунов дня
-                summary_text += "🏆 *Лучшие бегуны дня:*\n"
-                daily_runners = []
-                for user_id, stats in daily_running_stats.items():
-                    daily_runners.append({
-                        "name": stats["name"],
-                        "distance": stats["distance"],
-                        "activities": stats["activities"]
-                    })
-                daily_runners.sort(key=lambda x: x["distance"], reverse=True)
-
-                medals = ["🥇", "🥈", "🥉"]
-                for i, runner in enumerate(daily_runners[:3]):
-                    escaped_name = escape_markdown(runner["name"])
-                    distance_km = runner["distance"] / 1000
-                    summary_text += f"{medals[i]} {escaped_name} — {distance_km:.1f} км \\({runner['activities']} тренировок\\)\n"
-                summary_text += "\n"
-        else:
-            summary_text += "🏃‍♂️ *Сегодня бегом не занимались 🤷*\n\n"
+            summary_text += "📸 *Фото дня:* сегодня без лайков"
 
         # === ОТЛАДКА: Проверяем текст перед отправкой ===
         logger.info(f"[SUMMARY] Проверка текста сводки перед отправкой (длина: {len(summary_text)})")
@@ -9066,20 +9053,20 @@ async def send_daily_summary(force: bool = False, ref_date: str | None = None):
         if not sent_ok:
             raise RuntimeError("Ежедневная сводка не была отправлена")
         
-        # Пытаемся отправить топ фото с 4+ лайками (в топик "Новости")
+        # Отправляем фото дня (самое залайканное), если есть
         try:
-            top_photos = await get_top_liked_photos()
-            if top_photos:
-                for photo in top_photos:
-                    try:
-                        await application.bot.send_photo(
-                            chat_id=CHAT_ID,
-                            message_thread_id=NEWS_TOPIC_ID,
-                            photo=photo["file_id"],
-                            caption=f"❤️ {photo['likes']} лайков",
-                        )
-                    except Exception:
-                        pass
+            photos = daily_stats.get("photos", []) or []
+            top_photo = max(photos, key=lambda p: int(p.get("likes", 0) or 0), default=None)
+            if top_photo and int(top_photo.get("likes", 0) or 0) > 0 and top_photo.get("file_id"):
+                photo_caption = f"📸 Фото дня — ❤️ {int(top_photo.get('likes', 0) or 0)} лайков"
+                photo_kw = {
+                    "chat_id": CHAT_ID,
+                    "photo": top_photo["file_id"],
+                    "caption": photo_caption,
+                }
+                if NEWS_TOPIC_ID:
+                    photo_kw["message_thread_id"] = NEWS_TOPIC_ID
+                await application.bot.send_photo(**photo_kw)
         except Exception as e:
             logger.error(f"Ошибка получения фото: {e}")
         
@@ -9412,7 +9399,7 @@ async def daily_summary_scheduler_task():
     """Планировщик ежедневной, еженедельной и ежемесячной сводок + трекинг бега"""
     global daily_summary_sent, user_running_stats, daily_stats
 
-    logger.info("[SUMMARY] Планировщик сводок запущен (ежедневно 23:30–00:10 МСК, еженедельно вс 23:55)")
+    logger.info("[SUMMARY] Планировщик сводок запущен (ежедневно 23:50–23:59 МСК, еженедельно вс 23:55)")
     while bot_running:
         try:
             now = datetime.now(MOSCOW_TZ)
@@ -9424,7 +9411,7 @@ async def daily_summary_scheduler_task():
             if daily_stats.get("summary_last_sent") == today_date:
                 daily_summary_sent = True
 
-            # Сброс флага и дневной статистики в 00:11 (после окна догоняющей отправки 00:00–00:10)
+            # Сброс флага и дневной статистики после закрытия окна отправки
             if now.hour == 0 and current_minute >= 11 and daily_stats.get("date") != today_date:
                 daily_summary_sent = False
                 daily_stats = build_empty_daily_stats(today_date)
@@ -9440,22 +9427,14 @@ async def daily_summary_scheduler_task():
                 except Exception as e:
                     logger.error(f"Ошибка при переносе статистики бега: {e}")
 
-            # Отправка сводки: 23:30–23:59 или 00:00–00:10 (догоняющая)
-            if current_hour == 23 and current_minute >= 30:
+            # Отправка ежедневной сводки строго в окне 23:50–23:59
+            if current_hour == 23 and current_minute >= 50:
                 if daily_stats.get("summary_last_sent") != today_date:
                     logger.info(f"[SUMMARY] Время {current_hour}:{current_minute} — отправляем ежедневную сводку")
                     try:
                         await send_daily_summary(ref_date=today_date)
                     except Exception as e:
                         logger.error(f"Ошибка при отправке сводки: {e}", exc_info=True)
-            yesterday_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-            if current_hour == 0 and current_minute <= 10:
-                if daily_stats.get("summary_last_sent") != yesterday_date:
-                    logger.info(f"[SUMMARY] Время {current_hour}:{current_minute} — догоняющая сводка за вчера")
-                    try:
-                        await send_daily_summary(ref_date=yesterday_date)
-                    except Exception as e:
-                        logger.error(f"Ошибка при догоняющей сводке: {e}", exc_info=True)
 
             # Еженедельная сводка: воскресенье 23:55–23:59
             iso_year, week_num, _ = now.isocalendar()
@@ -9510,7 +9489,7 @@ async def daily_summary_scheduler_task():
                     except Exception as e:
                         logger.error(f"Ошибка при догоняющей ежемесячной сводке: {e}", exc_info=True)
 
-            in_summary_window = (current_hour == 23 and current_minute >= 30) or (current_hour == 0 and current_minute <= 10)
+            in_summary_window = (current_hour == 23 and current_minute >= 50)
             await asyncio.sleep(15 if in_summary_window else 60)
         except asyncio.CancelledError:
             raise
@@ -10447,6 +10426,27 @@ async def handle_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"[WELCOME] Ошибка приветствия: {e}")
 
 
+async def handle_left_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Шуточное сообщение, когда участник покидает чат."""
+    try:
+        if not update.message or not update.message.left_chat_member:
+            return
+
+        if str(update.effective_chat.id) != str(CHAT_ID):
+            return
+
+        left_member = update.message.left_chat_member
+        if left_member.is_bot:
+            return
+
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=get_random_leave_message(),
+        )
+    except Exception as e:
+        logger.error(f"[LEAVE] Ошибка обработки выхода участника: {e}")
+
+
 # ============== ОБРАБОТКА ГИФОК И СТИКЕРОВ ==============
 async def handle_gifs_and_stickers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка гифок и стикеров когда отвечают на сообщение бота"""
@@ -10788,6 +10788,22 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         if message.from_user and message.from_user.is_bot:
             return
 
+        # Триггер: на слово "ремень" отправляем картинку с ремнём
+        if message.text and re.search(r"\bремень\b", message.text.lower()):
+            if os.path.exists(BELT_PHOTO_PATH):
+                with open(BELT_PHOTO_PATH, "rb") as photo:
+                    photo_kwargs = {"chat_id": update.effective_chat.id, "photo": photo}
+                    thread_id = getattr(message, "message_thread_id", None)
+                    if thread_id:
+                        photo_kwargs["message_thread_id"] = thread_id
+                    await context.bot.send_photo(**photo_kwargs)
+            else:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="Не нашел картинку с ремнем на сервере.",
+                )
+            return
+
         # Если это reply на сообщение бота — отвечаем (текст или медиа)
         if message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_bot:
             if message.sticker or (message.document and message.document.mime_type in ["video/mp4", "image/gif"]):
@@ -10940,13 +10956,12 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
                 except Exception as e:
                     logger.error(f"[MORNING] Ошибка отправки: {e}")
 
-        # Ежедневная сводка по первому сообщению в чате в окне 23:30–00:10
+        # Ежедневная сводка по первому сообщению в чате в окне 23:50–23:59
         if chat_ok:
             now = datetime.now(MOSCOW_TZ)
             today_date = now.strftime("%Y-%m-%d")
-            yesterday_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-            in_summary_window = (now.hour == 23 and now.minute >= 30) or (now.hour == 0 and now.minute <= 10)
-            ref_date = yesterday_date if now.hour == 0 else today_date
+            in_summary_window = (now.hour == 23 and now.minute >= 50)
+            ref_date = today_date
             if in_summary_window and daily_stats.get("summary_last_sent") != ref_date:
                 logger.info(f"[SUMMARY] Сообщение в чате в окне сводки — отправляем ежедневную сводку за {ref_date}")
                 try:
@@ -11392,7 +11407,6 @@ BOT_HELP_TEXT = (
     "• /morning — отправить утреннее приветствие сейчас\n"
     "• /stopmorning — удалить утреннее сообщение\n\n"
     "**😄 Развлечения:**\n"
-    "• /remen — пожаловаться на жизнь\n"
     "• /antiremen — получить комплименты\n"
     "• /roast — подколоть кого-то в чате\n"
     "• /flirt — отправить комплимент девушкам\n"
@@ -11520,16 +11534,6 @@ async def stopmorning_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"[MORNING] Ошибка удаления сообщения: {e}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Не удалось удалить сообщение.")
-
-
-async def remen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /remen — пожаловаться на жизнь."""
-    user_name = update.message.from_user.full_name if update.message else "друг"
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=random.choice(TIRED_RESPONSES).format(user_name=user_name),
-    )
-    await send_random_sticker_or_gif(context.bot, update.effective_chat.id, chance=0.4)
 
 
 async def antiremen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -12469,7 +12473,6 @@ def register_handlers(app):
     app.add_handler(CallbackQueryHandler(handle_facts_ai_callback, pattern=r"^fact_ai_more_"))
     app.add_handler(CallbackQueryHandler(handle_facts_callback, pattern=r"^fact_more_"))
 
-    app.add_handler(CommandHandler("remen", remen_cmd))
     app.add_handler(CommandHandler("antiremen", antiremen_cmd))
     app.add_handler(CommandHandler("roast", roast_cmd))
     app.add_handler(CommandHandler("flirt", flirt_cmd))
@@ -12535,6 +12538,9 @@ def register_handlers(app):
     )
     app.add_handler(
         MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_members, block=False)
+    )
+    app.add_handler(
+        MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, handle_left_member, block=False)
     )
     app.add_handler(
         MessageReactionHandler(
