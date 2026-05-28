@@ -2819,7 +2819,58 @@ morning_checkins_date = ""
 # ID сообщения "Не зли маму..."
 mam_message_id = None
 MAM_PHOTO_PATH = "5422343903253302332.jpg"
-BELT_PHOTO_PATH = "73e8ed4f3f485ce9fefb7733bdb8d718.jpg"
+_BOT_DIR = os.path.dirname(os.path.abspath(__file__))
+BELT_PHOTO_FILENAME = "73e8ed4f3f485ce9fefb7733bdb8d718.jpg"
+BELT_PHOTO_PATH = os.path.join(_BOT_DIR, BELT_PHOTO_FILENAME)
+
+
+def _resolve_belt_photo_path() -> str:
+    """Путь к фото ремня: рядом со скриптом, затем текущая папка, затем DATA_DIR."""
+    candidates = [
+        BELT_PHOTO_PATH,
+        BELT_PHOTO_FILENAME,
+        os.path.join(DATA_DIR, BELT_PHOTO_FILENAME) if DATA_DIR else "",
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return BELT_PHOTO_PATH
+
+
+def message_has_belt_trigger(text: str) -> bool:
+    """Срабатывает на «ремень» / remen (кириллица и латиница, без ложных срабатываний)."""
+    if not text:
+        return False
+    lowered = text.lower()
+    return bool(
+        re.search(r"(?<![а-яёa-z])ремень(?![а-яёa-z])", lowered)
+        or re.search(r"(?<![а-яёa-z])remen(?![а-яёa-z])", lowered)
+    )
+
+
+async def send_belt_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Отправляет фото ремня. Возвращает True, если отправлено."""
+    photo_path = _resolve_belt_photo_path()
+    chat_id = update.effective_chat.id
+    thread_id = getattr(update.message, "message_thread_id", None) if update.message else None
+    if not os.path.isfile(photo_path):
+        logger.warning(f"[BELT] Файл не найден: {photo_path}")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Не нашёл картинку с ремнём на сервере.",
+            message_thread_id=thread_id,
+        )
+        return False
+    try:
+        with open(photo_path, "rb") as photo:
+            photo_kwargs = {"chat_id": chat_id, "photo": photo}
+            if thread_id:
+                photo_kwargs["message_thread_id"] = thread_id
+            await context.bot.send_photo(**photo_kwargs)
+        return True
+    except Exception as e:
+        logger.error(f"[BELT] Ошибка отправки фото: {e}", exc_info=True)
+        return False
 
 # ============== НОЧНОЙ РЕЖИМ ==============
 # {user_id: message_count} - персональный счётчик для каждого пользователя
@@ -8328,25 +8379,46 @@ async def send_morning_greeting():
 
 
 async def morning_scheduler_task():
+    """Планировщик утренней сводки (6:00 МСК, с окном и догоняющей отправкой)."""
     global morning_scheduled_date
 
+    logger.info("[MORNING] Планировщик запущен (окно 5:59–6:10 МСК, догон до 10:00)")
     while bot_running:
-        now = datetime.now(MOSCOW_TZ)
-        current_hour = now.hour
-        current_minute = now.minute
-        today_date = now.strftime("%Y-%m-%d")
+        try:
+            now = datetime.now(MOSCOW_TZ)
+            current_hour = now.hour
+            current_minute = now.minute
+            today_date = now.strftime("%Y-%m-%d")
 
-        if current_hour == 6 and current_minute == 0:
-            if morning_scheduled_date != today_date:
-                logger.info("Время 6:00 - отправляем утреннее сообщение")
+            in_morning_window = (
+                (current_hour == 6 and current_minute <= 10)
+                or (current_hour == 5 and current_minute >= 59)
+            )
+            # Если бот перезапустился после 6:00 — один раз догоняем до 10:00
+            in_catchup_window = 6 <= current_hour < 10
+
+            if morning_scheduled_date != today_date and (in_morning_window or in_catchup_window):
+                label = "догоняющая" if in_catchup_window and not in_morning_window else "по расписанию"
+                logger.info(
+                    f"[MORNING] {current_hour:02d}:{current_minute:02d} — отправляем утреннее ({label})"
+                )
                 try:
                     await send_morning_greeting()
                     morning_scheduled_date = today_date
-                    logger.info("Утреннее сообщение успешно отправлено")
+                    logger.info("[MORNING] Утреннее сообщение успешно отправлено")
                 except Exception as e:
-                    logger.error(f"Ошибка при отправке: {e}")
+                    logger.error(f"[MORNING] Ошибка при отправке: {e}", exc_info=True)
 
-        await asyncio.sleep(60)
+            # В окне 5:55–6:10 проверяем чаще, чтобы не пропустить 6:00
+            if (current_hour == 5 and current_minute >= 55) or (current_hour == 6 and current_minute <= 10):
+                await asyncio.sleep(15)
+            else:
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"[MORNING] Ошибка в планировщике: {e}", exc_info=True)
+            await asyncio.sleep(60)
 
 
 async def send_good_night_message():
@@ -10788,20 +10860,9 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         if message.from_user and message.from_user.is_bot:
             return
 
-        # Триггер: на слово "ремень" отправляем картинку с ремнём
-        if message.text and re.search(r"\bремень\b", message.text.lower()):
-            if os.path.exists(BELT_PHOTO_PATH):
-                with open(BELT_PHOTO_PATH, "rb") as photo:
-                    photo_kwargs = {"chat_id": update.effective_chat.id, "photo": photo}
-                    thread_id = getattr(message, "message_thread_id", None)
-                    if thread_id:
-                        photo_kwargs["message_thread_id"] = thread_id
-                    await context.bot.send_photo(**photo_kwargs)
-            else:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Не нашел картинку с ремнем на сервере.",
-                )
+        # Триггер: слово «ремень» или /remen — картинка с ремнём
+        if message.text and message_has_belt_trigger(message.text):
+            await send_belt_photo(update, context)
             return
 
         # Если это reply на сообщение бота — отвечаем (текст или медиа)
@@ -11407,6 +11468,7 @@ BOT_HELP_TEXT = (
     "• /morning — отправить утреннее приветствие сейчас\n"
     "• /stopmorning — удалить утреннее сообщение\n\n"
     "**😄 Развлечения:**\n"
+    "• /remen — картинка с ремнём (или напиши «ремень» в чат)\n"
     "• /antiremen — получить комплименты\n"
     "• /roast — подколоть кого-то в чате\n"
     "• /flirt — отправить комплимент девушкам\n"
@@ -11534,6 +11596,11 @@ async def stopmorning_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"[MORNING] Ошибка удаления сообщения: {e}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Не удалось удалить сообщение.")
+
+
+async def remen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /remen — картинка с ремнём."""
+    await send_belt_photo(update, context)
 
 
 async def antiremen_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -12473,6 +12540,7 @@ def register_handlers(app):
     app.add_handler(CallbackQueryHandler(handle_facts_ai_callback, pattern=r"^fact_ai_more_"))
     app.add_handler(CallbackQueryHandler(handle_facts_callback, pattern=r"^fact_more_"))
 
+    app.add_handler(CommandHandler("remen", remen_cmd))
     app.add_handler(CommandHandler("antiremen", antiremen_cmd))
     app.add_handler(CommandHandler("roast", roast_cmd))
     app.add_handler(CommandHandler("flirt", flirt_cmd))
