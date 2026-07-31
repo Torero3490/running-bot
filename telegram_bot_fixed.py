@@ -2807,9 +2807,6 @@ background_tasks = []
 last_music_index = None
 last_music_date = None
 music_sent_date = ""
-horoscope_sent_date = ""
-horoscope_cache_date = None
-horoscope_cache_text = None
 deals_sent_week = None
 morning_streaks = {}  # {user_id: {"streak": int, "last_date": "YYYY-MM-DD"}}
 morning_today_checkins = set()
@@ -2825,11 +2822,12 @@ BELT_PHOTO_PATH = os.path.join(_BOT_DIR, BELT_PHOTO_FILENAME)
 
 
 def _resolve_belt_photo_path() -> str:
-    """Путь к фото ремня: рядом со скриптом, затем текущая папка, затем DATA_DIR."""
+    """Путь к фото ремня: DATA_DIR, рядом со скриптом, текущая папка."""
+    data_copy = os.path.join(DATA_DIR, BELT_PHOTO_FILENAME) if DATA_DIR else ""
     candidates = [
+        data_copy,
         BELT_PHOTO_PATH,
         BELT_PHOTO_FILENAME,
-        os.path.join(DATA_DIR, BELT_PHOTO_FILENAME) if DATA_DIR else "",
     ]
     for path in candidates:
         if path and os.path.isfile(path):
@@ -2838,35 +2836,47 @@ def _resolve_belt_photo_path() -> str:
 
 
 def message_has_belt_trigger(text: str) -> bool:
-    """Срабатывает на «ремень» / remen (кириллица и латиница, без ложных срабатываний)."""
+    """Срабатывает на «ремень» / remen в тексте."""
     if not text:
         return False
     lowered = text.lower()
-    return bool(
-        re.search(r"(?<![а-яёa-z])ремень(?![а-яёa-z])", lowered)
-        or re.search(r"(?<![а-яёa-z])remen(?![а-яёa-z])", lowered)
-    )
+    return "ремень" in lowered or "remen" in lowered
+
+
+_belt_photo_file_id: str = ""
 
 
 async def send_belt_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Отправляет фото ремня. Возвращает True, если отправлено."""
-    photo_path = _resolve_belt_photo_path()
+    """Отправляет фото ремня (из кэша file_id или с диска). Возвращает True, если отправлено."""
+    global _belt_photo_file_id
     chat_id = update.effective_chat.id
     thread_id = getattr(update.message, "message_thread_id", None) if update.message else None
+    extra = {"message_thread_id": thread_id} if thread_id else {}
+
+    if _belt_photo_file_id:
+        try:
+            await context.bot.send_photo(chat_id=chat_id, photo=_belt_photo_file_id, **extra)
+            return True
+        except Exception as e:
+            logger.warning(f"[BELT] file_id не сработал, пробуем файл: {e}")
+            _belt_photo_file_id = ""
+            save_belt_photo_cache("")
+
+    photo_path = _resolve_belt_photo_path()
     if not os.path.isfile(photo_path):
-        logger.warning(f"[BELT] Файл не найден: {photo_path}")
+        logger.warning(f"[BELT] Файл не найден: {photo_path}, file_id пуст")
         await context.bot.send_message(
             chat_id=chat_id,
-            text="Не нашёл картинку с ремнём на сервере.",
-            message_thread_id=thread_id,
+            text="Не нашёл картинку с ремнём. Добавь файл в проект или BELT_PHOTO_FILE_ID на сервере.",
+            **extra,
         )
         return False
     try:
         with open(photo_path, "rb") as photo:
-            photo_kwargs = {"chat_id": chat_id, "photo": photo}
-            if thread_id:
-                photo_kwargs["message_thread_id"] = thread_id
-            await context.bot.send_photo(**photo_kwargs)
+            sent = await context.bot.send_photo(chat_id=chat_id, photo=photo, **extra)
+        if sent and sent.photo:
+            save_belt_photo_cache(sent.photo[-1].file_id)
+            logger.info("[BELT] file_id сохранён для следующих отправок")
         return True
     except Exception as e:
         logger.error(f"[BELT] Ошибка отправки фото: {e}", exc_info=True)
@@ -3400,198 +3410,6 @@ def format_music_message(music: dict) -> str:
     return "\n".join(parts)
 
 
-# ============== ГОРОСКОП ДНЯ ==============
-ZODIAC_SIGNS = [
-    ("♈", "Овен"),
-    ("♉", "Телец"),
-    ("♊", "Близнецы"),
-    ("♋", "Рак"),
-    ("♌", "Лев"),
-    ("♍", "Дева"),
-    ("♎", "Весы"),
-    ("♏", "Скорпион"),
-    ("♐", "Стрелец"),
-    ("♑", "Козерог"),
-    ("♒", "Водолей"),
-    ("♓", "Рыбы"),
-]
-
-HOROSCOPE_FALLBACK = [
-    "день требует спокойствия и ясных решений.",
-    "лучше действовать последовательно, без спешки.",
-    "полезно сосредоточиться на главном.",
-    "день подходит для общения и новых идей.",
-    "терпение сегодня принесёт пользу.",
-    "хорошее время завершать начатое.",
-    "стоит навести порядок в делах.",
-    "избегай лишних споров и суеты.",
-    "небольшой шаг даст заметный эффект.",
-    "ищи баланс между работой и отдыхом.",
-    "интуиция сегодня поможет.",
-    "мягкий ритм даст больше результата.",
-    "удачный день для важных разговоров.",
-    "не торопись — качество важнее скорости.",
-    "звёзды благоволят планам на неделю.",
-    "хороший день для старта нового дела.",
-    "доверься себе в выборе.",
-    "мелочи сегодня имеют значение.",
-    "отдых так же важен, как дела.",
-    "день для упорядочивания мыслей и планов.",
-]
-
-
-def build_fallback_horoscope() -> str:
-    """Гороскоп на день: разный каждый день за счёт даты в «зерне»."""
-    now = datetime.now(MOSCOW_TZ)
-    today_ordinal = now.toordinal()  # уникальное число для каждого дня
-    lines = []
-    for i, (emoji, sign) in enumerate(ZODIAC_SIGNS):
-        seed = today_ordinal * 12 + i  # разное сочетание для каждого дня и знака
-        idx1 = seed % len(HOROSCOPE_FALLBACK)
-        idx2 = (seed * 7 + 3) % len(HOROSCOPE_FALLBACK)
-        if idx2 == idx1:
-            idx2 = (idx2 + 5) % len(HOROSCOPE_FALLBACK)
-        lines.append(f"{emoji} {sign}: {HOROSCOPE_FALLBACK[idx1]} {HOROSCOPE_FALLBACK[idx2]}")
-    return "\n".join(lines)
-
-
-HOROSCOPE_SITE_URL = "https://www.thevoicemag.ru/horoscope/"
-
-
-async def fetch_horoscope_from_site() -> str | None:
-    """Парсит гороскоп с thevoicemag.ru. Возвращает текст или None при ошибке."""
-    try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            response = await client.get(HOROSCOPE_SITE_URL)
-            response.raise_for_status()
-            html = response.text
-    except Exception as e:
-        logger.warning(f"[HOROSCOPE] Не удалось загрузить страницу: {e}")
-        return None
-
-    try:
-        soup = BeautifulSoup(html, "html.parser")
-        lines = []
-        sign_names = [s[1] for s in ZODIAC_SIGNS]  # Овен, Телец, ...
-        # Ищем блоки: часто гороскоп в статьях/карточках с заголовком по знаку
-        for emoji, sign in ZODIAC_SIGNS:
-            # Ищем элемент, содержащий название знака (заголовок, ссылка, класс)
-            found = None
-            for tag in soup.find_all(["h2", "h3", "h4", "a", "div", "span"]):
-                if not tag.get_text(strip=True):
-                    continue
-                text = tag.get_text(strip=True)
-                if sign.lower() in text.lower() and len(text) < 50:
-                    # Берём следующий текстовый блок или соседний параграф
-                    parent = tag.parent
-                    if parent:
-                        p = parent.find("p") or tag.find_next("p")
-                        if p:
-                            desc = p.get_text(strip=True)
-                            if len(desc) > 10 and len(desc) < 500:
-                                found = desc
-                                break
-                    if not found and tag.find_next_sibling():
-                        sib = tag.find_next_sibling()
-                        if sib.name in ("p", "div"):
-                            desc = sib.get_text(strip=True)
-                            if 10 < len(desc) < 500:
-                                found = desc
-                                break
-            if found:
-                # Сокращаем до 1–2 предложений
-                parts = [p.strip() for p in found.split(".") if p.strip()]
-                short = parts[:2]
-                if short:
-                    found = ". ".join(short)
-                    if not found.endswith("."):
-                        found += "."
-                lines.append(f"{emoji} {sign}: {found}")
-            else:
-                idx = abs(hash(f"{datetime.now(MOSCOW_TZ).strftime('%Y-%m-%d')}:{sign}")) % len(HOROSCOPE_FALLBACK)
-                lines.append(f"{emoji} {sign}: {HOROSCOPE_FALLBACK[idx]}")
-        if len(lines) >= 12:
-            # Фильтр качества: избегаем одинаковых/шаблонных текстов
-            bad_phrases = ("таро на неделю", "прогноз таро")
-            texts_only = [line.split(":", 1)[1].strip().lower() if ":" in line else line.lower() for line in lines]
-            unique_texts = set(texts_only)
-            if any(any(bp in t for bp in bad_phrases) for t in texts_only):
-                logger.warning("[HOROSCOPE] Сайт вернул нерелевантный контент (таро/неделя)")
-                return None
-            if len(unique_texts) <= 3:
-                logger.warning("[HOROSCOPE] Сайт вернул слишком однообразный контент")
-                return None
-            return "\n".join(lines)
-    except Exception as e:
-        logger.warning(f"[HOROSCOPE] Ошибка парсинга сайта: {e}")
-    return None
-
-
-async def get_horoscope_text_for_today() -> str:
-    """Возвращает текст гороскопа на день (кэшируется)."""
-    global horoscope_cache_date, horoscope_cache_text
-    today = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
-    if horoscope_cache_date == today and horoscope_cache_text:
-        return horoscope_cache_text
-
-    # 1) Пытаемся взять с сайта
-    try:
-        site_text = await fetch_horoscope_from_site()
-        if site_text:
-            horoscope_cache_date = today
-            horoscope_cache_text = site_text
-            return site_text
-    except Exception as e:
-        logger.warning(f"[HOROSCOPE] Ошибка получения с сайта: {e}")
-
-    if YANDEX_AVAILABLE:
-        try:
-            import httpx
-            today_label = datetime.now(MOSCOW_TZ).strftime("%d.%m.%Y")
-            weekday_names = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
-            weekday = weekday_names[datetime.now(MOSCOW_TZ).weekday()]
-            prompt = (
-                f"Сегодня {today_label}, {weekday}. Составь НОВЫЙ гороскоп именно на этот день для всех 12 знаков зодиака.\n"
-                "Требования:\n"
-                "- Ровно 12 строк, по одной на знак, в порядке: Овен, Телец, Близнецы, Рак, Лев, Дева, Весы, Скорпион, Стрелец, Козерог, Водолей, Рыбы\n"
-                "- Формат каждой строки: \"♈ Овен: короткий текст\" (эмодзи знака, название, двоеточие, текст)\n"
-                "- Коротко (1–2 предложения на знак)\n"
-                "- Без темы бега и спорта, нейтральный тон\n"
-                "- Текст должен быть разным каждый день, не повторяй предыдущие формулировки\n"
-            )
-            request_body = {
-                "modelUri": f"gpt://{YANDEX_FOLDER_ID}/{YANDEX_MODEL}",
-                "messages": [
-                    {"role": "system", "text": "Ты астролог. Пиши кратко, по-разному каждый день, без мистики."},
-                    {"role": "user", "text": prompt},
-                ],
-                "completionOptions": {
-                    "temperature": 0.85,
-                    "maxTokens": 600
-                },
-            }
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.post(
-                    "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
-                    json=request_body,
-                    headers={"Authorization": f"Api-Key {YANDEX_API_KEY}", "Content-Type": "application/json"},
-                )
-                response.raise_for_status()
-                data = response.json()
-                if data and "result" in data and data["result"]["alternatives"]:
-                    text = data["result"]["alternatives"][0]["message"]["text"].strip()
-                    horoscope_cache_date = today
-                    horoscope_cache_text = text
-                    return text
-        except Exception as e:
-            logger.error(f"[HOROSCOPE] Ошибка ИИ: {e}")
-
-    text = build_fallback_horoscope()
-    horoscope_cache_date = today
-    horoscope_cache_text = text
-    return text
-
-
 # ============== СКИДКИ НА ЭКИПИРОВКУ ==============
 DEALS_SOURCES = [
     {
@@ -3865,6 +3683,71 @@ DAILY_STATS_FILE = os.path.join(DATA_DIR, "daily_stats.json")
 DB_PATH = os.path.join(DATA_DIR, "bot.db")
 KNOWN_USERS_FILE = os.path.join(DATA_DIR, "known_users.json")
 BOT_STICKERS_FILE = os.path.join(DATA_DIR, "bot_stickers.json")
+BELT_PHOTO_CACHE_FILE = os.path.join(DATA_DIR, "belt_photo.json")
+
+
+def load_belt_photo_cache() -> None:
+    """Загружает file_id фото ремня из env или DATA_DIR."""
+    global _belt_photo_file_id
+    env_id = os.environ.get("BELT_PHOTO_FILE_ID", "").strip()
+    if env_id:
+        _belt_photo_file_id = env_id
+        return
+    try:
+        if os.path.isfile(BELT_PHOTO_CACHE_FILE):
+            with open(BELT_PHOTO_CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            _belt_photo_file_id = str(data.get("file_id", "") or "").strip()
+    except Exception as e:
+        logger.warning(f"[BELT] Не удалось загрузить кэш: {e}")
+
+
+def save_belt_photo_cache(file_id: str) -> None:
+    """Сохраняет file_id фото ремня в DATA_DIR."""
+    global _belt_photo_file_id
+    _belt_photo_file_id = (file_id or "").strip()
+    try:
+        with open(BELT_PHOTO_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"file_id": _belt_photo_file_id}, f, ensure_ascii=False)
+        db_save_json("belt_photo", {"file_id": _belt_photo_file_id})
+    except Exception as e:
+        logger.warning(f"[BELT] Не удалось сохранить кэш: {e}")
+
+
+def init_belt_photo_on_startup() -> None:
+    """Копирует jpg в DATA_DIR и подгружает кэш file_id."""
+    load_belt_photo_cache()
+    dest = os.path.join(DATA_DIR, BELT_PHOTO_FILENAME)
+    for src in (_resolve_belt_photo_path(), BELT_PHOTO_PATH, BELT_PHOTO_FILENAME):
+        if src and os.path.isfile(src) and os.path.abspath(src) != os.path.abspath(dest):
+            try:
+                import shutil
+                shutil.copy2(src, dest)
+                logger.info(f"[BELT] Скопировано в {dest}")
+                break
+            except Exception as e:
+                logger.warning(f"[BELT] Копирование в DATA_DIR: {e}")
+    logger.info(
+        f"[BELT] startup: file_id={'да' if _belt_photo_file_id else 'нет'}, "
+        f"файл={'да' if os.path.isfile(dest) else 'нет'}"
+    )
+
+
+async def warmup_belt_photo_file_id(bot) -> None:
+    """Один раз заливает фото в служебный канал и кэширует file_id (без спама в чат)."""
+    if _belt_photo_file_id or not DATA_CHANNEL_ID:
+        return
+    photo_path = _resolve_belt_photo_path()
+    if not os.path.isfile(photo_path):
+        return
+    try:
+        with open(photo_path, "rb") as photo:
+            sent = await bot.send_photo(chat_id=DATA_CHANNEL_ID, photo=photo, caption="belt cache")
+        if sent and sent.photo:
+            save_belt_photo_cache(sent.photo[-1].file_id)
+            logger.info("[BELT] file_id получен через DATA_CHANNEL_ID")
+    except Exception as e:
+        logger.warning(f"[BELT] warmup через канал не удался: {e}")
 
 # Старые пути (для миграции при первом запуске)
 LEGACY_BIRTHDAYS_FILE = "birthdays.json"
@@ -6214,6 +6097,7 @@ async def check_garmin_activities():
             running_with_dates = []
             total_km_month = 0.0
             total_activities_month = 0
+            heart_rates_month = []
             for activity in activities:
                 activity_type = activity.get('activityType', {}).get('typeKey', 'unknown')
                 if activity_type not in ('running', 'treadmill_running', 'trail_running'):
@@ -6224,11 +6108,25 @@ async def check_garmin_activities():
                 dist_km = (activity.get('distance') or 0) / 1000
                 total_km_month += dist_km
                 total_activities_month += 1
+                # Собираем пульс для расчёта среднего за месяц
+                hr = activity.get('averageHeartRate', 0) or activity.get('avgHeartRate', 0)
+                if hr and hr > 0:
+                    heart_rates_month.append(hr)
                 running_with_dates.append((activity, activity_date_dt, activity_id, activity_date_str))
+            
+            # Средний пульс за месяц
+            avg_hr_month = None
+            if heart_rates_month:
+                avg_hr_month = round(sum(heart_rates_month) / len(heart_rates_month))
 
             last_id = str(user_data.get("last_activity_id") or "").strip()
             max_days = 60
-            # Публикуем только тренировки за последние 4 часа — только по факту новой тренировки, не по расписанию
+            # Определяем, публиковал ли этот пользователь тренировки раньше
+            user_was_published = any(
+                key.startswith(f"{user_id}:") for key in garmin_published_ids
+            )
+            # Если это первый запуск пользователя (ни одной публикации) — показываем все пробежки за max_days
+            # Иначе публикуем только свежие (за последние 4 часа) — по факту новой тренировки
             max_hours_recent = 4
             new_running = []
             for activity, activity_date_dt, activity_id, activity_date_str in running_with_dates:
@@ -6240,40 +6138,56 @@ async def check_garmin_activities():
                     continue
                 if (now - activity_date_dt).days > max_days:
                     continue
+                # Для пользователей без предыдущих публикаций — без ограничения по 4 часам
+                if not user_was_published:
+                    new_running.append((activity, activity_date_dt, activity_id, activity_date_str))
+                    continue
                 hours_ago = (now - activity_date_dt).total_seconds() / 3600
                 if hours_ago > max_hours_recent:
                     continue
                 new_running.append((activity, activity_date_dt, activity_id, activity_date_str))
 
-            # Публикуем только последнюю (самую свежую) тренировку
+            # Сортируем: самые свежие первыми
+            new_running.sort(key=lambda x: x[1], reverse=True)
+
             if not new_running:
                 continue
-            new_running.sort(key=lambda x: x[1], reverse=True)
-            activity, activity_date_dt, activity_id, activity_date_str = new_running[0]
-            activity_key = f"{user_id}:{activity_id}"
 
-            user_data["monthly_distance"] = total_km_month
-            user_data["monthly_activities"] = total_activities_month
-            old_activity_id = user_data.get("last_activity_id", "")
-            user_data["last_activity_id"] = activity_id
-            user_data["last_activity_date"] = activity_date_str
-            save_garmin_users()
-
-            logger.info(f"[GARMIN] Публикую последнюю пробежку: {activity_id} (всего за месяц: {total_km_month:.1f} км, {total_activities_month} тренировок)")
-            success = await publish_run_result(
-                user_id, user_data, activity, now, current_month,
-                total_km_month=total_km_month, total_activities_month=total_activities_month,
-            )
-            if success:
-                processed_activities.add(activity_key)
-                garmin_published_ids.add(activity_key)
-                garmin_published_order.append(activity_key)
-                save_garmin_published_ids()
-                logger.info(f"[GARMIN] ✅ Пробежка {activity_id} успешно опубликована")
+            # Для пользователей без предыдущих публикаций публикуем до N тренировок за раз
+            # чтобы не спамить в чат. Остальные дождутся следующей проверки (30 мин).
+            batch_limit = 3
+            if not user_was_published:
+                publish_list = new_running[:batch_limit]
             else:
-                user_data["last_activity_id"] = old_activity_id
+                publish_list = [new_running[0]]  # только самую свежую
+
+            for idx, (activity, activity_date_dt, activity_id, activity_date_str) in enumerate(publish_list):
+                activity_key = f"{user_id}:{activity_id}"
+
+                user_data["monthly_distance"] = total_km_month
+                user_data["monthly_activities"] = total_activities_month
+                old_activity_id = user_data.get("last_activity_id", "")
+                user_data["last_activity_id"] = activity_id
+                user_data["last_activity_date"] = activity_date_str
                 save_garmin_users()
-                logger.warning(f"[GARMIN] ⚠️ Публикация не удалась, откат last_activity_id")
+
+                logger.info(f"[GARMIN] Публикую пробежку: {activity_id} (за месяц: {total_km_month:.1f} км, {total_activities_month} тренировок, часть {idx+1}/{len(publish_list)}, ср.пульс: {avg_hr_month})")
+                success = await publish_run_result(
+                    user_id, user_data, activity, now, current_month,
+                    total_km_month=total_km_month, total_activities_month=total_activities_month,
+                    avg_hr_month=avg_hr_month,
+                )
+                if success:
+                    processed_activities.add(activity_key)
+                    garmin_published_ids.add(activity_key)
+                    garmin_published_order.append(activity_key)
+                    save_garmin_published_ids()
+                    logger.info(f"[GARMIN] ✅ Пробежка {activity_id} опубликована")
+                else:
+                    user_data["last_activity_id"] = old_activity_id
+                    save_garmin_users()
+                    logger.warning(f"[GARMIN] ⚠️ Публикация не удалась, откат last_activity_id")
+                    break  # если ошибка — стоп
 
         except Exception as e:
             # Безопасная обработка ошибки - user_data может быть None
@@ -6294,8 +6208,8 @@ def escape_markdown(text):
     return text
 
 
-async def publish_run_result(user_id, user_data, activity, now, current_month, total_km_month=None, total_activities_month=None):
-    """Публикация результатов пробежки в чат. total_km_month/total_activities_month — итоги за месяц (уже в user_data)."""
+async def publish_run_result(user_id, user_data, activity, now, current_month, total_km_month=None, total_activities_month=None, avg_hr_month=None):
+    """Публикация результатов пробежки в чат. total_km_month/total_activities_month — итоги за месяц, avg_hr_month — средний пульс за месяц."""
     global application, user_running_stats
     
     # ========== МАКСИМАЛЬНАЯ ЗАЩИТА ОТ None ==========
@@ -6386,6 +6300,9 @@ async def publish_run_result(user_id, user_data, activity, now, current_month, t
         
         if avg_heartrate > 0:
             message_text += f"❤️ *Пульс:* {avg_heartrate} уд/мин\n"
+        
+        if avg_hr_month is not None and avg_hr_month > 0:
+            message_text += f"📊 *Средний пульс за месяц:* {avg_hr_month} уд/мин\n"
         
         if calories > 0:
             message_text += f"🔥 *Калории:* {calories} ккал\n"
@@ -8490,37 +8407,6 @@ async def music_scheduler_task():
                     logger.info("[MUSIC] Музыка дня отправлена")
                 except Exception as e:
                     logger.error(f"[MUSIC] Ошибка отправки музыки дня: {e}")
-
-        await asyncio.sleep(60)
-
-
-async def horoscope_scheduler_task():
-    """Планировщик гороскопа (07:00 каждый день)."""
-    global horoscope_sent_date
-
-    while bot_running:
-        now = datetime.now(MOSCOW_TZ)
-        current_hour = now.hour
-        current_minute = now.minute
-        today_date = now.strftime("%Y-%m-%d")
-
-        if current_hour == 7 and current_minute == 0:
-            if horoscope_sent_date != today_date:
-                try:
-                    horoscope_text = await get_horoscope_text_for_today()
-                    text = f"🔮 *Гороскоп дня:*\n{escape_markdown(horoscope_text)}"
-                    message_kwargs = {
-                        "chat_id": CHAT_ID,
-                        "text": text,
-                        "parse_mode": "Markdown",
-                    }
-                    if NEWS_TOPIC_ID:
-                        message_kwargs["message_thread_id"] = NEWS_TOPIC_ID
-                    await application.bot.send_message(**message_kwargs)
-                    horoscope_sent_date = today_date
-                    logger.info("[HOROSCOPE] Гороскоп дня отправлен")
-                except Exception as e:
-                    logger.error(f"[HOROSCOPE] Ошибка отправки гороскопа: {e}")
 
         await asyncio.sleep(60)
 
@@ -10860,8 +10746,9 @@ async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE
         if message.from_user and message.from_user.is_bot:
             return
 
-        # Триггер: слово «ремень» или /remen — картинка с ремнём
-        if message.text and message_has_belt_trigger(message.text):
+        # Триггер: слово «ремень» в тексте или подписи к фото
+        belt_text = (message.text or message.caption or "").strip()
+        if belt_text and message_has_belt_trigger(belt_text):
             await send_belt_photo(update, context)
             return
 
@@ -11518,7 +11405,6 @@ BOT_HELP_TEXT = (
     "• /plan — план подготовки к забегу (выбор дистанции и целевого времени)\n"
     "• /advice — совет по бегу из интернета\n"
     "• /music — музыка дня\n"
-    "• /horoscope — гороскоп дня\n"
     "• /deals — скидки на экипировку\n"
     "• Ежедневный совет — в 12:00\n"
 )
@@ -12339,26 +12225,6 @@ async def music_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def horoscope_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /horoscope — гороскоп дня по всем знакам."""
-    try:
-        logger.info("[HOROSCOPE] Команда /horoscope вызвана")
-        horoscope_text = await get_horoscope_text_for_today()
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"🔮 *Гороскоп дня:*\n{escape_markdown(horoscope_text)}",
-            parse_mode="Markdown",
-        )
-    except Exception as e:
-        logger.error(f"[HOROSCOPE] Ошибка команды /horoscope: {e}")
-        fallback = build_fallback_horoscope()
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"🔮 *Гороскоп дня:*\n{escape_markdown(fallback)}",
-            parse_mode="Markdown",
-        )
-
-
 async def deals_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /deals — скидки на беговую экипировку."""
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -12572,7 +12438,7 @@ def register_handlers(app):
     app.add_handler(CallbackQueryHandler(handle_morning_action_callback, pattern=r"^morning_"))
     app.add_handler(CommandHandler("advice", advice_cmd))
     app.add_handler(CommandHandler("music", music_cmd))
-    app.add_handler(CommandHandler("horoscope", horoscope_cmd))
+
     app.add_handler(CommandHandler("deals", deals_cmd))
     app.add_handler(CommandHandler("voice_test", voice_test_cmd))
     app.add_handler(CallbackQueryHandler(handle_deals_gender_callback, pattern=r"^deals_gender_"))
@@ -12686,6 +12552,8 @@ async def post_init(app):
     init_garmin_on_startup()
     init_birthdays_on_startup()
     init_passport_data_on_startup()
+    init_belt_photo_on_startup()
+    await warmup_belt_photo_file_id(app.bot)
     load_bot_stickers()
     try:
         load_user_rating_stats()
@@ -12700,7 +12568,6 @@ async def post_init(app):
     add_background_task(app, morning_scheduler_task())
     add_background_task(app, good_night_scheduler_task())
     add_background_task(app, music_scheduler_task())
-    add_background_task(app, horoscope_scheduler_task())
     add_background_task(app, deals_scheduler_task())
     add_background_task(app, coffee_scheduler_task())
     add_background_task(app, lunch_scheduler_task())

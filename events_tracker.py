@@ -1994,6 +1994,10 @@ async def parse_goldenringrun_events() -> List[Dict]:
     return events
 
 
+# NOTE: parse_goldenringrun_events was duplicated at line ~1924 (http, inferior parsing) — removed.
+# The authoritative version starts at line ~766 (https, regex-based parsing).
+
+
 async def parse_academymarathon_events() -> List[Dict]:
     """Парсинг Академии Марафона (academymarathon.ru)"""
     events = []
@@ -2532,8 +2536,7 @@ async def get_all_events() -> List[Dict]:
     logger.info(f"[EVENTS] ITRA: {len(events_itra)}")
     events_1jan = await safe_fetch("Забег Обещаний", parse_1jan_run_events())
     logger.info(f"[EVENTS] Забег Обещаний: {len(events_1jan)}")
-    events_goldenring = await safe_fetch("Бегом по Золотому кольцу", parse_goldenringrun_events())
-    logger.info(f"[EVENTS] Бегом по Золотому кольцу: {len(events_goldenring)}")
+    # NOTE: events_goldenringrun already fetched above at ~line 2517 — no duplicate
     events_academy = await safe_fetch("Академия Марафона", parse_academymarathon_events())
     logger.info(f"[EVENTS] Академия Марафона: {len(events_academy)}")
     events_krasmarafon = await safe_fetch("Кразмарафон", parse_krasmarafon_events())
