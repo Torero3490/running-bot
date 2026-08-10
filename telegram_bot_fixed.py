@@ -2282,7 +2282,7 @@ async def generate_bot_keyword_ai_reply(
                     {"role": "user", "text": user_block},
                 ],
             }
-            async with httpx.AsyncClient(timeout=12.0) as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
                     json=payload,
@@ -6243,7 +6243,11 @@ async def publish_run_result(user_id, user_data, activity, now, current_month, t
         duration_min = int(duration_seconds // 60)
         duration_sec = int(duration_seconds % 60)
         
-        avg_heartrate = activity.get('averageHeartRate', 0)
+        avg_heartrate = activity.get('averageHeartRate', 0) or activity.get('avgHeartRate', 0)
+        # Отладка: показываем все поля с пульсом из Garmin
+        hr_raw = activity.get('averageHeartRate')
+        hr_raw2 = activity.get('avgHeartRate')
+        logger.info(f"[GARMIN] HR debug: averageHeartRate={hr_raw}, avgHeartRate={hr_raw2}, resolved={avg_heartrate}")
         calories = activity.get('calories', 0)
         
         # Вычисляем темп
