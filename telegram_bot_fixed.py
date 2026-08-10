@@ -2817,7 +2817,7 @@ morning_checkins_date = ""
 mam_message_id = None
 MAM_PHOTO_PATH = "5422343903253302332.jpg"
 _BOT_DIR = os.path.dirname(os.path.abspath(__file__))
-BELT_PHOTO_FILENAME = "73e8ed4f3f485ce9fefb7733bdb8d718.jpg"
+BELT_PHOTO_FILENAME = "1.jpg"
 BELT_PHOTO_PATH = os.path.join(_BOT_DIR, BELT_PHOTO_FILENAME)
 
 
